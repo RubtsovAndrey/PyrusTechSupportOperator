@@ -455,11 +455,11 @@ for (let i = 0; i < MAX_ITER; i++) {
   } else if (stage === "escalating") {
     state = await stageEscalating(state);
     saveState(state);
-    return { replyText: state._reply || null, newStage: state.stage, done: true };
+    return { replyText: replyText || state._reply || null, newStage: state.stage, done: true };
   } else if (stage === "closed") {
     state = await stageClosed(state);
     saveState(state);
-    return { replyText: state._reply || null, newStage: state.stage, done: true };
+    return { replyText: replyText || state._reply || null, newStage: state.stage, done: true };
   } else {
     // escalated or unknown — nothing to do
     break;
@@ -468,8 +468,11 @@ for (let i = 0; i < MAX_ITER; i++) {
   if (state._reply) {
     replyText = state._reply;
     delete state._reply;
-    saveState(state);
-    return { replyText, newStage: state.stage, done: true };
+    // Don't return yet if terminal stage needs to run (closed/escalating)
+    if (state.stage !== "closed" && state.stage !== "escalating") {
+      saveState(state);
+      return { replyText, newStage: state.stage, done: true };
+    }
   }
 
   saveState(state);
