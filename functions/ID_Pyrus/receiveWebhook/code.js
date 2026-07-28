@@ -27,6 +27,12 @@ historyComments.forEach(c => {
 
 const lastComment = comments[comments.length - 1];
 const incomingText = lastComment ? (lastComment.text || lastComment.formatted_text || "") : "";
+const lastCommentId = lastComment ? lastComment.id : null;
+
+// Find last inbound (partner) comment for debounce check
+const lastInboundComment = comments.slice().reverse().find(c => c.channel && c.channel.direction === "inbound");
+const lastInboundCommentId = lastInboundComment ? lastInboundComment.id : null;
+const lastInboundCommentDate = lastInboundComment ? lastInboundComment.create_date : null;
 
 let outboundChannel = null;
 if (lastComment && lastComment.channel && lastComment.channel.direction === "inbound") {
@@ -86,6 +92,8 @@ Context.set({ key: "formId", value: String(task.form_id) });
 Context.set({ key: "unitFieldId", value: unitFieldId });
 Context.set({ key: "componentFieldId", value: componentFieldId });
 Context.set({ key: "outboundChannel", value: outboundChannel });
+Context.set({ key: "lastInboundCommentId", value: lastInboundCommentId });
+Context.set({ key: "lastInboundCommentDate", value: lastInboundCommentDate });
 Context.set({ key: "skipProcessing", value: false });
 
 return { taskId, incomingText, chatHistory: chatHistory.trim(), apiUrl, token, skipProcessing: false };

@@ -9,20 +9,33 @@ if (!replyText && !lastResult.closeAction && !lastResult.escalateApproval) {
   return { success: true, skipped: true, newStage: lastResult.newStage };
 }
 
+// Debounce check: fetch current task state and verify no newer inbound comments exist
+const processedInboundId = Context.get({ key: "lastInboundCommentId" });
+let taskResponse;
+try {
+  taskResponse = await Http.get({
+    url: apiUrl + "tasks/" + taskId,
+    headers: { "Authorization": "Bearer " + token }
+  });
+} catch (e) {
+  Log.info({ message: "sendReply get task error: " + e });
+  return { success: false, newStage: "escalating", reason: String(e) };
+}
+
+if (taskResponse && taskResponse.body && taskResponse.body.task) {
+  const currentComments = taskResponse.body.task.comments || [];
+  const currentLastInbound = currentComments.slice().reverse().find(c => c.channel && c.channel.direction === "inbound");
+  const currentLastInboundId = currentLastInbound ? currentLastInbound.id : null;
+
+  if (processedInboundId && currentLastInboundId && String(currentLastInboundId) !== String(processedInboundId)) {
+    Log.info({ message: "sendReply: debounced — newer inbound comment " + currentLastInboundId + " vs processed " + processedInboundId });
+    return { success: true, skipped: true, debounced: true, newStage: lastResult.newStage };
+  }
+}
+
 let outboundChannel = Context.get({ key: "outboundChannel" });
 
 if (outboundChannel === undefined) {
-  let taskResponse;
-  try {
-    taskResponse = await Http.get({
-      url: apiUrl + "tasks/" + taskId,
-      headers: { "Authorization": "Bearer " + token }
-    });
-  } catch (e) {
-    Log.info({ message: "sendReply get task error: " + e });
-    return { success: false, newStage: "escalating", reason: String(e) };
-  }
-
   if (taskResponse && taskResponse.body && taskResponse.body.task) {
     const comments = taskResponse.body.task.comments || [];
     const lastInbound = comments.slice().reverse().find(c => c.channel && c.channel.direction === "inbound");
