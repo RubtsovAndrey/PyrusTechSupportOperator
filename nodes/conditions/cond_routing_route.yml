@@ -2,8 +2,8 @@
 id: cond_routing_route
 name: routing route?
 position:
-  x: 1500
-  y: 0
+  x: 4000
+  y: -250
 next-step: agent_solver
 next-error-step: null
 parameters:

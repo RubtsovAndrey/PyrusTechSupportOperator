@@ -2,8 +2,8 @@
 id: agent_solver
 name: Solver Agent
 position:
-  x: 1300
-  y: 100
+  x: 3500
+  y: 250
 next-step: func_finalize_p1x9k
 next-error-step: null
 parameters:

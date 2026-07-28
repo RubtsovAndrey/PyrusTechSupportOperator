@@ -2,7 +2,7 @@
 id: func_finalize_p1x9k
 name: finalize
 position:
-  x: 2100
+  x: 5500
   y: 0
 next-step: null
 next-error-step: null

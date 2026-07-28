@@ -2,8 +2,8 @@
 id: cond_stage_routing
 name: routing?
 position:
-  x: 1100
-  y: -100
+  x: 3000
+  y: -150
 next-step: agent_routing
 next-error-step: null
 parameters:

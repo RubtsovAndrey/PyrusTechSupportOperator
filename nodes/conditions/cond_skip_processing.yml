@@ -2,7 +2,7 @@
 id: cond_skip_processing
 name: skipProcessing?
 position:
-  x: 300
+  x: 1000
   y: 0
 next-step: func_routestage_q8k3m
 next-error-step: null

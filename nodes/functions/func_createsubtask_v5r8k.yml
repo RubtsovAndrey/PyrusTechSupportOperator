@@ -2,8 +2,8 @@
 id: func_createsubtask_v5r8k
 name: createSubtask
 position:
-  x: 1900
-  y: 100
+  x: 5000
+  y: 0
 next-step: func_finalize_p1x9k
 next-error-step: null
 parameters:

@@ -2,8 +2,8 @@
 id: func_escalate_m9k4j
 name: escalateToHuman
 position:
-  x: 1900
-  y: -100
+  x: 5000
+  y: -300
 next-step: func_finalize_p1x9k
 next-error-step: null
 parameters:

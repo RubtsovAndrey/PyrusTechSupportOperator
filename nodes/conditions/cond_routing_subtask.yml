@@ -2,8 +2,8 @@
 id: cond_routing_subtask
 name: routing subtask?
 position:
-  x: 1700
-  y: 100
+  x: 4500
+  y: -50
 next-step: func_createsubtask_v5r8k
 next-error-step: null
 parameters:

@@ -2,7 +2,7 @@
 id: func_recvwebhook_kx7m2
 name: receiveWebhook
 position:
-  x: 100
+  x: 500
   y: 0
 next-step: cond_skip_processing
 next-error-step: null

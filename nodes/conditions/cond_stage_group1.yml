@@ -2,7 +2,7 @@
 id: cond_stage_group1
 name: intake/routing/solving?
 position:
-  x: 700
+  x: 2000
   y: 0
 next-step: cond_stage_intake
 next-error-step: null

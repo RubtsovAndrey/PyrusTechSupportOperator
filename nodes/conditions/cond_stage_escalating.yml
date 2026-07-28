@@ -2,8 +2,8 @@
 id: cond_stage_escalating
 name: escalating?
 position:
-  x: 1100
-  y: 400
+  x: 3000
+  y: 600
 next-step: func_escalate_m9k4j
 next-error-step: null
 parameters:
