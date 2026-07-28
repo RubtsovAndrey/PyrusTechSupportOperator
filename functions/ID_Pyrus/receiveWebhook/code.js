@@ -100,6 +100,7 @@ try {
     if (dbState.value.unitFullName) AgentContext.putValue({ key: "unitFullName", value: dbState.value.unitFullName });
     if (dbState.value.componentName) AgentContext.putValue({ key: "componentName", value: dbState.value.componentName });
     if (dbState.value.problemSummary) AgentContext.putValue({ key: "problemSummary", value: dbState.value.problemSummary });
+    if (dbState.value.email) AgentContext.putValue({ key: "email", value: dbState.value.email });
   }
 } catch (e) {
   Log.info({ message: "receiveWebhook: restore DB state error: " + e });

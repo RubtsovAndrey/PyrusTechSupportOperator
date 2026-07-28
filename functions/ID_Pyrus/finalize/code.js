@@ -36,7 +36,8 @@ if (taskId && newStage) {
       updatedAt: Date.now(),
       unitFullName: AgentContext.getValue({ key: "unitFullName" }) || currentState.unitFullName,
       componentName: AgentContext.getValue({ key: "componentName" }) || currentState.componentName,
-      problemSummary: AgentContext.getValue({ key: "problemSummary" }) || currentState.problemSummary
+      problemSummary: AgentContext.getValue({ key: "problemSummary" }) || currentState.problemSummary,
+      email: AgentContext.getValue({ key: "email" }) || currentState.email
     });
     Db.put({ dbIntegration: DB_ID, documentKey: "state:" + taskId, value: updated });
   } catch (e) {

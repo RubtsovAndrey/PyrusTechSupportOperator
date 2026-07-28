@@ -10,7 +10,18 @@ var resolvedEmail = email || AgentContext.getValue({ key: "email" });
 var resolvedProblemSummary = problemSummary || AgentContext.getValue({ key: "problemSummary" });
 
 if (!effectiveParentId || !resolvedUnitFullName || !resolvedComponentName || !resolvedEmail) {
-  return { success: false, reason: "missing required fields" };
+  var missing = [];
+  if (!resolvedEmail) missing.push("email партнёра");
+  if (!resolvedUnitFullName) missing.push("юнит");
+  if (!resolvedComponentName) missing.push("компонент");
+  if (!effectiveParentId) missing.push("taskId");
+  if (missing.length && resolvedUnitFullName && resolvedComponentName && effectiveParentId) {
+    return {
+      action: "clarify",
+      clarifyingQuestion: "Укажите, пожалуйста, ваш email для создания обращения."
+    };
+  }
+  return { success: false, reason: "missing required fields: " + missing.join(", ") };
 }
 
 const UNIT_FIELD_ID = 97, COMPONENT_FIELD_ID = 36, EMAIL_FIELD_ID = 5;

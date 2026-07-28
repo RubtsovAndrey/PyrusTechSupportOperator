@@ -26,6 +26,7 @@ if (parsed.business) AgentContext.putValue({ key: "business", value: parsed.busi
 if (parsed.problemSummary) AgentContext.putValue({ key: "problemSummary", value: parsed.problemSummary });
 if (parsed.topicKey) AgentContext.putValue({ key: "topicKey", value: parsed.topicKey });
 if (parsed.replyText) AgentContext.putValue({ key: "replyText", value: parsed.replyText });
+if (parsed.email) AgentContext.putValue({ key: "email", value: parsed.email });
 
 // Resolve exact unitFullName from catalog — don't trust LLM to copy it correctly
 if (parsed.unit || parsed.unitFullName) {
