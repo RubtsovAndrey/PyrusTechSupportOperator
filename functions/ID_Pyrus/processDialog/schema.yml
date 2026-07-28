@@ -1,7 +1,9 @@
 ---
 id: processDialog
 name: processDialog
-description: Main orchestrator — reads dialog state, loops through stages (faceControl, infoGatherer, routing, solver, confirmation), performs Pyrus API actions (escalate, close, subtask), returns replyText if needed
-response-description: '{ replyText: string|null, newStage: string, done: boolean }'
+description: "Main orchestrator — reads dialog state, loops through stages (faceControl,\
+  \ infoGatherer, routing, solver, confirmation), performs Pyrus API actions (escalate,\
+  \ close, subtask), returns replyText if needed"
+response-description: "{ replyText: string|null, newStage: string, done: boolean }"
 parameters: []
 language: JAVASCRIPT

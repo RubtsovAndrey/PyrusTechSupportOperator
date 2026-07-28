@@ -188,42 +188,12 @@ For detailed info about parameters and response, read the corresponding file.
 
 ## User Functions
 
-- `ID_Agents.ID_confirmationClassifier` — DESC_confirmationClassifier
-  Directory: functions/ID_Agents/ID_confirmationClassifier/
-- `ID_Agents.ID_faceControl` — DESC_faceControl
-  Directory: functions/ID_Agents/ID_faceControl/
-- `ID_Agents.ID_infoGatherer` — DESC_infoGatherer
-  Directory: functions/ID_Agents/ID_infoGatherer/
-- `ID_Agents.ID_routingClassifier` — DESC_routingClassifier
-  Directory: functions/ID_Agents/ID_routingClassifier/
-- `ID_Agents.ID_solver` — DESC_solver
-  Directory: functions/ID_Agents/ID_solver/
-- `ID_Pyrus.ID_closeTask` — DESC_closeTask
-  Directory: functions/ID_Pyrus/ID_closeTask/
-- `ID_Pyrus.ID_createSubtask` — DESC_createSubtask
-  Directory: functions/ID_Pyrus/ID_createSubtask/
-- `ID_Pyrus.ID_escalateToHuman` — DESC_escalateToHuman
-  Directory: functions/ID_Pyrus/ID_escalateToHuman/
-- `ID_Pyrus.ID_processDelayedMessages` — DESC_processDelayedMessages
-  Directory: functions/ID_Pyrus/ID_processDelayedMessages/
-- `ID_Pyrus.ID_receiveWebhook` — DESC_receiveWebhook
-  Directory: functions/ID_Pyrus/ID_receiveWebhook/
-- `ID_Pyrus.ID_releaseLock` — DESC_releaseLock
-  Directory: functions/ID_Pyrus/ID_releaseLock/
-- `ID_Pyrus.ID_sendReply` — DESC_sendReply
-  Directory: functions/ID_Pyrus/ID_sendReply/
-- `ID_State.ID_getDialogState` — DESC_getDialogState
-  Directory: functions/ID_State/ID_getDialogState/
-- `ID_State.ID_routeAfterConfirmation` — DESC_routeAfterConfirmation
-  Directory: functions/ID_State/ID_routeAfterConfirmation/
-- `ID_State.ID_routeAfterFaceControl` — DESC_routeAfterFaceControl
-  Directory: functions/ID_State/ID_routeAfterFaceControl/
-- `ID_State.ID_routeAfterGathering` — DESC_routeAfterGathering
-  Directory: functions/ID_State/ID_routeAfterGathering/
-- `ID_State.ID_routeAfterRouting` — DESC_routeAfterRouting
-  Directory: functions/ID_State/ID_routeAfterRouting/
-- `ID_State.ID_routeAfterSolving` — DESC_routeAfterSolving
-  Directory: functions/ID_State/ID_routeAfterSolving/
-- `ID_State.ID_updateDialogState` — DESC_updateDialogState
-  Directory: functions/ID_State/ID_updateDialogState/
+- `ID_Pyrus.processDialog` — Main orchestrator — reads dialog state, loops through stages (faceControl, infoGatherer, routing, solver, confirmation), performs Pyrus API actions (escalate, close, subtask), returns replyText if needed
+  Directory: functions/ID_Pyrus/processDialog/
+- `ID_Pyrus.receiveWebhook` — Parses Pyrus webhook payload, sets lock, publishes data to Context
+  Directory: functions/ID_Pyrus/receiveWebhook/
+- `ID_Pyrus.releaseLock` — Releases the processing lock for a Pyrus task
+  Directory: functions/ID_Pyrus/releaseLock/
+- `ID_Pyrus.sendReply` — Sends bot reply as a comment to Pyrus task
+  Directory: functions/ID_Pyrus/sendReply/
 

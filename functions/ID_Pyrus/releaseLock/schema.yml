@@ -2,7 +2,7 @@
 id: releaseLock
 name: releaseLock
 description: Releases the processing lock for a Pyrus task
-response-description: '{ released }'
+response-description: "{ released }"
 parameters:
 - name: taskId
   type: STRING
