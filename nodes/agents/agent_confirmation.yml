@@ -16,21 +16,7 @@ parameters:
     presence-penalty: 0.0
     verbose-mode: false
     structured-output-enabled: false
-    structured-output-schema:
-      type: object
-      properties:
-        status:
-          type: string
-          enum:
-          - resolved
-          - failed
-          - more_questions
-          - unclear
-        reason:
-          type: string
-      required:
-      - status
-      - reason
+    structured-output-schema: null
   system-promts:
     role: Ты — аналитик поддержки.
     goal: Проанализируй ответ партнёра и определи статус решения.

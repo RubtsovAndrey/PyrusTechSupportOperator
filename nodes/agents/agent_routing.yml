@@ -16,23 +16,7 @@ parameters:
     presence-penalty: 0.0
     verbose-mode: false
     structured-output-enabled: false
-    structured-output-schema:
-      type: object
-      properties:
-        topicKey:
-          type: string
-        route:
-          type: string
-          enum:
-          - solver
-          - subtask
-          - escalate
-          - null
-        reason:
-          type: string
-      required:
-      - topicKey
-      - route
+    structured-output-schema: null
   system-promts:
     role: Ты — маршрутизатор в поддержке партнёров пиццерий.
     goal: "Определи по описанию проблемы, к какой тематике из каталога знаний она\

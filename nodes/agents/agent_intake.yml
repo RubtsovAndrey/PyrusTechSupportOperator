@@ -16,33 +16,7 @@ parameters:
     presence-penalty: 0.0
     verbose-mode: false
     structured-output-enabled: false
-    structured-output-schema:
-      type: object
-      properties:
-        action:
-          type: string
-          enum:
-          - escalate
-          - clarify
-          - route
-        unit:
-          type: string
-        unitFullName:
-          type: string
-        business:
-          type: string
-          enum:
-          - dodopizza
-          - drinkit
-          - null
-        problemSummary:
-          type: string
-        clarifyingQuestion:
-          type: string
-        reason:
-          type: string
-      required:
-      - action
+    structured-output-schema: null
   system-promts:
     role: Ты — ассистент поддержки партнёров пиццерий и кофеен.
     goal: "Сначала проверь, нужна ли эскалация на человека-оператора. Если нет — с\
@@ -64,7 +38,9 @@ parameters:
 
       ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
       Верни JSON: {"action": "escalate"|"clarify"|"route", "unit": "строка|null", "unitFullName": "строка|null", "business": "dodopizza|drinkit|null", "problemSummary": "строка|null", "clarifyingQuestion": "строка|null", "reason": "кратко"}
-    query-override: "Проанализируй ТЕКУЩЕЕ сообщение партнёра (последнее в истории). Если это приветствие или сообщение без описания проблемы — задай уточняющий вопрос (action: clarify). Не придумывай проблему из старых сообщений."
+    query-override: "Проанализируй ТЕКУЩЕЕ сообщение партнёра (последнее в истории\
+      ). Если это приветствие или сообщение без описания проблемы — задай уточняющ\
+      ий вопрос (action: clarify). Не придумывай проблему из старых сообщений."
   tools:
   - func_matchunit_x7k2m
   handoff-agents:
@@ -73,7 +49,7 @@ parameters:
   stay-in-agent: false
   telephony-config: null
   enable-context: false
-  chat-history-limit: 5
+  chat-history-limit: 20
   sequential-tool-calls-limit: 3
   unique-tools-count-limit: 2
   total-response-timeout: null

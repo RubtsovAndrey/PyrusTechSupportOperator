@@ -16,13 +16,7 @@ parameters:
     presence-penalty: 0.0
     verbose-mode: false
     structured-output-enabled: false
-    structured-output-schema:
-      type: object
-      properties:
-        replyText:
-          type: string
-      required:
-      - replyText
+    structured-output-schema: null
   system-promts:
     role: Ты — ассистент техподдержки пиццерий и кофеен.
     goal: "Напиши пошаговое руководство для решения проблемы партнёра, строго след\
