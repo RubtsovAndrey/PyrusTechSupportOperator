@@ -45,6 +45,13 @@ if (lastComment && lastComment.channel && lastComment.channel.direction === "inb
   };
 }
 
+// ── Set base context values early so finalize has them even when skipping ──
+AgentContext.putValue({ key: "taskId", value: taskId });
+AgentContext.putValue({ key: "apiUrl", value: apiUrl });
+AgentContext.putValue({ key: "token", value: token });
+AgentContext.putValue({ key: "lastInboundCommentId", value: lastInboundCommentId });
+AgentContext.putValue({ key: "outboundChannel", value: outboundChannel });
+
 // ── Pyrus field parsing ──
 function flattenFields(fields, out = []) {
   if (!Array.isArray(fields)) return out;
@@ -98,6 +105,14 @@ try {
   const dbState = Db.get({ dbIntegration: "1000299722-pyrus_bot_database-hul", documentKey: "state:" + taskId });
   if (dbState && dbState.value) {
     if (dbState.value.stage === "closed" || dbState.value.stage === "escalated") {
+      if (raw.event === "comment" && lastInboundComment) {
+        AgentContext.putValue({ key: "replyText", value: "Эта задача уже закрыта. Если у вас новая проблема, пожалуйста, создайте новое обращение." });
+        AgentContext.putValue({ key: "outboundChannel", value: {
+          type: lastInboundComment.channel.type,
+          direction: "outbound",
+          to: lastInboundComment.channel.from
+        } });
+      }
       AgentContext.putValue({ key: "skipProcessing", value: true });
       return { taskId, skipProcessing: true, reason: "task already " + dbState.value.stage };
     }
@@ -111,17 +126,12 @@ try {
 }
 
 // ── Context Hydration: AgentContext.putValue for structured data ──
-AgentContext.putValue({ key: "taskId", value: taskId });
 AgentContext.putValue({ key: "incomingText", value: incomingText });
 AgentContext.putValue({ key: "chatHistory", value: chatHistory.trim() });
-AgentContext.putValue({ key: "apiUrl", value: apiUrl });
-AgentContext.putValue({ key: "token", value: token });
 AgentContext.putValue({ key: "llmModelKey", value: "1000299722-yandex_aliceaillmfla-div" });
 AgentContext.putValue({ key: "formId", value: String(task.form_id) });
 AgentContext.putValue({ key: "unitFieldId", value: unitFieldId });
 AgentContext.putValue({ key: "componentFieldId", value: componentFieldId });
-AgentContext.putValue({ key: "outboundChannel", value: outboundChannel });
-AgentContext.putValue({ key: "lastInboundCommentId", value: lastInboundCommentId });
 AgentContext.putValue({ key: "skipProcessing", value: false });
 
 return { taskId, incomingText, skipProcessing: false };
