@@ -4,7 +4,7 @@ const taskId = AgentContext.getValue({ key: "taskId" });
 const apiUrl = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
 const token = AgentContext.getValue({ key: "token" });
 
-const replyText = AgentContext.getValue({ key: "replyText" });
+let replyText = AgentContext.getValue({ key: "replyText" });
 const closeAction = AgentContext.getValue({ key: "closeAction" });
 const escalateApproval = AgentContext.getValue({ key: "escalateApproval" });
 const closeFieldUpdates = AgentContext.getValue({ key: "closeFieldUpdates" });
@@ -15,8 +15,11 @@ if (!newStage) {
   const lastResult = Context.getLastFunctionResult() || {};
   if (lastResult.action === "clarify" && lastResult.clarifyingQuestion) {
     AgentContext.putValue({ key: "replyText", value: lastResult.clarifyingQuestion });
+    replyText = lastResult.clarifyingQuestion;
     newStage = "gathering";
   } else if (lastResult.replyText && !closeAction && !escalateApproval) {
+    AgentContext.putValue({ key: "replyText", value: lastResult.replyText });
+    replyText = lastResult.replyText;
     newStage = "awaiting_confirmation";
   } else if (lastResult.subtaskId) {
     newStage = "transferring";

@@ -84,6 +84,13 @@ try {
   Log.info({ message: "receiveWebhook: lock failed for task " + taskId + ": " + e });
 }
 
+// ── Clear stale per-request values from previous webhook in same session ──
+AgentContext.putValue({ key: "replyText", value: null });
+AgentContext.putValue({ key: "closeAction", value: null });
+AgentContext.putValue({ key: "escalateApproval", value: null });
+AgentContext.putValue({ key: "closeFieldUpdates", value: null });
+AgentContext.putValue({ key: "newStage", value: null });
+
 // ── Context Hydration: AgentContext.putValue for structured data ──
 AgentContext.putValue({ key: "taskId", value: taskId });
 AgentContext.putValue({ key: "incomingText", value: incomingText });
