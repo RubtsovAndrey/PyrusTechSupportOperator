@@ -7,7 +7,6 @@ position:
 next-step: agent_routing
 next-error-step: null
 parameters:
-  type: CONDITION
-  condition: "Context.getLastFunctionResult() && Context.getLastFunctionResult().stage === 'routing'"
+  condition: Context.getLastFunctionResult() && Context.getLastFunctionResult().stage
+    === 'routing'
   false-step: agent_solver
-  context-config: null

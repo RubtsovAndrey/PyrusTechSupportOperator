@@ -7,7 +7,6 @@ position:
 next-step: func_escalate_m9k4j
 next-error-step: null
 parameters:
-  type: CONDITION
-  condition: "Context.getLastFunctionResult() && Context.getLastFunctionResult().stage === 'escalating'"
+  condition: Context.getLastFunctionResult() && Context.getLastFunctionResult().stage
+    === 'escalating'
   false-step: func_closetask_w2f6n
-  context-config: null

@@ -1,7 +1,7 @@
 ---
 id: parseLlmJson
 name: parseLlmJson
-description: "Strips markdown code blocks from LLM response and parses JSON."
-response-description: "Parsed JSON object from LLM response"
+description: Strips markdown code blocks from LLM response and parses JSON.
+response-description: Parsed JSON object from LLM response
 parameters: []
 language: JAVASCRIPT

@@ -7,7 +7,6 @@ position:
 next-step: cond_intake_escalate
 next-error-step: null
 parameters:
-  type: CONDITION
-  condition: "Context.getLastFunctionResult() && (Context.getLastFunctionResult().action === 'escalate' || Context.getLastFunctionResult().action === 'clarify')"
+  condition: Context.getLastFunctionResult() && (Context.getLastFunctionResult().action
+    === 'escalate' || Context.getLastFunctionResult().action === 'clarify')
   false-step: agent_routing
-  context-config: null

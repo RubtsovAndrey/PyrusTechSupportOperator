@@ -7,7 +7,7 @@ position:
 next-step: cond_stage_intake
 next-error-step: null
 parameters:
-  type: CONDITION
-  condition: "Context.getLastFunctionResult() && (Context.getLastFunctionResult().stage === 'intake' || Context.getLastFunctionResult().stage === 'routing' || Context.getLastFunctionResult().stage === 'solving')"
+  condition: Context.getLastFunctionResult() && (Context.getLastFunctionResult().stage
+    === 'intake' || Context.getLastFunctionResult().stage === 'routing' || Context.getLastFunctionResult().stage
+    === 'solving')
   false-step: cond_stage_group2
-  context-config: null

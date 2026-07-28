@@ -47,7 +47,8 @@ parameters:
 
       ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
       Верни JSON: {"topicKey": "ключ|null", "route": "solver|subtask|escalate|null", "reason": "кратко"}
-    query-override: "Определи тематику проблемы партнёра из контекста (incomingText) и найди её в базе знаний."
+    query-override: Определи тематику проблемы партнёра из контекста (incomingText)
+      и найди её в базе знаний.
   tools:
   - func_searchknowledge_q3m8x
   handoff-agents:

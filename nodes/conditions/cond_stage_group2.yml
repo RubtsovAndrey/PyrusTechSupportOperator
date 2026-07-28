@@ -7,7 +7,6 @@ position:
 next-step: cond_stage_confirmation
 next-error-step: null
 parameters:
-  type: CONDITION
-  condition: "Context.getLastFunctionResult() && (Context.getLastFunctionResult().stage === 'awaiting_confirmation' || Context.getLastFunctionResult().stage === 'transferring')"
+  condition: Context.getLastFunctionResult() && (Context.getLastFunctionResult().stage
+    === 'awaiting_confirmation' || Context.getLastFunctionResult().stage === 'transferring')
   false-step: cond_stage_escalating
-  context-config: null

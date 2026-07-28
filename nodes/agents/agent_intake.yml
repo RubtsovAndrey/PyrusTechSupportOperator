@@ -64,7 +64,8 @@ parameters:
 
       ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
       Верни JSON: {"action": "escalate"|"clarify"|"route", "unit": "строка|null", "unitFullName": "строка|null", "business": "dodopizza|drinkit|null", "problemSummary": "строка|null", "clarifyingQuestion": "строка|null", "reason": "кратко"}
-    query-override: "Проанализируй последнее сообщение партнёра из контекста (incomingText) и определи действие."
+    query-override: Проанализируй последнее сообщение партнёра из контекста (incomingText)
+      и определи действие.
   tools:
   - func_matchunit_x7k2m
   handoff-agents:

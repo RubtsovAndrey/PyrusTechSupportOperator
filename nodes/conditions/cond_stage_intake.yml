@@ -7,7 +7,6 @@ position:
 next-step: agent_intake
 next-error-step: null
 parameters:
-  type: CONDITION
-  condition: "Context.getLastFunctionResult() && Context.getLastFunctionResult().stage === 'intake'"
+  condition: Context.getLastFunctionResult() && Context.getLastFunctionResult().stage
+    === 'intake'
   false-step: cond_stage_routing
-  context-config: null

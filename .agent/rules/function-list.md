@@ -204,4 +204,6 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Tools/matchUnit/
 - `ID_Tools.searchKnowledge` — Searches knowledge catalog for matching topic by problem description. Returns topic key, route (solver/subtask/escalate), solverInstruction, componentName.
   Directory: functions/ID_Tools/searchKnowledge/
+- `ID_Tools.parseLlmJson` — Strips markdown code blocks from LLM response and parses JSON.
+  Directory: functions/ID_Tools/parseLlmJson/
 
