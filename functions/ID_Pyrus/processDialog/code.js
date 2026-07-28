@@ -445,6 +445,15 @@ let state = getState();
 let replyText = null;
 const MAX_ITER = 10;
 
+// Pre-stage check: if partner asks for human/operator at any point — escalate immediately
+if (incomingText && state.stage !== "face_control" && state.stage !== "escalating" && state.stage !== "escalated" && state.stage !== "closed") {
+  const escalationKeywords = /\b(человек|оператор|менеджер|специалист|живой|передайте\s+(?:человеку|оператору|менеджеру))\b/i;
+  if (escalationKeywords.test(incomingText)) {
+    state.stage = "escalating";
+    state._reply = "Понадобится время на изучение проблемы, мы вернёмся с ответом.";
+  }
+}
+
 for (let i = 0; i < MAX_ITER; i++) {
   const stage = state.stage;
   if (!stage) break;
