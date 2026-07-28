@@ -12,7 +12,7 @@ parameters:
   function: routeStage
   is-tool: false
   parameters:
-    task-id:
+    taskId:
       type: STRING
       value: null
       filled-ai: false

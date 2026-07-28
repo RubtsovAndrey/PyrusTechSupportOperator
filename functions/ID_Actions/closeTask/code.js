@@ -1,7 +1,3 @@
-const replyText = arguments[0]?.replyText ?? arguments[0]?.["reply-text"];
-const unitFullName = arguments[0]?.unitFullName ?? arguments[0]?.["unit-full-name"];
-const componentName = arguments[0]?.componentName ?? arguments[0]?.["component-name"];
-
 const ufId = AgentContext.getValue({ key: "unitFieldId" });
 const cfId = AgentContext.getValue({ key: "componentFieldId" });
 
