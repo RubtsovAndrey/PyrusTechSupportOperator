@@ -104,9 +104,19 @@ AgentContext.putValue({ key: "newStage", value: null });
 try {
   const dbState = Db.get({ dbIntegration: "1000299722-pyrus_bot_database-hul", documentKey: "state:" + taskId });
   if (dbState && dbState.value) {
-    if (dbState.value.stage === "closed" || dbState.value.stage === "escalated") {
+    if (dbState.value.stage === "closed") {
+      // Bot closed the task (finished). If partner writes again, approve to pass to operator.
+      if (raw.event === "comment") {
+        AgentContext.putValue({ key: "escalateApproval", value: true });
+        AgentContext.putValue({ key: "newStage", value: "escalated" });
+      }
       AgentContext.putValue({ key: "skipProcessing", value: true });
-      return { taskId, skipProcessing: true, reason: "task already " + dbState.value.stage };
+      return { taskId, skipProcessing: true, reason: "task closed, forwarding to operator" };
+    }
+    if (dbState.value.stage === "escalated") {
+      // Already approved/escalated — operator handles new messages.
+      AgentContext.putValue({ key: "skipProcessing", value: true });
+      return { taskId, skipProcessing: true, reason: "task already escalated" };
     }
     if (dbState.value.unitFullName) AgentContext.putValue({ key: "unitFullName", value: dbState.value.unitFullName });
     if (dbState.value.componentName) AgentContext.putValue({ key: "componentName", value: dbState.value.componentName });

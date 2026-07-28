@@ -90,8 +90,13 @@ if (replyText || closeAction || escalateApproval) {
         outboundChannel = { type: currentLastInbound.channel.type, direction: "outbound", to: currentLastInbound.channel.from };
       }
 
-      const body = { text: replyText || "Обращение обработано." };
-      if (outboundChannel) body.channel = outboundChannel;
+      const body = {};
+      if (replyText) {
+        body.text = replyText;
+        if (outboundChannel) body.channel = outboundChannel;
+      } else {
+        body.text = "";
+      }
       if (closeAction) {
         body.action = closeAction;
         if (closeFieldUpdates) body.field_updates = closeFieldUpdates;
