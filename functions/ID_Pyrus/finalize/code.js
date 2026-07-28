@@ -22,12 +22,12 @@ if (!newStage) {
     replyText = lastResult.replyText;
     newStage = "awaiting_confirmation";
   } else if (lastResult.subtaskId) {
-    newStage = "escalated";
+    newStage = "closed";
     const subtaskReply = "Обращение создано и передано специалистам. Мы вернёмся с ответом на ваш email.";
     AgentContext.putValue({ key: "replyText", value: subtaskReply });
     replyText = subtaskReply;
-    AgentContext.putValue({ key: "escalateApproval", value: true });
-    escalateApproval = true;
+    AgentContext.putValue({ key: "closeAction", value: "finished" });
+    closeAction = "finished";
     var ufId = AgentContext.getValue({ key: "unitFieldId" });
     var cfId = AgentContext.getValue({ key: "componentFieldId" });
     var unitVal = AgentContext.getValue({ key: "unitFullName" });
