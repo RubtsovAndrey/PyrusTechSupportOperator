@@ -7,5 +7,7 @@ position:
 next-step: agent_routing
 next-error-step: null
 parameters:
-  condition: const s = Context.getLastFunctionResult(); s && s.stage === 'routing'
+  type: CONDITION
+  condition: "const s = Context.getLastFunctionResult(); s && s.stage === 'routing'"
   false-step: agent_solver
+  context-config: null

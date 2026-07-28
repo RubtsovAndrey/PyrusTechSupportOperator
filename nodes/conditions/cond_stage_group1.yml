@@ -7,5 +7,7 @@ position:
 next-step: cond_stage_intake
 next-error-step: null
 parameters:
+  type: CONDITION
   condition: "const s = Context.getLastFunctionResult(); s && ['intake','routing','solving'].includes(s.stage)"
   false-step: cond_stage_group2
+  context-config: null

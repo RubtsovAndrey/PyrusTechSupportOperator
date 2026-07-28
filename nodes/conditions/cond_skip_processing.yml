@@ -4,8 +4,10 @@ name: skipProcessing?
 position:
   x: 1460
   y: -4
-next-step: null
+next-step: func_finalize_p1x9k
 next-error-step: null
 parameters:
+  type: CONDITION
   condition: "AgentContext.getValue({ key: 'skipProcessing' }) === true"
   false-step: func_routestage_q8k3m
+  context-config: null

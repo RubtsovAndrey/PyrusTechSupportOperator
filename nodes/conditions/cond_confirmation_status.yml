@@ -7,6 +7,7 @@ position:
 next-step: cond_confirmation_resolved
 next-error-step: null
 parameters:
-  condition: const r = Context.getLastFunctionResult(); r && (r.status === 'resolved'
-    || r.status === 'failed')
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && (r.status === 'resolved' || r.status === 'failed')"
   false-step: cond_confirmation_more
+  context-config: null
