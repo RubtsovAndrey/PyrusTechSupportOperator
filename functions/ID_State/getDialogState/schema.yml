@@ -1,0 +1,13 @@
+---
+id: getDialogState
+name: getDialogState
+description: "Reads dialog state from DB by taskId. Returns state object with stage, unit, problemSummary, etc."
+response-description: "{ stage, unit, problemSummary, solverKey, email, gatherAttempts, confirmationAttempts, ... }"
+parameters:
+- name: taskId
+  type: STRING
+  required: true
+  description: ID of the Pyrus task
+  properties: null
+  items: null
+language: JAVASCRIPT

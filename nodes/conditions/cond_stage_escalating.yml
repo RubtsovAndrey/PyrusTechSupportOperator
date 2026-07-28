@@ -1,0 +1,14 @@
+---
+id: cond_stage_escalating
+name: stageEscalating?
+position:
+  x: 600
+  y: 600
+next-step: func_escalate_m9k4j
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const s = Context.getLastFunctionResult(); s && s.stage === 'escalating'"
+  true-step: func_escalate_m9k4j
+  false-step: cond_stage_closed
+  context-config: null

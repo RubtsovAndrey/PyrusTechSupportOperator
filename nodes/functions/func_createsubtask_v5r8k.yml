@@ -1,0 +1,41 @@
+---
+id: func_createsubtask_v5r8k
+name: createSubtask
+position:
+  x: 2300
+  y: 300
+next-step: func_updatedialogstate_p7n3q
+next-error-step: func_releaselock_ttrbm
+parameters:
+  type: USER
+  collection: ID_Actions
+  function: createSubtask
+  is-tool: false
+  parameters:
+    parentTaskId:
+      type: STRING
+      value: null
+      filled-ai: false
+    unitFullName:
+      type: STRING
+      value: null
+      filled-ai: false
+    componentName:
+      type: STRING
+      value: null
+      filled-ai: false
+    email:
+      type: STRING
+      value: null
+      filled-ai: false
+    problemSummary:
+      type: STRING
+      value: null
+      filled-ai: false
+    subtaskFormId:
+      type: STRING
+      value: null
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

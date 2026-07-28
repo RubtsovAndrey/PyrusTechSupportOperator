@@ -1,0 +1,14 @@
+---
+id: cond_gathering_complete
+name: gatheringComplete?
+position:
+  x: 1650
+  y: 0
+next-step: agent_routing
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && r.unitKnown === true && r.problemKnown === true"
+  true-step: agent_routing
+  false-step: func_sendreply_rzlnx
+  context-config: null

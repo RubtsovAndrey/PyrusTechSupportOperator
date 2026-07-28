@@ -1,0 +1,14 @@
+---
+id: cond_facecontrol_escalate
+name: faceControlEscalate?
+position:
+  x: 1050
+  y: 0
+next-step: func_escalate_m9k4j
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && r.escalate === true"
+  true-step: func_escalate_m9k4j
+  false-step: agent_infogatherer
+  context-config: null

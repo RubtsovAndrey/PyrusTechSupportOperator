@@ -1,16 +1,18 @@
-const taskId = Context.get({ key: "taskId" });
-const apiUrl = Context.get({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
-const token = Context.get({ key: "token" });
+const taskId = AgentContext.getValue({ key: "taskId" });
+const apiUrl = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
+const token = AgentContext.getValue({ key: "token" });
 
-const lastResult = Context.getLastFunctionResult() || {};
-const replyText = lastResult.replyText;
+const replyText = AgentContext.getValue({ key: "replyText" });
+const closeAction = AgentContext.getValue({ key: "closeAction" });
+const escalateApproval = AgentContext.getValue({ key: "escalateApproval" });
+const closeFieldUpdates = AgentContext.getValue({ key: "closeFieldUpdates" });
 
-if (!replyText && !lastResult.closeAction && !lastResult.escalateApproval) {
-  return { success: true, skipped: true, newStage: lastResult.newStage };
+if (!replyText && !closeAction && !escalateApproval) {
+  return { success: true, skipped: true };
 }
 
 // Debounce check: fetch current task state and verify no newer inbound comments exist
-const processedInboundId = Context.get({ key: "lastInboundCommentId" });
+const processedInboundId = AgentContext.getValue({ key: "lastInboundCommentId" });
 let taskResponse;
 try {
   taskResponse = await Http.get({
@@ -29,11 +31,11 @@ if (taskResponse && taskResponse.body && taskResponse.body.task) {
 
   if (processedInboundId && currentLastInboundId && String(currentLastInboundId) !== String(processedInboundId)) {
     Log.info({ message: "sendReply: debounced — newer inbound comment " + currentLastInboundId + " vs processed " + processedInboundId });
-    return { success: true, skipped: true, debounced: true, newStage: lastResult.newStage };
+    return { success: true, skipped: true, debounced: true };
   }
 }
 
-let outboundChannel = Context.get({ key: "outboundChannel" });
+let outboundChannel = AgentContext.getValue({ key: "outboundChannel" });
 
 if (outboundChannel === undefined) {
   if (taskResponse && taskResponse.body && taskResponse.body.task) {
@@ -52,14 +54,14 @@ if (outboundChannel === undefined) {
 const body = { text: replyText || "Обращение обработано." };
 if (outboundChannel) body.channel = outboundChannel;
 
-// Include close action and field_updates from processDialog in the same comment
-if (lastResult.closeAction) {
-  body.action = lastResult.closeAction;
-  if (lastResult.closeFieldUpdates) body.field_updates = lastResult.closeFieldUpdates;
+// Include close action and field_updates in the same comment
+if (closeAction) {
+  body.action = closeAction;
+  if (closeFieldUpdates) body.field_updates = closeFieldUpdates;
 }
-if (lastResult.escalateApproval) {
+if (escalateApproval) {
   body.approval_choice = "approved";
-  if (lastResult.closeFieldUpdates) body.field_updates = lastResult.closeFieldUpdates;
+  if (closeFieldUpdates) body.field_updates = closeFieldUpdates;
 }
 
 try {
@@ -73,7 +75,7 @@ try {
   });
 } catch (e) {
   Log.info({ message: "sendReply post comment error: " + e });
-  return { success: false, newStage: "escalating", reason: String(e) };
+  return { success: false, reason: String(e) };
 }
 
-return { success: true, newStage: lastResult.newStage };
+return { success: true };

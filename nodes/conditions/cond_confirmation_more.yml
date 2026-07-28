@@ -1,0 +1,14 @@
+---
+id: cond_confirmation_more
+name: confirmationMoreQuestions?
+position:
+  x: 2900
+  y: 500
+next-step: agent_infogatherer
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && r.status === 'more_questions'"
+  true-step: agent_infogatherer
+  false-step: func_sendreply_rzlnx
+  context-config: null

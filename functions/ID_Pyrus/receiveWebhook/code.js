@@ -7,32 +7,32 @@ const token = raw.access_token;
 const task = raw.task || {};
 const comments = task.comments || [];
 
-// Skip non-comment events (close, etc.) — no action needed
 if (raw.event !== "comment") {
-  Context.set({ key: "skipProcessing", value: true });
-  return { taskId, incomingText: "", chatHistory: "", apiUrl, token, skipProcessing: true };
+  AgentContext.putValue({ key: "skipProcessing", value: true });
+  return { taskId, skipProcessing: true };
 }
 
-let chatHistory = "";
+// ── Context Hydration: AgentContext.addNote for dialog history ──
 const historyComments = comments
   .filter(c => c.text || c.formatted_text)
   .slice(-20);
 
+let chatHistory = "";
 historyComments.forEach(c => {
   const text = c.text || c.formatted_text || "";
   const isBot = c.author && c.author.type === "bot";
   const role = isBot ? "Ассистент" : "Партнёр";
+  const authorName = c.author ? (c.author.first_name || "") : "";
+  const noteText = role + (authorName ? " (" + authorName + ")" : "") + ": " + text;
+  AgentContext.addNote({ text: noteText });
   chatHistory += role + ": " + text + "\n";
 });
 
 const lastComment = comments[comments.length - 1];
 const incomingText = lastComment ? (lastComment.text || lastComment.formatted_text || "") : "";
-const lastCommentId = lastComment ? lastComment.id : null;
 
-// Find last inbound (partner) comment for debounce check
 const lastInboundComment = comments.slice().reverse().find(c => c.channel && c.channel.direction === "inbound");
 const lastInboundCommentId = lastInboundComment ? lastInboundComment.id : null;
-const lastInboundCommentDate = lastInboundComment ? lastInboundComment.create_date : null;
 
 let outboundChannel = null;
 if (lastComment && lastComment.channel && lastComment.channel.direction === "inbound") {
@@ -43,6 +43,7 @@ if (lastComment && lastComment.channel && lastComment.channel.direction === "inb
   };
 }
 
+// ── Pyrus field parsing ──
 function flattenFields(fields, out = []) {
   if (!Array.isArray(fields)) return out;
   fields.forEach(f => {
@@ -58,6 +59,7 @@ const componentField = allFields.find(f => f.name === "Компонент");
 const unitFieldId = unitField ? Number(unitField.id) : null;
 const componentFieldId = componentField ? Number(componentField.id) : null;
 
+// ── Idempotency: Db-based lock ──
 const lockKey = "lock:" + taskId;
 const LOCK_TTL_MS = 60 * 1000;
 
@@ -72,8 +74,8 @@ const now = Date.now();
 const alreadyLocked = !!(existingLock && existingLock.value && (now - existingLock.value.ts) < LOCK_TTL_MS);
 
 if (alreadyLocked) {
-  Context.set({ key: "skipProcessing", value: true });
-  return { taskId, incomingText, chatHistory: chatHistory.trim(), apiUrl, token, skipProcessing: true };
+  AgentContext.putValue({ key: "skipProcessing", value: true });
+  return { taskId, skipProcessing: true };
 }
 
 try {
@@ -82,18 +84,18 @@ try {
   Log.info({ message: "receiveWebhook: lock failed for task " + taskId + ": " + e });
 }
 
-Context.set({ key: "taskId", value: taskId });
-Context.set({ key: "incomingText", value: incomingText });
-Context.set({ key: "chatHistory", value: chatHistory.trim() });
-Context.set({ key: "apiUrl", value: apiUrl });
-Context.set({ key: "token", value: token });
-Context.set({ key: "llmModelKey", value: "1000299722-yandex_aliceaillmfla-div" });
-Context.set({ key: "formId", value: String(task.form_id) });
-Context.set({ key: "unitFieldId", value: unitFieldId });
-Context.set({ key: "componentFieldId", value: componentFieldId });
-Context.set({ key: "outboundChannel", value: outboundChannel });
-Context.set({ key: "lastInboundCommentId", value: lastInboundCommentId });
-Context.set({ key: "lastInboundCommentDate", value: lastInboundCommentDate });
-Context.set({ key: "skipProcessing", value: false });
+// ── Context Hydration: AgentContext.putValue for structured data ──
+AgentContext.putValue({ key: "taskId", value: taskId });
+AgentContext.putValue({ key: "incomingText", value: incomingText });
+AgentContext.putValue({ key: "chatHistory", value: chatHistory.trim() });
+AgentContext.putValue({ key: "apiUrl", value: apiUrl });
+AgentContext.putValue({ key: "token", value: token });
+AgentContext.putValue({ key: "llmModelKey", value: "1000299722-yandex_aliceaillmfla-div" });
+AgentContext.putValue({ key: "formId", value: String(task.form_id) });
+AgentContext.putValue({ key: "unitFieldId", value: unitFieldId });
+AgentContext.putValue({ key: "componentFieldId", value: componentFieldId });
+AgentContext.putValue({ key: "outboundChannel", value: outboundChannel });
+AgentContext.putValue({ key: "lastInboundCommentId", value: lastInboundCommentId });
+AgentContext.putValue({ key: "skipProcessing", value: false });
 
-return { taskId, incomingText, chatHistory: chatHistory.trim(), apiUrl, token, skipProcessing: false };
+return { taskId, incomingText, skipProcessing: false };

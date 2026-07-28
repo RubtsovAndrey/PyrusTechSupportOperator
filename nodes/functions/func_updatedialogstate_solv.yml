@@ -1,0 +1,25 @@
+---
+id: func_updatedialogstate_solv
+name: updateDialogState (after solver)
+position:
+  x: 2900
+  y: -200
+next-step: func_sendreply_rzlnx
+next-error-step: func_releaselock_ttrbm
+parameters:
+  type: USER
+  collection: ID_State
+  function: updateDialogState
+  is-tool: false
+  parameters:
+    taskId:
+      type: STRING
+      value: null
+      filled-ai: false
+    state:
+      type: OBJECT
+      value: null
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

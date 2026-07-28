@@ -1,0 +1,14 @@
+---
+id: cond_stage_transferring
+name: stageTransferring?
+position:
+  x: 600
+  y: 500
+next-step: func_createsubtask_v5r8k
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const s = Context.getLastFunctionResult(); s && (s.stage === 'transferring' || s.stage === 'awaiting_email')"
+  true-step: func_createsubtask_v5r8k
+  false-step: cond_stage_escalating
+  context-config: null

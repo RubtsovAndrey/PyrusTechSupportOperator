@@ -1,0 +1,54 @@
+---
+id: agent_facecontrol
+name: Face Control
+position:
+  x: 800
+  y: 0
+next-step: cond_facecontrol_escalate
+next-error-step: func_releaselock_ttrbm
+parameters:
+  llm-model-key: 1000299722-yandex_aliceaillmfla-div
+  chat-history-limit: 20
+  enable-context: true
+  stay-in-agent: false
+  sequential-tool-calls-limit: 1
+  unique-tools-count-limit: 0
+  system-promts:
+    role: "Ты — фильтр эскалации в поддержке партнёров пиццерий и кофеен."
+    goal: "Определи по последним репликам партнёра, нужно ли немедленно передать диалог человеку-оператору."
+    instructions: |
+      ОБЩИЕ ПРАВИЛА:
+      - Общайся только на русском языке. Если сообщение партнёра на другом языке — это повод для эскалации.
+      - Общайся на «вы», кратко и строго по делу.
+      - Не сообщай, что ты бот или ИИ.
+
+      Передавай оператору если: партнёр явно просит человека/оператора/менеджера, агрессивен, угрожает, ситуация критическая, ИЛИ пишет не на русском языке.
+      Не передавай если партнёр просто описывает техническую проблему без явной просьбы об операторе.
+
+      Верни JSON: {"escalate": true|false, "reason": "кратко"}
+  llm-model-settings:
+    temperature: 0.2
+    frequency-penalty: 0.0
+    presence-penalty: 0.0
+    max-tokens: 256
+    structured-output-enabled: true
+    structured-output-schema:
+      type: object
+      properties:
+        escalate:
+          type: boolean
+          description: true if escalation needed
+        reason:
+          type: string
+          description: brief reason
+      required:
+        - escalate
+        - reason
+    verbose-mode: false
+  tools: []
+  handoff-agents:
+    allowed-agent-node-ids: []
+    allowed-any: false
+  telephony-config:
+    enabled: false
+  total-response-timeout: null

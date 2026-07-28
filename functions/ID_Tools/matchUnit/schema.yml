@@ -1,0 +1,13 @@
+---
+id: matchUnit
+name: matchUnit
+description: "Searches unit catalog by text query. Returns matching units with name, business, fullName. Use when partner mentions their unit (city, point number, or brand)."
+response-description: "{ matches: [{ name, business, fullName, normalized }], count }"
+parameters:
+- name: query
+  type: STRING
+  required: true
+  description: Text to search for (e.g. "Москва 1-1", "додо спб", "кофейня на невском")
+  properties: null
+  items: null
+language: JAVASCRIPT

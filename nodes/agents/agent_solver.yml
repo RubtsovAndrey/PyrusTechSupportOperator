@@ -1,0 +1,52 @@
+---
+id: agent_solver
+name: Solver
+position:
+  x: 2600
+  y: -200
+next-step: func_updatedialogstate_solv
+next-error-step: func_releaselock_ttrbm
+parameters:
+  llm-model-key: 1000299722-yandex_aliceaillmfla-div
+  chat-history-limit: 20
+  enable-context: true
+  stay-in-agent: false
+  sequential-tool-calls-limit: 2
+  unique-tools-count-limit: 1
+  system-promts:
+    role: "Ты — ассистент техподдержки пиццерий и кофеен."
+    goal: "Напиши пошаговое руководство для решения проблемы партнёра, строго следуя инструкции из базы знаний."
+    instructions: |
+      ОБЩИЕ ПРАВИЛА:
+      - Общайся только на русском языке, на «вы», кратко и строго по делу.
+      - Без воды, без вступлений вроде «Я понимаю вашу проблему».
+      - Не давай обещаний. Только факты.
+      - Не выходи за рамки инструкции. Если нет готового решения — сообщай, что понадобится время.
+
+      Используй tool searchKnowledge для получения инструкции по теме.
+      Напиши пошаговое руководство строго по инструкции. Закончи вопросом из followUpQuestion.
+
+      Верни JSON: {"replyText": "твой ответ партнёру"}
+  llm-model-settings:
+    temperature: 0.5
+    frequency-penalty: 0.0
+    presence-penalty: 0.0
+    max-tokens: 1024
+    structured-output-enabled: true
+    structured-output-schema:
+      type: object
+      properties:
+        replyText:
+          type: string
+          description: step-by-step solution for the partner
+      required:
+        - replyText
+    verbose-mode: false
+  tools:
+    - func_searchknowledge_q3m8x
+  handoff-agents:
+    allowed-agent-node-ids: []
+    allowed-any: false
+  telephony-config:
+    enabled: false
+  total-response-timeout: null

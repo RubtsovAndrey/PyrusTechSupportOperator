@@ -1,0 +1,14 @@
+---
+id: cond_stage_routing
+name: stageRouting
+position:
+  x: 600
+  y: 0
+next-step: agent_facecontrol
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const s = Context.getLastFunctionResult(); s && s.stage === 'face_control'"
+  true-step: agent_facecontrol
+  false-step: cond_stage_gathering
+  context-config: null

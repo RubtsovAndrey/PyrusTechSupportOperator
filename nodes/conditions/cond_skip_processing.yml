@@ -1,0 +1,14 @@
+---
+id: cond_skip_processing
+name: skipProcessing?
+position:
+  x: 200
+  y: 0
+next-step: func_releaselock_ttrbm
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "AgentContext.getValue({ key: 'skipProcessing' }) === true"
+  true-step: func_releaselock_ttrbm
+  false-step: func_getdialogstate_kx9m2
+  context-config: null

@@ -1,0 +1,25 @@
+---
+id: func_getdialogstate_kx9m2
+name: getDialogState
+position:
+  x: 400
+  y: 150
+next-step: cond_stage_routing
+next-error-step: func_releaselock_ttrbm
+parameters:
+  type: USER
+  collection: ID_State
+  function: getDialogState
+  is-tool: false
+  parameters:
+    taskId:
+      type: STRING
+      value: null
+      filled-ai: false
+  context-config:
+    enabled: true
+    key: dialogState
+    put-if-error: true
+    value-prefix: ""
+  hitl-tool-config: null
+  custom-headers: null

@@ -1,0 +1,14 @@
+---
+id: cond_stage_confirmation
+name: stageConfirmation?
+position:
+  x: 600
+  y: 400
+next-step: agent_confirmation
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const s = Context.getLastFunctionResult(); s && s.stage === 'awaiting_confirmation'"
+  true-step: agent_confirmation
+  false-step: cond_stage_transferring
+  context-config: null

@@ -1,0 +1,14 @@
+---
+id: cond_stage_routing_cls
+name: stageRoutingClassifier?
+position:
+  x: 600
+  y: 200
+next-step: agent_routing
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const s = Context.getLastFunctionResult(); s && s.stage === 'routing'"
+  true-step: agent_routing
+  false-step: cond_stage_solving
+  context-config: null

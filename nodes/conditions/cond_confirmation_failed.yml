@@ -1,0 +1,14 @@
+---
+id: cond_confirmation_failed
+name: confirmationFailed?
+position:
+  x: 2900
+  y: 350
+next-step: func_escalate_m9k4j
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && r.status === 'failed'"
+  true-step: func_escalate_m9k4j
+  false-step: cond_confirmation_more
+  context-config: null

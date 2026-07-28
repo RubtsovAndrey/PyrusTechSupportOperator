@@ -1,0 +1,13 @@
+---
+id: searchKnowledge
+name: searchKnowledge
+description: "Searches knowledge catalog for matching topic by problem description. Returns topic key, route (solver/subtask/escalate), solverInstruction, componentName."
+response-description: "{ topics: [{ key, description, route, solverKey, solverInstruction, componentName, subtaskFormId }] }"
+parameters:
+- name: query
+  type: STRING
+  required: true
+  description: Problem description to search for
+  properties: null
+  items: null
+language: JAVASCRIPT

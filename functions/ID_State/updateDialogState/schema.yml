@@ -1,0 +1,19 @@
+---
+id: updateDialogState
+name: updateDialogState
+description: "Saves dialog state to DB by taskId (upsert). Merges provided fields with existing state."
+response-description: "{ saved: boolean }"
+parameters:
+- name: taskId
+  type: STRING
+  required: false
+  description: ID of the Pyrus task (defaults to AgentContext taskId)
+  properties: null
+  items: null
+- name: state
+  type: OBJECT
+  required: true
+  description: State object to save
+  properties: null
+  items: null
+language: JAVASCRIPT

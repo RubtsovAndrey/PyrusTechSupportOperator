@@ -1,7 +1,7 @@
 ---
 id: releaseLock
 name: releaseLock
-description: Releases the processing lock for a Pyrus task
+description: Releases the processing lock for a Pyrus task. Reads taskId from AgentContext or parameter.
 response-description: "{ released }"
 parameters:
 - name: taskId
