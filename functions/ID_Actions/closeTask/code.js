@@ -1,10 +1,9 @@
-var params = arguments[0] || {};
 var ufId = AgentContext.getValue({ key: "unitFieldId" });
 var cfId = AgentContext.getValue({ key: "componentFieldId" });
 
-var unitVal = params.unitFullName || params["unit-full-name"] || AgentContext.getValue({ key: "unitFullName" });
-var compVal = params.componentName || params["component-name"] || AgentContext.getValue({ key: "componentName" });
-var closeReply = params.replyText || params["reply-text"] || AgentContext.getValue({ key: "replyText" }) || "Рад был помочь! Если появятся новые вопросы, обращайтесь.";
+var unitVal = unitFullName || AgentContext.getValue({ key: "unitFullName" });
+var compVal = componentName || AgentContext.getValue({ key: "componentName" });
+var closeReply = replyText || AgentContext.getValue({ key: "replyText" }) || "Рад был помочь! Если появятся новые вопросы, обращайтесь.";
 
 if (!unitVal || !compVal) {
   AgentContext.putValue({ key: "replyText", value: closeReply });

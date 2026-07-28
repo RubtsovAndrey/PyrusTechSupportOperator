@@ -1,25 +1,24 @@
-var params = arguments[0] || {};
 var API_URL = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
 var TOKEN = AgentContext.getValue({ key: "token" });
 var ctxTaskId = AgentContext.getValue({ key: "taskId" });
 
-var effectiveParentId = params.parentTaskId || params["parent-task-id"] || ctxTaskId;
-var FORM_ID = String(params.subtaskFormId || params["subtask-form-id"] || "1096731");
-var unitFullName = params.unitFullName || params["unit-full-name"] || AgentContext.getValue({ key: "unitFullName" });
-var componentName = params.componentName || params["component-name"] || AgentContext.getValue({ key: "componentName" });
-var email = params.email || AgentContext.getValue({ key: "email" });
-var problemSummary = params.problemSummary || params["problem-summary"] || AgentContext.getValue({ key: "problemSummary" });
+var effectiveParentId = parentTaskId || ctxTaskId;
+var FORM_ID = String(subtaskFormId || "1096731");
+var resolvedUnitFullName = unitFullName || AgentContext.getValue({ key: "unitFullName" });
+var resolvedComponentName = componentName || AgentContext.getValue({ key: "componentName" });
+var resolvedEmail = email || AgentContext.getValue({ key: "email" });
+var resolvedProblemSummary = problemSummary || AgentContext.getValue({ key: "problemSummary" });
 
-if (!effectiveParentId || !unitFullName || !componentName || !email) {
+if (!effectiveParentId || !resolvedUnitFullName || !resolvedComponentName || !resolvedEmail) {
   return { success: false, reason: "missing required fields" };
 }
 
 const UNIT_FIELD_ID = 97, COMPONENT_FIELD_ID = 36, EMAIL_FIELD_ID = 5;
 
 const fields = [
-  { id: UNIT_FIELD_ID, value: { item_name: String(unitFullName) } },
-  { id: COMPONENT_FIELD_ID, value: { item_name: String(componentName) } },
-  { id: EMAIL_FIELD_ID, value: String(email) }
+  { id: UNIT_FIELD_ID, value: { item_name: String(resolvedUnitFullName) } },
+  { id: COMPONENT_FIELD_ID, value: { item_name: String(resolvedComponentName) } },
+  { id: EMAIL_FIELD_ID, value: String(resolvedEmail) }
 ];
 
 try {
@@ -35,10 +34,10 @@ try {
   const summaryLines = [
     "[Внутренняя переписка]",
     "Подзадача создана ботом техподдержки.",
-    "Юнит: " + unitFullName,
-    "Компонент: " + componentName,
-    problemSummary ? "Проблема: " + problemSummary : null,
-    "Email партнёра: " + email,
+    "Юнит: " + resolvedUnitFullName,
+    "Компонент: " + resolvedComponentName,
+    resolvedProblemSummary ? "Проблема: " + resolvedProblemSummary : null,
+    "Email партнёра: " + resolvedEmail,
     "Родительская задача: №" + effectiveParentId
   ].filter(Boolean);
 
