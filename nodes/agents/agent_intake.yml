@@ -70,12 +70,7 @@ parameters:
     allowed-any: false
     allowed-agent-node-ids: []
   stay-in-agent: false
-  telephony-config:
-    enabled: false
-    llm-response-timeout-ms: null
-    barge-in-config: null
-    fillers-phrase-config: null
-    silence-reprompt-config: null
+  telephony-config: null
   enable-context: true
   chat-history-limit: 20
   sequential-tool-calls-limit: 3
