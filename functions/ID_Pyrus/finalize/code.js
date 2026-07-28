@@ -6,7 +6,7 @@ const token = AgentContext.getValue({ key: "token" });
 
 let replyText = AgentContext.getValue({ key: "replyText" });
 let closeAction = AgentContext.getValue({ key: "closeAction" });
-const escalateApproval = AgentContext.getValue({ key: "escalateApproval" });
+let escalateApproval = AgentContext.getValue({ key: "escalateApproval" });
 let closeFieldUpdates = AgentContext.getValue({ key: "closeFieldUpdates" });
 let newStage = AgentContext.getValue({ key: "newStage" });
 
@@ -22,12 +22,12 @@ if (!newStage) {
     replyText = lastResult.replyText;
     newStage = "awaiting_confirmation";
   } else if (lastResult.subtaskId) {
-    newStage = "closed";
+    newStage = "escalated";
     const subtaskReply = "Обращение создано и передано специалистам. Мы вернёмся с ответом на ваш email.";
     AgentContext.putValue({ key: "replyText", value: subtaskReply });
     replyText = subtaskReply;
-    AgentContext.putValue({ key: "closeAction", value: "finished" });
-    closeAction = "finished";
+    AgentContext.putValue({ key: "escalateApproval", value: true });
+    escalateApproval = true;
     var ufId = AgentContext.getValue({ key: "unitFieldId" });
     var cfId = AgentContext.getValue({ key: "componentFieldId" });
     var unitVal = AgentContext.getValue({ key: "unitFullName" });

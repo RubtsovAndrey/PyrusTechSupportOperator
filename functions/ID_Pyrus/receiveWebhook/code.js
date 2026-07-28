@@ -105,14 +105,6 @@ try {
   const dbState = Db.get({ dbIntegration: "1000299722-pyrus_bot_database-hul", documentKey: "state:" + taskId });
   if (dbState && dbState.value) {
     if (dbState.value.stage === "closed" || dbState.value.stage === "escalated") {
-      if (raw.event === "comment" && lastInboundComment) {
-        AgentContext.putValue({ key: "replyText", value: "Эта задача уже закрыта. Если у вас новая проблема, пожалуйста, создайте новое обращение." });
-        AgentContext.putValue({ key: "outboundChannel", value: {
-          type: lastInboundComment.channel.type,
-          direction: "outbound",
-          to: lastInboundComment.channel.from
-        } });
-      }
       AgentContext.putValue({ key: "skipProcessing", value: true });
       return { taskId, skipProcessing: true, reason: "task already " + dbState.value.stage };
     }
