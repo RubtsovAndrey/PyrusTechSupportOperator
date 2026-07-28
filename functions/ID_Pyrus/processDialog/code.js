@@ -19,10 +19,16 @@ let chatHistory = Context.get({ key: "chatHistory" }) || "";
 if (chatHistory.length > MAX_HISTORY) chatHistory = chatHistory.slice(-MAX_HISTORY);
 const incomingText = (Context.get({ key: "incomingText" }) || "").trim();
 
+let llmCallCount = 0;
+const MAX_LLM_CALLS = 2;
+const START_TIME = Date.now();
+const SOFT_TIMEOUT_MS = 4000;
+
 // ── helpers ──────────────────────────────────────────────────────────────
 
 async function llm(prompt, temp) {
   const fullPrompt = BOT_PERSONA + "\n\n" + prompt;
+  llmCallCount++;
   const resp = await Llm.sendText({ llmModelKey: LLM_KEY, text: fullPrompt, temperature: temp || 0.3 });
   let txt;
   if (typeof resp === "string") txt = resp;
@@ -466,6 +472,12 @@ if (incomingText && state.stage !== "face_control" && state.stage !== "escalatin
 for (let i = 0; i < MAX_ITER; i++) {
   const stage = state.stage;
   if (!stage) break;
+
+  // Check if we're approaching timeout or LLM call limit
+  if (llmCallCount >= MAX_LLM_CALLS || (Date.now() - START_TIME) > SOFT_TIMEOUT_MS) {
+    saveState(state);
+    return { replyText: replyText || null, newStage: state.stage, done: false };
+  }
 
   if (stage === "face_control") {
     state = await stageFaceControl(state);

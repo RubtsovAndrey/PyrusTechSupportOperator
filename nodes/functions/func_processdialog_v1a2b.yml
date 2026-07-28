@@ -4,7 +4,7 @@ name: processDialog
 position:
   x: 796
   y: 90
-next-step: func_sendreply_rzlnx
+next-step: cond_check_done
 next-error-step: func_releaselock_ttrbm
 parameters:
   type: USER
