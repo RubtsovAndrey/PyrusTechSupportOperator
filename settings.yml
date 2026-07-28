@@ -1,0 +1,4 @@
+---
+language: ru
+engine-version: 1
+default-agent-user-message-source: ORIGINAL_USER_MESSAGE
