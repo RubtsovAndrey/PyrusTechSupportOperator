@@ -1,6 +1,8 @@
 var API_URL = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
 var TOKEN = AgentContext.getValue({ key: "token" });
 var ctxTaskId = AgentContext.getValue({ key: "taskId" });
+var parentUnitFieldId = AgentContext.getValue({ key: "unitFieldId" });
+var parentComponentFieldId = AgentContext.getValue({ key: "componentFieldId" });
 
 var effectiveParentId = parentTaskId || ctxTaskId;
 var FORM_ID = String(subtaskFormId || "1096731");
@@ -60,6 +62,26 @@ try {
     });
   } catch (e) {
     Log.info({ message: "subtask summary comment error: " + e });
+  }
+
+  // Update parent task fields (unit, component)
+  try {
+    var parentFieldUpdates = [];
+    if (parentUnitFieldId && resolvedUnitFullName) {
+      parentFieldUpdates.push({ id: Number(parentUnitFieldId), value: { item_name: String(resolvedUnitFullName) } });
+    }
+    if (parentComponentFieldId && resolvedComponentName) {
+      parentFieldUpdates.push({ id: Number(parentComponentFieldId), value: { item_name: String(resolvedComponentName) } });
+    }
+    if (parentFieldUpdates.length) {
+      await Http.post({
+        url: API_URL + "tasks/" + effectiveParentId + "/comments",
+        headers: { "Authorization": "Bearer " + TOKEN, "Content-Type": "application/json" },
+        body: { field_updates: parentFieldUpdates }
+      });
+    }
+  } catch (e) {
+    Log.info({ message: "parent task field update error: " + e });
   }
 
   return { success: true, subtaskId: Number(subtaskId) };

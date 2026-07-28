@@ -23,6 +23,9 @@ if (!newStage) {
     newStage = "awaiting_confirmation";
   } else if (lastResult.subtaskId) {
     newStage = "transferring";
+    const subtaskReply = "Обращение создано и передано специалистам. Мы вернёмся с ответом на ваш email.";
+    AgentContext.putValue({ key: "replyText", value: subtaskReply });
+    replyText = subtaskReply;
   }
 }
 
