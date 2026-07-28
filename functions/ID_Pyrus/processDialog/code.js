@@ -361,7 +361,7 @@ async function stageTransferring(state) {
   }
 
   const findField = (...names) => formFields.find(f => names.includes(f.name));
-  const uf = findField("Юнит"), cf = findField("Компонент"), ef = findField("Email", "E-mail", "Почта", "email", "E-Mail"), df = findField("Описание", "Комментарий", "Текст обращения", "Описание проблемы");
+  const uf = findField("Юнит"), cf = findField("Компонент"), ef = findField("Эл. почта", "Email", "E-mail", "Почта", "email", "E-Mail"), df = findField("Описание", "Комментарий", "Текст обращения", "Описание проблемы");
   if (!uf || !cf || !ef) { state.stage = "escalating"; state.error = "Форма не содержит нужных полей"; state._reply = "Не удалось создать подзадачу. Перевожу на оператора."; return state; }
 
   const fields = [
@@ -377,6 +377,19 @@ async function stageTransferring(state) {
     const subtaskId = created?.task?.id;
     if (!subtaskId) throw new Error("No task.id in response");
     state.subtaskId = Number(subtaskId);
+
+    // Post internal summary comment to the subtask
+    const summaryLines = [
+      "[Внутренняя переписка]",
+      "Подзадача создана ботом техподдержки.",
+      state.unitFullName ? "Юнит: " + state.unitFullName : null,
+      state.componentName ? "Компонент: " + state.componentName : null,
+      state.problemSummary ? "Проблема: " + state.problemSummary : null,
+      state.email ? "Email партнёра: " + state.email : null,
+      "Родительская задача: №" + TASK_ID
+    ].filter(Boolean);
+    try { await pyrusPost("tasks/" + subtaskId + "/comments", { text: summaryLines.join("\n") }); } catch (e) { Log.info({ message: "subtask summary comment error: " + e }); }
+
     state.stage = "closed";
     state.closeComment = "Подзадача №" + subtaskId + " создана. Email: " + state.email + ".";
     state._reply = "Вопрос передан в ответственную команду. Подзадача №" + subtaskId + ". С вами свяжутся по " + state.email + ". Спасибо!";
