@@ -2,8 +2,8 @@
 id: agent_intake
 name: Intake Agent
 position:
-  x: 3000
-  y: -500
+  x: 3054
+  y: -466
 next-step: cond_intake_action
 next-error-step: null
 parameters:

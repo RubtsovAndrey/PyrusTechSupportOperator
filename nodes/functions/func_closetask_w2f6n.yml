@@ -2,8 +2,8 @@
 id: func_closetask_w2f6n
 name: closeTask
 position:
-  x: 5000
-  y: 300
+  x: 5066
+  y: 308
 next-step: func_finalize_p1x9k
 next-error-step: null
 parameters:

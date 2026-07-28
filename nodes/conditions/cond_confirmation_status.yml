@@ -2,8 +2,8 @@
 id: cond_confirmation_status
 name: confirmation status?
 position:
-  x: 4000
-  y: 550
+  x: 4090
+  y: 592
 next-step: cond_confirmation_resolved
 next-error-step: null
 parameters:

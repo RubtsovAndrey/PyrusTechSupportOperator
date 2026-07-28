@@ -2,8 +2,8 @@
 id: cond_skip_processing
 name: skipProcessing?
 position:
-  x: 1000
-  y: 0
+  x: 1460
+  y: -4
 next-step: null
 next-error-step: null
 parameters:
