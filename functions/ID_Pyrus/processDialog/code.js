@@ -340,28 +340,15 @@ async function stageTransferring(state) {
     return state;
   }
 
-  // Load form template from DB
-  let formFields = [];
-  try {
-    const r = Db.get({ dbIntegration: DB_ID, documentKey: "form_template:" + SUBTASK_FORM_ID });
-    if (r && r.value && Array.isArray(r.value.fields)) formFields = r.value.fields;
-  } catch (e) { Log.info({ message: "loadFormTemplate error: " + e }); }
-  if (!formFields.length) {
-    state.stage = "escalating"; state.error = "Шаблон формы " + SUBTASK_FORM_ID + " не найден в БД";
-    state._reply = "Не удалось создать подзадачу: не настроен шаблон формы. Перевожу на оператора.";
-    return state;
-  }
-
-  const findField = (...names) => formFields.find(f => names.includes(f.name));
-  const uf = findField("Юнит"), cf = findField("Компонент"), ef = findField("Эл. почта", "Email", "E-mail", "Почта", "email", "E-Mail"), df = findField("Описание", "Комментарий", "Текст обращения", "Описание проблемы");
-  if (!uf || !cf || !ef) { state.stage = "escalating"; state.error = "Форма не содержит нужных полей"; state._reply = "Не удалось создать подзадачу. Перевожу на оператора."; return state; }
+  // Form 1096731 field IDs (from Pyrus form structure)
+  // Юнит: id=97 (catalog), Компонент: id=36 (catalog), Эл. почта: id=5 (email, inside "Контактная информация" id=91)
+  const UNIT_FIELD_ID = 97, COMPONENT_FIELD_ID = 36, EMAIL_FIELD_ID = 5;
 
   const fields = [
-    { id: Number(uf.id), value: { item_name: String(state.unitFullName) } },
-    { id: Number(cf.id), value: { item_name: String(state.componentName) } },
-    { id: Number(ef.id), value: String(state.email) }
+    { id: UNIT_FIELD_ID, value: { item_name: String(state.unitFullName) } },
+    { id: COMPONENT_FIELD_ID, value: { item_name: String(state.componentName) } },
+    { id: EMAIL_FIELD_ID, value: String(state.email) }
   ];
-  if (df && state.problemSummary) fields.push({ id: Number(df.id), value: String(state.problemSummary) });
 
   try {
     const resp = await Http.post({ url: API_URL + "tasks", headers: { "Authorization": "Bearer " + TOKEN, "Content-Type": "application/json" }, body: { form_id: Number(SUBTASK_FORM_ID), parent_task_id: Number(TASK_ID), fields } });
