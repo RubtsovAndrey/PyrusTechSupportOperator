@@ -47,7 +47,7 @@ parameters:
       Важно: если партнёр пишет, что проблема не решена — это "failed", не "more_questions".
 
       Верни JSON: {"status": "resolved|failed|more_questions|unclear", "reason": "кратко"}
-    query-override: null
+    query-override: "Проанализируй последний ответ партнёра из контекста (incomingText) и определи статус решения."
   tools: []
   handoff-agents:
     allowed-any: false

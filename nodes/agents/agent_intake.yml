@@ -63,7 +63,7 @@ parameters:
       Если чего-то не хватает — верни action: "clarify" и сформулируй один короткий уточняющий вопрос.
 
       Верни JSON: {"action": "escalate"|"clarify"|"route", "unit": "строка|null", "unitFullName": "строка|null", "business": "dodopizza|drinkit|null", "problemSummary": "строка|null", "clarifyingQuestion": "строка|null", "reason": "кратко"}
-    query-override: null
+    query-override: "Проанализируй последнее сообщение партнёра из контекста (incomingText) и определи действие."
   tools:
   - func_matchunit_x7k2m
   handoff-agents:

@@ -38,7 +38,7 @@ parameters:
       Напиши пошаговое руководство строго по инструкции. Закончи вопросом из followUpQuestion.
 
       Верни JSON: {"replyText": "твой ответ партнёру"}
-    query-override: null
+    query-override: "Найди решение проблемы партнёра из контекста (incomingText) в базе знаний и напиши ответ."
   tools:
   - func_searchknowledge_q3m8x
   handoff-agents:

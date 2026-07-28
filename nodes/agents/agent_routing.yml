@@ -46,7 +46,7 @@ parameters:
       Если нет уверенно — верни topicKey: null.
 
       Верни JSON: {"topicKey": "ключ|null", "route": "solver|subtask|escalate|null", "reason": "кратко"}
-    query-override: null
+    query-override: "Определи тематику проблемы партнёра из контекста (incomingText) и найди её в базе знаний."
   tools:
   - func_searchknowledge_q3m8x
   handoff-agents:
