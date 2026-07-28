@@ -8,14 +8,25 @@ next-step: func_finalize_p1x9k
 next-error-step: null
 parameters:
   llm-model-key: 1000299722-yandex_aliceaillmfla-div
-  chat-history-limit: 20
-  enable-context: true
-  stay-in-agent: false
-  sequential-tool-calls-limit: 2
-  unique-tools-count-limit: 1
+  llm-model-settings:
+    max-tokens: 1024
+    temperature: 0.5
+    top-p: 0.0
+    frequency-penalty: 0.0
+    presence-penalty: 0.0
+    verbose-mode: false
+    structured-output-enabled: true
+    structured-output-schema:
+      type: object
+      properties:
+        replyText:
+          type: string
+      required:
+      - replyText
   system-promts:
-    role: "Ты — ассистент техподдержки пиццерий и кофеен."
-    goal: "Напиши пошаговое руководство для решения проблемы партнёра, строго следуя инструкции из базы знаний."
+    role: Ты — ассистент техподдержки пиццерий и кофеен.
+    goal: "Напиши пошаговое руководство для решения проблемы партнёра, строго след\
+      уя инструкции из базы знаний."
     instructions: |
       ОБЩИЕ ПРАВИЛА:
       - Общайся только на русском языке, на «вы», кратко и строго по делу.
@@ -27,25 +38,16 @@ parameters:
       Напиши пошаговое руководство строго по инструкции. Закончи вопросом из followUpQuestion.
 
       Верни JSON: {"replyText": "твой ответ партнёру"}
-  llm-model-settings:
-    temperature: 0.5
-    frequency-penalty: 0.0
-    presence-penalty: 0.0
-    max-tokens: 1024
-    structured-output-enabled: true
-    structured-output-schema:
-      type: object
-      properties:
-        replyText:
-          type: string
-      required:
-        - replyText
-    verbose-mode: false
+    query-override: null
   tools:
-    - func_searchknowledge_q3m8x
+  - func_searchknowledge_q3m8x
   handoff-agents:
-    allowed-agent-node-ids: []
     allowed-any: false
-  telephony-config:
-    enabled: false
+    allowed-agent-node-ids: []
+  stay-in-agent: false
+  telephony-config: null
+  enable-context: true
+  chat-history-limit: 20
+  sequential-tool-calls-limit: 2
+  unique-tools-count-limit: 1
   total-response-timeout: null

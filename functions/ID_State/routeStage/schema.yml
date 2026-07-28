@@ -1,7 +1,8 @@
 ---
 id: routeStage
 name: routeStage
-description: "Reads dialog state from DB by taskId and returns the current stage name. Used for graph routing."
+description: Reads dialog state from DB by taskId and returns the current stage name.
+  Used for graph routing.
 response-description: "{ stage }"
 parameters:
 - name: taskId

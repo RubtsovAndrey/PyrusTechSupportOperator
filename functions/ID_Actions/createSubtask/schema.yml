@@ -1,7 +1,8 @@
 ---
 id: createSubtask
 name: createSubtask
-description: "Creates a subtask in Pyrus with unit, component, and email fields. Posts summary comment to subtask."
+description: "Creates a subtask in Pyrus with unit, component, and email fields. Posts\
+  \ summary comment to subtask."
 response-description: "{ success, subtaskId }"
 parameters:
 - name: parentTaskId

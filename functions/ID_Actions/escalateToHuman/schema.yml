@@ -1,7 +1,8 @@
 ---
 id: escalateToHuman
 name: escalateToHuman
-description: "Escalates task to human operator: approves bot stage in Pyrus, updates unit/component fields if available."
+description: "Escalates task to human operator: approves bot stage in Pyrus, updates\
+  \ unit/component fields if available."
 response-description: "{ success, replyText }"
 parameters:
 - name: replyText

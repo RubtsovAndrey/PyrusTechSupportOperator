@@ -7,8 +7,5 @@ position:
 next-step: func_routestage_q8k3m
 next-error-step: null
 parameters:
-  type: CONDITION
   condition: "AgentContext.getValue({ key: 'skipProcessing' }) === true"
-  true-step: func_finalize_p1x9k
   false-step: func_routestage_q8k3m
-  context-config: null

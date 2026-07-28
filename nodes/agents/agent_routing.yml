@@ -8,14 +8,35 @@ next-step: cond_routing_route
 next-error-step: null
 parameters:
   llm-model-key: 1000299722-yandex_aliceaillmfla-div
-  chat-history-limit: 20
-  enable-context: true
-  stay-in-agent: false
-  sequential-tool-calls-limit: 3
-  unique-tools-count-limit: 1
+  llm-model-settings:
+    max-tokens: 256
+    temperature: 0.2
+    top-p: 0.0
+    frequency-penalty: 0.0
+    presence-penalty: 0.0
+    verbose-mode: false
+    structured-output-enabled: true
+    structured-output-schema:
+      type: object
+      properties:
+        topicKey:
+          type: string
+        route:
+          type: string
+          enum:
+          - solver
+          - subtask
+          - escalate
+          - null
+        reason:
+          type: string
+      required:
+      - topicKey
+      - route
   system-promts:
-    role: "Ты — маршрутизатор в поддержке партнёров пиццерий."
-    goal: "Определи по описанию проблемы, к какой тематике из каталога знаний она относится."
+    role: Ты — маршрутизатор в поддержке партнёров пиццерий.
+    goal: "Определи по описанию проблемы, к какой тематике из каталога знаний она\
+      \ относится."
     instructions: |
       ОБЩИЕ ПРАВИЛА:
       - Общайся только на русском языке.
@@ -25,30 +46,16 @@ parameters:
       Если нет уверенно — верни topicKey: null.
 
       Верни JSON: {"topicKey": "ключ|null", "route": "solver|subtask|escalate|null", "reason": "кратко"}
-  llm-model-settings:
-    temperature: 0.2
-    frequency-penalty: 0.0
-    presence-penalty: 0.0
-    max-tokens: 256
-    structured-output-enabled: true
-    structured-output-schema:
-      type: object
-      properties:
-        topicKey:
-          type: string
-        route:
-          type: string
-          enum: ["solver", "subtask", "escalate", null]
-        reason:
-          type: string
-      required:
-        - topicKey
-        - route
+    query-override: null
   tools:
-    - func_searchknowledge_q3m8x
+  - func_searchknowledge_q3m8x
   handoff-agents:
-    allowed-agent-node-ids: []
     allowed-any: false
-  telephony-config:
-    enabled: false
+    allowed-agent-node-ids: []
+  stay-in-agent: false
+  telephony-config: null
+  enable-context: true
+  chat-history-limit: 20
+  sequential-tool-calls-limit: 3
+  unique-tools-count-limit: 1
   total-response-timeout: null

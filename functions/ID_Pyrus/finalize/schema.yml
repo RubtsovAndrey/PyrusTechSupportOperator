@@ -1,7 +1,8 @@
 ---
 id: finalize
 name: finalize
-description: "Sends bot reply to Pyrus, updates dialog state in DB, releases lock. Single terminal function for all paths."
+description: "Sends bot reply to Pyrus, updates dialog state in DB, releases lock.\
+  \ Single terminal function for all paths."
 response-description: "{ success, released }"
 parameters: []
 language: JAVASCRIPT
