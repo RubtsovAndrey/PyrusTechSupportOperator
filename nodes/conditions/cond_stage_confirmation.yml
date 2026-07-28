@@ -8,6 +8,6 @@ next-step: agent_confirmation
 next-error-step: null
 parameters:
   type: CONDITION
-  condition: "(function() { var s = Context.getLastFunctionResult(); return s && s.stage === 'awaiting_confirmation'; })()"
+  condition: "Context.getLastFunctionResult() && Context.getLastFunctionResult().stage === 'awaiting_confirmation'"
   false-step: func_createsubtask_v5r8k
   context-config: null

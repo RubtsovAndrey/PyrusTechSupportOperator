@@ -8,6 +8,6 @@ next-step: agent_intake
 next-error-step: null
 parameters:
   type: CONDITION
-  condition: "(function() { var s = Context.getLastFunctionResult(); return s && s.stage === 'intake'; })()"
+  condition: "Context.getLastFunctionResult() && Context.getLastFunctionResult().stage === 'intake'"
   false-step: cond_stage_routing
   context-config: null

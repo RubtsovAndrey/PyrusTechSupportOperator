@@ -8,6 +8,6 @@ next-step: agent_routing
 next-error-step: null
 parameters:
   type: CONDITION
-  condition: "(function() { var s = Context.getLastFunctionResult(); return s && s.stage === 'routing'; })()"
+  condition: "Context.getLastFunctionResult() && Context.getLastFunctionResult().stage === 'routing'"
   false-step: agent_solver
   context-config: null

@@ -8,6 +8,6 @@ next-step: agent_solver
 next-error-step: null
 parameters:
   type: CONDITION
-  condition: "(function() { var r = Context.getLastFunctionResult(); return r && r.route === 'solver'; })()"
+  condition: "Context.getLastFunctionResult() && Context.getLastFunctionResult().route === 'solver'"
   false-step: cond_routing_subtask
   context-config: null
