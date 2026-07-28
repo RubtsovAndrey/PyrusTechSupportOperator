@@ -13,20 +13,23 @@ if (raw.event !== "comment") {
 }
 
 // ── Context Hydration: AgentContext.addNote for dialog history ──
-const historyComments = comments
-  .filter(c => c.text || c.formatted_text)
-  .slice(-20);
+// Only add the last inbound comment to avoid duplicates across webhook calls
+const lastInbound = comments.slice().reverse().find(c => c.channel && c.channel.direction === "inbound" && (c.text || c.formatted_text));
 
 let chatHistory = "";
-historyComments.forEach(c => {
-  const text = c.text || c.formatted_text || "";
-  const isBot = c.author && c.author.type === "bot";
-  const role = isBot ? "Ассистент" : "Партнёр";
-  const authorName = c.author ? (c.author.first_name || "") : "";
-  const noteText = role + (authorName ? " (" + authorName + ")" : "") + ": " + text;
-  AgentContext.addNote({ text: noteText });
-  chatHistory += role + ": " + text + "\n";
-});
+if (lastInbound) {
+  const text = lastInbound.text || lastInbound.formatted_text || "";
+  AgentContext.addNote({ text: "Партнёр: " + text });
+  chatHistory = "Партнёр: " + text + "\n";
+}
+
+// Also add last bot reply if present (for context)
+const lastOutbound = comments.slice().reverse().find(c => c.channel && c.channel.direction === "outbound" && (c.text || c.formatted_text));
+if (lastOutbound) {
+  const outText = lastOutbound.text || lastOutbound.formatted_text || "";
+  AgentContext.addNote({ text: "Ассистент: " + outText });
+  chatHistory = "Ассистент: " + outText + "\n" + chatHistory;
+}
 
 const lastComment = comments[comments.length - 1];
 const incomingText = lastComment ? (lastComment.text || lastComment.formatted_text || "") : "";
