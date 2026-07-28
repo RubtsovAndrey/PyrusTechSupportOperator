@@ -13,23 +13,22 @@ if (raw.event !== "comment") {
 }
 
 // ── Context Hydration: AgentContext.addNote for dialog history ──
-// Only add the last inbound comment to avoid duplicates across webhook calls
-const lastInbound = comments.slice().reverse().find(c => c.channel && c.channel.direction === "inbound" && (c.text || c.formatted_text));
+// Clear all previous notes to avoid duplicates across webhook calls
+AgentContext.deleteNotes({});
+
+// Pyrus sends full chat history in every webhook — use it to rebuild clean notes
+const dialogComments = comments
+  .filter(c => c.text || c.formatted_text)
+  .slice(-10);
 
 let chatHistory = "";
-if (lastInbound) {
-  const text = lastInbound.text || lastInbound.formatted_text || "";
-  AgentContext.addNote({ text: "Партнёр: " + text });
-  chatHistory = "Партнёр: " + text + "\n";
-}
-
-// Also add last bot reply if present (for context)
-const lastOutbound = comments.slice().reverse().find(c => c.channel && c.channel.direction === "outbound" && (c.text || c.formatted_text));
-if (lastOutbound) {
-  const outText = lastOutbound.text || lastOutbound.formatted_text || "";
-  AgentContext.addNote({ text: "Ассистент: " + outText });
-  chatHistory = "Ассистент: " + outText + "\n" + chatHistory;
-}
+dialogComments.forEach(c => {
+  const text = c.text || c.formatted_text || "";
+  const isBot = c.author && c.author.type === "bot";
+  const role = isBot ? "Ассистент" : "Партнёр";
+  AgentContext.addNote({ text: role + ": " + text });
+  chatHistory += role + ": " + text + "\n";
+});
 
 const lastComment = comments[comments.length - 1];
 const incomingText = lastComment ? (lastComment.text || lastComment.formatted_text || "") : "";
