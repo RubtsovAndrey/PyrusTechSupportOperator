@@ -63,36 +63,26 @@ function matchUnit(raw, catalog) {
   return catalog.filter(u => sub(qp, u.normalized.split(/[\s-]+/).filter(Boolean))).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-const CATALOG_ID = "REPLACE_WITH_UNIT_CATALOG_ID";
-const CATALOG_TTL = 12 * 60 * 60 * 1000;
-
-async function loadUnitCatalog() {
+function loadUnitCatalog() {
   try {
-    const r = Db.get({ dbIntegration: DB_ID, documentKey: "unitCatalogCache" });
-    if (r && r.value && Array.isArray(r.value.items) && Date.now() - (r.value.ts || 0) < CATALOG_TTL) return r.value.items;
-  } catch (e) {}
-  let items = [];
-  try {
-    const resp = await Http.get({ url: API_URL + "catalogs/" + CATALOG_ID, headers: { "Authorization": "Bearer " + TOKEN } });
-    const d = resp?.body ?? resp;
-    const cat = d?.catalog ?? d ?? {};
-    const headers = (cat.catalog_headers || []).map(h => typeof h === "string" ? h : (h.name || ""));
-    const fnIdx = headers.findIndex(h => /^FullName$/i.test(h));
-    items = (cat.items || []).map(it => {
-      const v = it.values || [];
-      const full = String(v[fnIdx >= 0 ? fnIdx : 0] || "").trim();
-      if (!full) return null;
-      const op = full.lastIndexOf("("), cp = full.lastIndexOf(")");
-      const before = op >= 0 ? full.slice(0, op).trim() : full;
-      const addr = cp > op ? full.slice(op + 1, cp).trim() : "";
-      let biz = "", name = before;
-      const bc = before.indexOf("]");
-      if (bc > 1 && before[0] === "[") { biz = before.slice(1, bc).trim(); name = before.slice(bc + 1).trim(); }
-      return { name, business: biz.split(".")[0], itemId: String(it.item_id || ""), fullName: full, address: addr, normalized: normUnit(name) };
-    }).filter(Boolean);
-    if (items.length) try { Db.put({ dbIntegration: DB_ID, documentKey: "unitCatalogCache", value: { items, ts: Date.now() } }); } catch (e) {}
+    const r = Db.get({ dbIntegration: DB_ID, documentKey: "unitCatalog" });
+    if (r && r.value) {
+      const raw = Array.isArray(r.value) ? r.value : (r.value.items || r.value);
+      if (Array.isArray(raw)) {
+        return raw.map(full => {
+          full = String(full || "").trim();
+          if (!full) return null;
+          const op = full.lastIndexOf("("), cp = full.lastIndexOf(")");
+          const before = op >= 0 ? full.slice(0, op).trim() : full;
+          let biz = "", name = before;
+          const bc = before.indexOf("]");
+          if (bc > 1 && before[0] === "[") { biz = before.slice(1, bc).trim(); name = before.slice(bc + 1).trim(); }
+          return { name, business: biz.split(".")[0], fullName: full, normalized: normUnit(name) };
+        }).filter(Boolean);
+      }
+    }
   } catch (e) { Log.info({ message: "loadUnitCatalog error: " + e }); }
-  return items;
+  return [];
 }
 
 // ── knowledge catalog ─────────────────────────────────────────────────────
@@ -100,7 +90,7 @@ async function loadUnitCatalog() {
 function loadKnowledge() {
   try {
     const r = Db.get({ dbIntegration: DB_ID, documentKey: "knowledge_catalog" });
-    if (r && r.value && Array.isArray(r.value.topics) && Date.now() - (r.value.ts || 0) < CATALOG_TTL) return r.value.topics;
+    if (r && r.value && Array.isArray(r.value.topics)) return r.value.topics;
   } catch (e) {}
   return null;
 }
@@ -178,7 +168,7 @@ async function stageGathering(state) {
   } else if (r.unit?.trim()) {
     const raw = r.unit.trim();
     const q = cleanForMatch(raw);
-    const catalog = await loadUnitCatalog();
+    const catalog = loadUnitCatalog();
     const candidates = q ? matchUnit(q, catalog) : [];
     if (candidates.length === 1) { unitName = candidates[0].name; unitFullName = candidates[0].fullName; unitItemId = candidates[0].itemId; unitKnown = true; unitCandidates = null; }
     else if (candidates.length > 1) {
@@ -337,7 +327,7 @@ async function stageConfirmation(state) {
 async function stageTransferring(state) {
   const email = extractEmail(incomingText);
   if (email) state.email = email;
-  const SUBTASK_FORM_ID = String(state.subtaskFormId || "REPLACE_WITH_SUBTASK_FORM_ID");
+  const SUBTASK_FORM_ID = String(state.subtaskFormId || "1096731");
 
   if (!state.email) {
     state.stage = "awaiting_email";
