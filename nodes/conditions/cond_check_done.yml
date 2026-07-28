@@ -4,8 +4,11 @@ name: checkDone
 position:
   x: 784
   y: -224
-next-step: func_processdialog_v1a2b
-next-error-step: func_sendreply_rzlnx
+next-step: null
+next-error-step: null
 parameters:
+  type: CONDITION
   condition: "{{ lastResult.done === false }}"
-  false-step: null
+  trueStep: func_processdialog_v1a2b
+  falseStep: func_sendreply_rzlnx
+  context-config: null
