@@ -1,0 +1,21 @@
+---
+id: func_routingclassifier_cxclj
+name: routingClassifier
+position:
+  x: 2000
+  y: 600
+next-step: cond_route_solver_duews
+next-error-step: func_releaselock_ttrbm
+parameters:
+  type: USER
+  collection: ID_Agents
+  function: routingClassifier
+  is-tool: false
+  parameters:
+    taskId:
+      type: STRING
+      value: "{{ taskId }}"
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

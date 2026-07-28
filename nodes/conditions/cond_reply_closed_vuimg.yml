@@ -1,0 +1,11 @@
+---
+id: cond_reply_closed_vuimg
+name: replyClosed?
+position:
+  x: 4000
+  y: 500
+next-step: func_closetask_rhbkf
+next-error-step: func_releaselock_ttrbm
+parameters:
+  condition: Context.getLastFunctionResult().newStage === 'closed'
+  false-step: func_releaselock_ttrbm

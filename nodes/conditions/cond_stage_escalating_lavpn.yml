@@ -1,0 +1,11 @@
+---
+id: cond_stage_escalating_lavpn
+name: stage=escalating?
+position:
+  x: 1600
+  y: 1000
+next-step: func_escalate_dalxn
+next-error-step: func_releaselock_ttrbm
+parameters:
+  condition: Context.getLastFunctionResult().stage === 'escalating'
+  false-step: cond_stage_closed_tawwi

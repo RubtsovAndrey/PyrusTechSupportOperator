@@ -1,0 +1,17 @@
+---
+id: func_closetask_rhbkf
+name: closeTask
+position:
+  x: 4400
+  y: 400
+next-step: func_releaselock_ttrbm
+next-error-step: func_releaselock_ttrbm
+parameters:
+  type: USER
+  collection: ID_Pyrus
+  function: closeTask
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

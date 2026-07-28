@@ -1,0 +1,17 @@
+---
+id: func_routeconfirm_mtufl
+name: routeAfterConfirmation
+position:
+  x: 2400
+  y: 1000
+next-step: func_sendreply_rzlnx
+next-error-step: func_releaselock_ttrbm
+parameters:
+  type: USER
+  collection: ID_State
+  function: routeAfterConfirmation
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

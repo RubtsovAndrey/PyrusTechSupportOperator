@@ -1,0 +1,11 @@
+---
+id: cond_stage_closed_tawwi
+name: stage=closed?
+position:
+  x: 1600
+  y: 1200
+next-step: func_closetask_rhbkf
+next-error-step: func_releaselock_ttrbm
+parameters:
+  condition: Context.getLastFunctionResult().stage === 'closed'
+  false-step: func_releaselock_ttrbm

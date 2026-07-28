@@ -1,0 +1,11 @@
+---
+id: trigger_webhook_pyrus
+name: Pyrus Webhook
+position:
+  x: 0
+  y: 0
+next-step: func_recvwebhook_kx7m2
+next-error-step: null
+parameters:
+  url: REPLACE_WITH_YOUR_WEBHOOK_URL
+  mock-payload: null

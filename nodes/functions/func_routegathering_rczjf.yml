@@ -1,0 +1,26 @@
+---
+id: func_routegathering_rczjf
+name: routeAfterGathering
+position:
+  x: 2400
+  y: 300
+next-step: cond_action_ask_xgwlo
+next-error-step: func_releaselock_ttrbm
+parameters:
+  type: USER
+  collection: ID_State
+  function: routeAfterGathering
+  is-tool: false
+  parameters:
+    taskId:
+      type: STRING
+      value: "{{ taskId }}"
+      filled-ai: false
+    state:
+      type: OBJECT
+      value: "{{ previousResult | json }}"
+      properties: null
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

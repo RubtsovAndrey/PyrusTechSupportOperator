@@ -1,0 +1,7 @@
+---
+id: closeTask
+name: closeTask
+description: Closes Pyrus task with field_updates for unit and component
+response-description: '{ closed, error? }'
+parameters: []
+language: JAVASCRIPT

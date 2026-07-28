@@ -1,0 +1,17 @@
+---
+id: func_recvwebhook_kx7m2
+name: receiveWebhook
+position:
+  x: 400
+  y: 0
+next-step: cond_skip_ceoki
+next-error-step: null
+parameters:
+  type: USER
+  collection: ID_Pyrus
+  function: receiveWebhook
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

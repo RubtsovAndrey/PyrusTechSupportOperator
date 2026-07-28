@@ -1,0 +1,7 @@
+---
+id: receiveWebhook
+name: receiveWebhook
+description: Parses Pyrus webhook payload, sets lock, publishes data to Context
+response-description: '{ taskId, incomingText, chatHistory, apiUrl, token, skipProcessing }'
+parameters: []
+language: JAVASCRIPT

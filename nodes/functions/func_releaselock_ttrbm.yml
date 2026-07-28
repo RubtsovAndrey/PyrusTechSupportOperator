@@ -1,0 +1,21 @@
+---
+id: func_releaselock_ttrbm
+name: releaseLock
+position:
+  x: 5200
+  y: 300
+next-step: null
+next-error-step: null
+parameters:
+  type: USER
+  collection: ID_Pyrus
+  function: releaseLock
+  is-tool: false
+  parameters:
+    taskId:
+      type: STRING
+      value: "{{ taskId }}"
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

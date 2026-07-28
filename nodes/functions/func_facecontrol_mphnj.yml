@@ -1,0 +1,17 @@
+---
+id: func_facecontrol_mphnj
+name: faceControl
+position:
+  x: 2000
+  y: 0
+next-step: cond_escalate_gebtt
+next-error-step: func_releaselock_ttrbm
+parameters:
+  type: USER
+  collection: ID_Agents
+  function: faceControl
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

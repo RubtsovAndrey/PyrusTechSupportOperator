@@ -1,0 +1,17 @@
+---
+id: func_sendreply_rzlnx
+name: sendReply
+position:
+  x: 3600
+  y: 400
+next-step: cond_after_reply_vzswr
+next-error-step: func_releaselock_ttrbm
+parameters:
+  type: USER
+  collection: ID_Pyrus
+  function: sendReply
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

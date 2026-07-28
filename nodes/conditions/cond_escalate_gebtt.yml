@@ -1,0 +1,11 @@
+---
+id: cond_escalate_gebtt
+name: faceControl.escalate?
+position:
+  x: 2400
+  y: 0
+next-step: func_escalate_dalxn
+next-error-step: func_releaselock_ttrbm
+parameters:
+  condition: Context.getLastFunctionResult().escalate === true
+  false-step: func_infogatherer_jylvp

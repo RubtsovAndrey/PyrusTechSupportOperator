@@ -1,0 +1,11 @@
+---
+id: cond_stage_solving_dsxrf
+name: stage=solving?
+position:
+  x: 1600
+  y: 600
+next-step: func_solver_yfrev
+next-error-step: func_releaselock_ttrbm
+parameters:
+  condition: Context.getLastFunctionResult().stage === 'solving'
+  false-step: cond_stage_await_vzswr

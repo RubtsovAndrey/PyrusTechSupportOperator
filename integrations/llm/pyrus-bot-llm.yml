@@ -1,0 +1,7 @@
+---
+key: REPLACE_WITH_YOUR_LLM_KEY
+credential-key: null
+name: YANDEX - aliceai-llm-flash
+provider: YANDEX
+model: just-ai/yandex-yandexgpt/aliceai-llm-flash
+is-direct-access: false

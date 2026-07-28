@@ -1,0 +1,7 @@
+---
+id: sendReply
+name: sendReply
+description: Sends bot reply as a comment to Pyrus task
+response-description: '{ success, newStage }'
+parameters: []
+language: JAVASCRIPT

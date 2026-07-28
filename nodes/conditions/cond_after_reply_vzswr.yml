@@ -1,0 +1,11 @@
+---
+id: cond_after_reply_vzswr
+name: afterReply?
+position:
+  x: 4000
+  y: 400
+next-step: func_escalate_dalxn
+next-error-step: func_releaselock_ttrbm
+parameters:
+  condition: Context.getLastFunctionResult().newStage === 'escalating'
+  false-step: cond_reply_closed_vuimg
