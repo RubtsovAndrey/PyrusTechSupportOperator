@@ -1,7 +1,7 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
 
 const taskIdFromContext = Context.get({ key: "taskId" });
-let effectiveTaskId = taskId;
+let effectiveTaskId = (typeof taskId !== "undefined") ? taskId : undefined;
 if (!effectiveTaskId || String(effectiveTaskId).includes("{{")) {
   effectiveTaskId = taskIdFromContext;
 }

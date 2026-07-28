@@ -4,7 +4,7 @@ const raw = Context.getMessageContent().payload;
 const taskId = String(raw.task_id);
 const apiUrl = raw.api_url || "https://api.pyrus.com/v4/";
 const token = raw.access_token;
-const task = raw.task;
+const task = raw.task || {};
 const comments = task.comments || [];
 
 // Skip non-comment events (close, etc.) — no action needed

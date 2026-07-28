@@ -115,8 +115,9 @@ function flattenFields(fields, out = []) {
 }
 
 function extractEmail(text) {
-  const m = String(text || "").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
-  return m ? m[0].toLowerCase() : null;
+  const matches = String(text || "").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g);
+  if (!matches || !matches.length) return null;
+  return matches[matches.length - 1].toLowerCase();
 }
 
 // ── STAGE: face_control ───────────────────────────────────────────────────
@@ -344,7 +345,7 @@ async function stageConfirmation(state) {
 // ── STAGE: transferring (createSubtask) ───────────────────────────────────
 
 async function stageTransferring(state) {
-  const email = extractEmail(incomingText);
+  const email = extractEmail(incomingText) || extractEmail(chatHistory);
   if (email) state.email = email;
   const SUBTASK_FORM_ID = String(state.subtaskFormId || "1096731");
 
