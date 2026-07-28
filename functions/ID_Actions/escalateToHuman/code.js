@@ -1,16 +1,20 @@
-const ctxTaskId = AgentContext.getValue({ key: "taskId" });
-const ufId = AgentContext.getValue({ key: "unitFieldId" });
-const cfId = AgentContext.getValue({ key: "componentFieldId" });
+var params = arguments[0] || {};
+var ctxTaskId = AgentContext.getValue({ key: "taskId" });
+var ufId = AgentContext.getValue({ key: "unitFieldId" });
+var cfId = AgentContext.getValue({ key: "componentFieldId" });
 
-const fieldUpdates = [];
-if (ufId && (unitFullName || AgentContext.getValue({ key: "unitFullName" }))) {
-  fieldUpdates.push({ id: Number(ufId), value: { item_name: String(unitFullName || AgentContext.getValue({ key: "unitFullName" })) } });
+var unitVal = params.unitFullName || params["unit-full-name"] || AgentContext.getValue({ key: "unitFullName" });
+var compVal = params.componentName || params["component-name"] || AgentContext.getValue({ key: "componentName" });
+
+var fieldUpdates = [];
+if (ufId && unitVal) {
+  fieldUpdates.push({ id: Number(ufId), value: { item_name: String(unitVal) } });
 }
-if (cfId && (componentName || AgentContext.getValue({ key: "componentName" }))) {
-  fieldUpdates.push({ id: Number(cfId), value: { item_name: String(componentName || AgentContext.getValue({ key: "componentName" })) } });
+if (cfId && compVal) {
+  fieldUpdates.push({ id: Number(cfId), value: { item_name: String(compVal) } });
 }
 
-const escalationReply = replyText || "Понадобится время на изучение проблемы, мы вернёмся с ответом.";
+var escalationReply = params.replyText || params["reply-text"] || AgentContext.getValue({ key: "replyText" }) || "Понадобится время на изучение проблемы, мы вернёмся с ответом.";
 
 AgentContext.putValue({ key: "replyText", value: escalationReply });
 AgentContext.putValue({ key: "escalateApproval", value: true });

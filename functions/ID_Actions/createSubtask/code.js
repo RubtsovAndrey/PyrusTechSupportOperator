@@ -1,9 +1,14 @@
-const API_URL = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
-const TOKEN = AgentContext.getValue({ key: "token" });
-const ctxTaskId = AgentContext.getValue({ key: "taskId" });
+var params = arguments[0] || {};
+var API_URL = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
+var TOKEN = AgentContext.getValue({ key: "token" });
+var ctxTaskId = AgentContext.getValue({ key: "taskId" });
 
-const effectiveParentId = parentTaskId || ctxTaskId;
-const FORM_ID = String(subtaskFormId || "1096731");
+var effectiveParentId = params.parentTaskId || params["parent-task-id"] || ctxTaskId;
+var FORM_ID = String(params.subtaskFormId || params["subtask-form-id"] || "1096731");
+var unitFullName = params.unitFullName || params["unit-full-name"] || AgentContext.getValue({ key: "unitFullName" });
+var componentName = params.componentName || params["component-name"] || AgentContext.getValue({ key: "componentName" });
+var email = params.email || AgentContext.getValue({ key: "email" });
+var problemSummary = params.problemSummary || params["problem-summary"] || AgentContext.getValue({ key: "problemSummary" });
 
 if (!effectiveParentId || !unitFullName || !componentName || !email) {
   return { success: false, reason: "missing required fields" };
