@@ -259,6 +259,12 @@ async function stageSolving(state) {
   const topic = topics?.find(t => t.key === state.solverKey) || null;
   const instruction = topic?.solverInstruction || null;
   const followUp = topic?.followUpQuestion || "Помогли ли эти действия решить проблему?";
+  const failedKeys = state.failedSolverKeys || [];
+  if (state.solverKey && failedKeys.includes(state.solverKey)) {
+    state.stage = "escalating";
+    state._reply = "Понадобится время на изучение проблемы, мы вернёмся с ответом.";
+    return state;
+  }
   if (!instruction) {
     state.stage = "escalating";
     state._reply = "Для этой проблемы понадобится время на изучение. Мы вернёмся с ответом.";
@@ -294,7 +300,8 @@ async function stageConfirmation(state) {
     p = `Ты — аналитик поддержки. Партнёру выдали инструкцию и спросили, помогло ли.
 История:
 """${chatHistory}"""
-Статус: "resolved" (помогло), "failed" (не помогло), "more_questions" (уточняющий вопрос), "unclear" (неясно).
+Статус: "resolved" (помогло, проблема решена), "failed" (не помогло, проблема актуальна, партнёр пишет что не работает/не помогло/по-прежнему не печатает), "more_questions" (партнёр задаёт НОВЫЙ вопрос, не связанный с текущей проблемой), "unclear" (неясно).
+Важно: если партнёр пишет, что проблема не решена или persists — это "failed", не "more_questions".
 Ответ JSON: {"status": "...", "reason": "кратко"}`;
   }
   const r = await llm(p, 0.2);
@@ -320,6 +327,7 @@ async function stageConfirmation(state) {
     state.confirmationType = "more_help"; state.confirmationAttempts = 0;
     state._reply = "Рад был помочь! Подскажите, нужна ли вам ещё помощь по какому-либо вопросу? (Да / Нет)";
   } else if (status === "failed") {
+    state.failedSolverKeys = (state.failedSolverKeys || []).concat([state.solverKey]).filter(Boolean);
     state.stage = "escalating"; state.confirmationAttempts = 0;
     state._reply = "Понадобится время на изучение проблемы, мы вернёмся с ответом.";
   } else if (status === "more_questions") {
