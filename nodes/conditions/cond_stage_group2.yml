@@ -4,8 +4,11 @@ name: confirmation/transferring/escalating/closed?
 position:
   x: 2500
   y: 300
-next-step: cond_stage_confirmation
+next-step: null
 next-error-step: null
 parameters:
+  type: CONDITION
   condition: "const s = Context.getLastFunctionResult(); s && ['awaiting_confirmation','transferring'].includes(s.stage)"
+  true-step: cond_stage_confirmation
   false-step: cond_stage_escalating
+  context-config: null

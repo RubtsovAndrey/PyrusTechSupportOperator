@@ -1,5 +1,7 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
 
+const taskId = arguments[0]?.taskId ?? arguments[0]?.["task-id"];
+
 const effectiveTaskId = taskId || AgentContext.getValue({ key: "taskId" });
 
 if (!effectiveTaskId) {

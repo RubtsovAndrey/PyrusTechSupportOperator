@@ -12,15 +12,15 @@ parameters:
   function: escalateToHuman
   is-tool: false
   parameters:
-    replyText:
+    reply-text:
       type: STRING
       value: null
       filled-ai: false
-    unitFullName:
+    unit-full-name:
       type: STRING
       value: null
       filled-ai: false
-    componentName:
+    component-name:
       type: STRING
       value: null
       filled-ai: false

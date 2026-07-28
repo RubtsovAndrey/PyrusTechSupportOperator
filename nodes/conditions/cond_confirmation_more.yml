@@ -4,8 +4,11 @@ name: more_questions?
 position:
   x: 4500
   y: 750
-next-step: agent_intake
+next-step: null
 next-error-step: null
 parameters:
-  condition: const r = Context.getLastFunctionResult(); r && r.status === 'more_questions'
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && r.status === 'more_questions'"
+  true-step: agent_intake
   false-step: func_finalize_p1x9k
+  context-config: null

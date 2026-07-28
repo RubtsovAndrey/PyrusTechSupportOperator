@@ -12,15 +12,15 @@ parameters:
   function: createSubtask
   is-tool: false
   parameters:
-    parentTaskId:
+    parent-task-id:
       type: STRING
       value: null
       filled-ai: false
-    unitFullName:
+    unit-full-name:
       type: STRING
       value: null
       filled-ai: false
-    componentName:
+    component-name:
       type: STRING
       value: null
       filled-ai: false
@@ -28,11 +28,11 @@ parameters:
       type: STRING
       value: null
       filled-ai: false
-    problemSummary:
+    problem-summary:
       type: STRING
       value: null
       filled-ai: false
-    subtaskFormId:
+    subtask-form-id:
       type: STRING
       value: null
       filled-ai: false

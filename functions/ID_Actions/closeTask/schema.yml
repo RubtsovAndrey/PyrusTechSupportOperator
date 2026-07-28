@@ -4,19 +4,19 @@ name: closeTask
 description: "Closes task in Pyrus with action=finished, updates unit/component fields."
 response-description: "{ success, replyText }"
 parameters:
-- name: replyText
+- name: reply-text
   type: STRING
   required: false
   description: Optional closing reply text
   properties: null
   items: null
-- name: unitFullName
+- name: unit-full-name
   type: STRING
   required: false
   description: Unit full name for field update
   properties: null
   items: null
-- name: componentName
+- name: component-name
   type: STRING
   required: false
   description: Component name for field update

@@ -5,7 +5,7 @@ description: Reads dialog state from DB by taskId and returns the current stage 
   Used for graph routing.
 response-description: "{ stage }"
 parameters:
-- name: taskId
+- name: task-id
   type: STRING
   required: false
   description: ID of the Pyrus task (defaults to AgentContext taskId)

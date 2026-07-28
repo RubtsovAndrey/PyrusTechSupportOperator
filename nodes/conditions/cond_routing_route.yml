@@ -4,8 +4,11 @@ name: routing route?
 position:
   x: 4000
   y: -250
-next-step: agent_solver
+next-step: null
 next-error-step: null
 parameters:
-  condition: const r = Context.getLastFunctionResult(); r && r.route === 'solver'
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && r.route === 'solver'"
+  true-step: agent_solver
   false-step: cond_routing_subtask
+  context-config: null

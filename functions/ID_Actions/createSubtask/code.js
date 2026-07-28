@@ -1,3 +1,10 @@
+const parentTaskId = arguments[0]?.parentTaskId ?? arguments[0]?.["parent-task-id"];
+const unitFullName = arguments[0]?.unitFullName ?? arguments[0]?.["unit-full-name"];
+const componentName = arguments[0]?.componentName ?? arguments[0]?.["component-name"];
+const email = arguments[0]?.email;
+const problemSummary = arguments[0]?.problemSummary ?? arguments[0]?.["problem-summary"];
+const subtaskFormId = arguments[0]?.subtaskFormId ?? arguments[0]?.["subtask-form-id"];
+
 const API_URL = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
 const TOKEN = AgentContext.getValue({ key: "token" });
 const ctxTaskId = AgentContext.getValue({ key: "taskId" });

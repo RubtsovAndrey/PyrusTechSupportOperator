@@ -4,8 +4,11 @@ name: intake?
 position:
   x: 2500
   y: -300
-next-step: agent_intake
+next-step: null
 next-error-step: null
 parameters:
-  condition: const s = Context.getLastFunctionResult(); s && s.stage === 'intake'
+  type: CONDITION
+  condition: "const s = Context.getLastFunctionResult(); s && s.stage === 'intake'"
+  true-step: agent_intake
   false-step: cond_stage_routing
+  context-config: null

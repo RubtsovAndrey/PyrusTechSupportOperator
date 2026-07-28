@@ -4,8 +4,11 @@ name: routing?
 position:
   x: 3000
   y: -150
-next-step: agent_routing
+next-step: null
 next-error-step: null
 parameters:
-  condition: const s = Context.getLastFunctionResult(); s && s.stage === 'routing'
+  type: CONDITION
+  condition: "const s = Context.getLastFunctionResult(); s && s.stage === 'routing'"
+  true-step: agent_routing
   false-step: agent_solver
+  context-config: null

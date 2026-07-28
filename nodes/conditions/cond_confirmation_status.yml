@@ -4,9 +4,11 @@ name: confirmation status?
 position:
   x: 4000
   y: 550
-next-step: cond_confirmation_resolved
+next-step: null
 next-error-step: null
 parameters:
-  condition: const r = Context.getLastFunctionResult(); r && (r.status === 'resolved'
-    || r.status === 'failed')
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && (r.status === 'resolved' || r.status === 'failed')"
+  true-step: cond_confirmation_resolved
   false-step: cond_confirmation_more
+  context-config: null

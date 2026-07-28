@@ -4,8 +4,11 @@ name: intake escalate?
 position:
   x: 4500
   y: -650
-next-step: func_escalate_m9k4j
+next-step: null
 next-error-step: null
 parameters:
-  condition: const r = Context.getLastFunctionResult(); r && r.action === 'escalate'
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && r.action === 'escalate'"
+  true-step: func_escalate_m9k4j
   false-step: func_finalize_p1x9k
+  context-config: null

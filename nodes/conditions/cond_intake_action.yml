@@ -4,9 +4,11 @@ name: intake action?
 position:
   x: 4000
   y: -500
-next-step: cond_intake_escalate
+next-step: null
 next-error-step: null
 parameters:
-  condition: const r = Context.getLastFunctionResult(); r && (r.action === 'escalate'
-    || r.action === 'clarify')
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && (r.action === 'escalate' || r.action === 'clarify')"
+  true-step: cond_intake_escalate
   false-step: agent_routing
+  context-config: null

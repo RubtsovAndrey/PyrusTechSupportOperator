@@ -5,19 +5,19 @@ description: "Creates a subtask in Pyrus with unit, component, and email fields.
   \ summary comment to subtask."
 response-description: "{ success, subtaskId }"
 parameters:
-- name: parentTaskId
+- name: parent-task-id
   type: STRING
   required: false
   description: Parent task ID (defaults to AgentContext taskId)
   properties: null
   items: null
-- name: unitFullName
+- name: unit-full-name
   type: STRING
   required: true
   description: Full unit name from catalog
   properties: null
   items: null
-- name: componentName
+- name: component-name
   type: STRING
   required: true
   description: Component name for subtask
@@ -29,13 +29,13 @@ parameters:
   description: Partner email
   properties: null
   items: null
-- name: problemSummary
+- name: problem-summary
   type: STRING
   required: false
   description: Problem description
   properties: null
   items: null
-- name: subtaskFormId
+- name: subtask-form-id
   type: STRING
   required: false
   description: Form ID for subtask (defaults to 1096731)
