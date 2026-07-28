@@ -97,6 +97,10 @@ AgentContext.putValue({ key: "newStage", value: null });
 try {
   const dbState = Db.get({ dbIntegration: "1000299722-pyrus_bot_database-hul", documentKey: "state:" + taskId });
   if (dbState && dbState.value) {
+    if (dbState.value.stage === "closed" || dbState.value.stage === "escalated") {
+      AgentContext.putValue({ key: "skipProcessing", value: true });
+      return { taskId, skipProcessing: true, reason: "task already " + dbState.value.stage };
+    }
     if (dbState.value.unitFullName) AgentContext.putValue({ key: "unitFullName", value: dbState.value.unitFullName });
     if (dbState.value.componentName) AgentContext.putValue({ key: "componentName", value: dbState.value.componentName });
     if (dbState.value.problemSummary) AgentContext.putValue({ key: "problemSummary", value: dbState.value.problemSummary });

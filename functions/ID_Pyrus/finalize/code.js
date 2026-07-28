@@ -5,9 +5,9 @@ const apiUrl = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.co
 const token = AgentContext.getValue({ key: "token" });
 
 let replyText = AgentContext.getValue({ key: "replyText" });
-const closeAction = AgentContext.getValue({ key: "closeAction" });
+let closeAction = AgentContext.getValue({ key: "closeAction" });
 const escalateApproval = AgentContext.getValue({ key: "escalateApproval" });
-const closeFieldUpdates = AgentContext.getValue({ key: "closeFieldUpdates" });
+let closeFieldUpdates = AgentContext.getValue({ key: "closeFieldUpdates" });
 let newStage = AgentContext.getValue({ key: "newStage" });
 
 // Infer newStage and replyText from last function result if not explicitly set
@@ -22,10 +22,23 @@ if (!newStage) {
     replyText = lastResult.replyText;
     newStage = "awaiting_confirmation";
   } else if (lastResult.subtaskId) {
-    newStage = "transferring";
+    newStage = "closed";
     const subtaskReply = "Обращение создано и передано специалистам. Мы вернёмся с ответом на ваш email.";
     AgentContext.putValue({ key: "replyText", value: subtaskReply });
     replyText = subtaskReply;
+    AgentContext.putValue({ key: "closeAction", value: "close" });
+    closeAction = "close";
+    var ufId = AgentContext.getValue({ key: "unitFieldId" });
+    var cfId = AgentContext.getValue({ key: "componentFieldId" });
+    var unitVal = AgentContext.getValue({ key: "unitFullName" });
+    var compVal = AgentContext.getValue({ key: "componentName" });
+    var fieldUpdates = [];
+    if (ufId && unitVal) fieldUpdates.push({ id: Number(ufId), value: { item_name: String(unitVal) } });
+    if (cfId && compVal) fieldUpdates.push({ id: Number(cfId), value: { item_name: String(compVal) } });
+    if (fieldUpdates.length) {
+      AgentContext.putValue({ key: "closeFieldUpdates", value: fieldUpdates });
+      closeFieldUpdates = fieldUpdates;
+    }
   }
 }
 
@@ -34,13 +47,15 @@ if (taskId && newStage) {
   try {
     const existing = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
     const currentState = (existing && existing.value) || {};
+    const lastResult = Context.getLastFunctionResult() || {};
     const updated = Object.assign({}, currentState, {
       stage: newStage,
       updatedAt: Date.now(),
       unitFullName: AgentContext.getValue({ key: "unitFullName" }) || currentState.unitFullName,
       componentName: AgentContext.getValue({ key: "componentName" }) || currentState.componentName,
       problemSummary: AgentContext.getValue({ key: "problemSummary" }) || currentState.problemSummary,
-      email: AgentContext.getValue({ key: "email" }) || currentState.email
+      email: AgentContext.getValue({ key: "email" }) || currentState.email,
+      subtaskId: lastResult.subtaskId || currentState.subtaskId
     });
     Db.put({ dbIntegration: DB_ID, documentKey: "state:" + taskId, value: updated });
   } catch (e) {

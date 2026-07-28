@@ -3,6 +3,7 @@ var TOKEN = AgentContext.getValue({ key: "token" });
 var ctxTaskId = AgentContext.getValue({ key: "taskId" });
 var parentUnitFieldId = AgentContext.getValue({ key: "unitFieldId" });
 var parentComponentFieldId = AgentContext.getValue({ key: "componentFieldId" });
+var DB_ID = "1000299722-pyrus_bot_database-hul";
 
 var effectiveParentId = parentTaskId || ctxTaskId;
 var FORM_ID = String(subtaskFormId || "1096731");
@@ -10,6 +11,17 @@ var resolvedUnitFullName = unitFullName || AgentContext.getValue({ key: "unitFul
 var resolvedComponentName = componentName || AgentContext.getValue({ key: "componentName" });
 var resolvedEmail = email || AgentContext.getValue({ key: "email" });
 var resolvedProblemSummary = problemSummary || AgentContext.getValue({ key: "problemSummary" });
+
+// Idempotency: check if subtask already created for this task
+try {
+  var existingState = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + effectiveParentId });
+  if (existingState && existingState.value && existingState.value.subtaskId) {
+    Log.info({ message: "createSubtask: subtask already exists (" + existingState.value.subtaskId + "), skipping" });
+    return { success: true, subtaskId: existingState.value.subtaskId, duplicate: true };
+  }
+} catch (e) {
+  Log.info({ message: "createSubtask: idempotency check error: " + e });
+}
 
 if (!effectiveParentId || !resolvedUnitFullName || !resolvedComponentName || !resolvedEmail) {
   var missing = [];
