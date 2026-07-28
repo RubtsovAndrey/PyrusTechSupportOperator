@@ -9,6 +9,6 @@ next-error-step: func_sendreply_rzlnx
 parameters:
   type: CONDITION
   condition: "{{ lastResult.done === false }}"
-  trueStep: func_processdialog_v1a2b
-  falseStep: func_sendreply_rzlnx
+  true-step: func_processdialog_v1a2b
+  false-step: func_sendreply_rzlnx
   context-config: null
