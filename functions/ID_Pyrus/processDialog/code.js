@@ -1,5 +1,15 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
 const LLM_KEY = Context.get({ key: "llmModelKey" }) || "1000299722-yandex_aliceaillmfla-div";
+
+const BOT_PERSONA = `ОБЩИЕ ПРАВИЛА:
+- Общайся только на русском языке. Если сообщение партнёра на другом языке — это повод для эскалации.
+- Общайся на «вы», кратко и строго по делу. Без лишней воды, без долгих вступлений.
+- Не сообщай, что ты бот или ИИ. Не упоминай передачу оператору или человеку.
+- При передаче обращения дальше говори: «Понадобится время на изучение проблемы, мы вернёмся с ответом».
+- Не давай обещаний (не «точно решим», не «исправим за 5 минут»). Только факты.
+- Не извиняйся чрезмерно. Одно извинение максимум за всё обращение.
+- Не выходи за рамки инструкции. Если нет готового решения — сообщай, что понадобится время на изучение.
+- Цель общения — помочь, а не успокоить. Не используй пустые утешения.`;
 const API_URL = Context.get({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
 const TOKEN = Context.get({ key: "token" });
 const TASK_ID = Context.get({ key: "taskId" });
@@ -12,7 +22,8 @@ const incomingText = (Context.get({ key: "incomingText" }) || "").trim();
 // ── helpers ──────────────────────────────────────────────────────────────
 
 async function llm(prompt, temp) {
-  const resp = await Llm.sendText({ llmModelKey: LLM_KEY, text: prompt, temperature: temp || 0.3 });
+  const fullPrompt = BOT_PERSONA + "\n\n" + prompt;
+  const resp = await Llm.sendText({ llmModelKey: LLM_KEY, text: fullPrompt, temperature: temp || 0.3 });
   let txt;
   if (typeof resp === "string") txt = resp;
   else {
@@ -113,7 +124,7 @@ function extractEmail(text) {
 async function stageFaceControl(state) {
   const p = `Ты — фильтр эскалации в поддержке партнёров пиццерий.
 Определи по последним репликам партнёра, нужно ли немедленно передать диалог человеку-оператору.
-Передавай оператору если: партнёр явно просит человека/оператора/менеджера, агрессивен, угрожает, ситуация критическая.
+Передавай оператору если: партнёр явно просит человека/оператора/менеджера, агрессивен, угрожает, ситуация критическая, ИЛИ пишет не на русском языке.
 Не передавай если партнёр просто описывает техническую проблему без явной просьбы об операторе.
 История:
 """${chatHistory}"""
@@ -250,16 +261,16 @@ async function stageSolving(state) {
   const followUp = topic?.followUpQuestion || "Помогли ли эти действия решить проблему?";
   if (!instruction) {
     state.stage = "escalating";
-    state._reply = "К сожалению, у меня нет готовой инструкции для этой проблемы. Перевожу диалог на специалиста технической поддержки.";
+    state._reply = "Для этой проблемы понадобится время на изучение. Мы вернёмся с ответом.";
     return state;
   }
-  const p = `Ты — дружелюбный ассистент техподдержки пиццерий.
+  const p = `Ты — ассистент техподдержки пиццерий.
 Партнёр столкнулся с: "${state.problemSummary}".
 Инструкция:
 """${instruction}"""
 История:
 """${chatHistory}"""
-Напиши пошаговое руководство строго по инструкции. Закончи вопросом: "${followUp}".
+Напиши пошаговое руководство строго по инструкции. Без воды, без вступлений вроде «Я понимаю вашу проблему». Закончи вопросом: "${followUp}".
 Ответ JSON: {"replyText": "твой ответ"}`;
   const r = await llm(p, 0.5);
   const reply = r.replyText || ("Пожалуйста, выполните: " + instruction + " " + followUp);
@@ -300,24 +311,24 @@ async function stageConfirmation(state) {
       state._reply = "Внимательно слушаю. Опишите, пожалуйста, ваш новый вопрос или проблему.";
     } else if (status === "failed") {
       state.stage = "escalating"; state.confirmationAttempts = 0; state.confirmationType = null;
-      state._reply = "Понял вас. Перевожу диалог на специалиста технической поддержки.";
+      state._reply = "Понадобится время на изучение проблемы, мы вернёмся с ответом.";
     } else {
-      if (attempts >= 2) { state.stage = "escalating"; state.confirmationAttempts = 0; state.confirmationType = null; state._reply = "Не удалось понять ваш ответ. Перевожу диалог на специалиста."; }
-      else { state.confirmationAttempts = attempts; state._reply = "Извините, не совсем понял. Подскажите, нужна ли вам ещё помощь? (Да / Нет)"; }
+      if (attempts >= 2) { state.stage = "escalating"; state.confirmationAttempts = 0; state.confirmationType = null; state._reply = "Понадобится время на изучение проблемы, мы вернёмся с ответом."; }
+      else { state.confirmationAttempts = attempts; state._reply = "Не совсем понял ваш ответ. Подскажите, нужна ли вам ещё помощь? (Да / Нет)"; }
     }
   } else if (status === "resolved") {
     state.confirmationType = "more_help"; state.confirmationAttempts = 0;
     state._reply = "Рад был помочь! Подскажите, нужна ли вам ещё помощь по какому-либо вопросу? (Да / Нет)";
   } else if (status === "failed") {
     state.stage = "escalating"; state.confirmationAttempts = 0;
-    state._reply = "Понял вас. Перевожу диалог на специалиста технической поддержки.";
+    state._reply = "Понадобится время на изучение проблемы, мы вернёмся с ответом.";
   } else if (status === "more_questions") {
     state.stage = "gathering"; state.confirmationAttempts = 0;
     state.problemSummary = null; state.problemKnown = false; state.solverKey = null; state.routingTopicKey = null; state.componentName = null; state.unitCandidates = null;
     state._reply = "Внимательно слушаю. Опишите, пожалуйста, ваш новый вопрос или проблему.";
   } else {
-    if (attempts >= 2) { state.stage = "escalating"; state.confirmationAttempts = 0; state._reply = "Не удалось понять ваш ответ. Перевожу диалог на специалиста."; }
-    else { state.confirmationAttempts = attempts; state._reply = "Извините, не совсем понял. Подскажите, предложенная инструкция помогла решить проблему? (Да / Нет)"; }
+    if (attempts >= 2) { state.stage = "escalating"; state.confirmationAttempts = 0; state._reply = "Понадобится время на изучение проблемы, мы вернёмся с ответом."; }
+    else { state.confirmationAttempts = attempts; state._reply = "Не совсем понял ваш ответ. Подскажите, инструкция помогла решить проблему? (Да / Нет)"; }
   }
   return state;
 }
@@ -336,7 +347,7 @@ async function stageTransferring(state) {
   }
   if (!state.unitFullName || !state.componentName) {
     state.stage = "escalating";
-    state._reply = "Не удалось создать подзадачу: не указан юнит или компонент. Перевожу на оператора.";
+    state._reply = "Не удалось создать обращение. Понадобится время на изучение проблемы, мы вернёмся с ответом.";
     return state;
   }
 
@@ -374,7 +385,7 @@ async function stageTransferring(state) {
     state._reply = "Вопрос передан в ответственную команду. Подзадача №" + subtaskId + ". С вами свяжутся по " + state.email + ". Спасибо!";
   } catch (e) {
     state.stage = "escalating"; state.error = String(e);
-    state._reply = "Не удалось создать подзадачу. Перевожу на оператора.";
+    state._reply = "Обращение передано. Понадобится время на изучение проблемы, мы вернёмся с ответом.";
   }
   return state;
 }
@@ -410,7 +421,7 @@ async function stageClosed(state) {
   if (!unitVal || !compVal) {
     Log.warn({ message: "closeTask: missing unit/component, escalating" });
     state.stage = "escalated";
-    state._reply = "Передача на оператора (бот не смог закрыть задачу: не проставлены юнит и/или компонент).";
+    state._reply = "Понадобится время на изучение проблемы, мы вернёмся с ответом.";
     state._escalateApproval = true;
     if (ufId && unitVal) state._closeFieldUpdates = [{ id: Number(ufId), value: { item_name: String(unitVal) } }];
     return state;
