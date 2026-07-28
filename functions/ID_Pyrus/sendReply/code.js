@@ -5,7 +5,9 @@ const token = Context.get({ key: "token" });
 const lastResult = Context.getLastFunctionResult() || {};
 const replyText = lastResult.replyText;
 
-if (!replyText) return { success: true, skipped: true, newStage: lastResult.newStage };
+if (!replyText && !lastResult.closeAction && !lastResult.escalateApproval) {
+  return { success: true, skipped: true, newStage: lastResult.newStage };
+}
 
 let outboundChannel = Context.get({ key: "outboundChannel" });
 
@@ -34,8 +36,18 @@ if (outboundChannel === undefined) {
   }
 }
 
-const body = { text: replyText };
+const body = { text: replyText || "Обращение обработано." };
 if (outboundChannel) body.channel = outboundChannel;
+
+// Include close action and field_updates from processDialog in the same comment
+if (lastResult.closeAction) {
+  body.action = lastResult.closeAction;
+  if (lastResult.closeFieldUpdates) body.field_updates = lastResult.closeFieldUpdates;
+}
+if (lastResult.escalateApproval) {
+  body.approval_choice = "approved";
+  if (lastResult.closeFieldUpdates) body.field_updates = lastResult.closeFieldUpdates;
+}
 
 try {
   await Http.post({

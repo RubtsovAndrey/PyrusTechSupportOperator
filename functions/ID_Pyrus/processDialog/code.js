@@ -391,15 +391,14 @@ async function stageEscalating(state) {
     state.error ? "Ошибка бота: " + state.error : null
   ].filter(Boolean);
 
-  const body = { text: lines.join("\n"), approval_choice: "approved" };
+  state._reply = state._reply || lines.join("\n");
+  state._escalateApproval = true;
   const ufId = Context.get({ key: "unitFieldId" }), cfId = Context.get({ key: "componentFieldId" });
   const fu = [];
   if (ufId && (state.unitFullName || state.unit)) fu.push({ id: Number(ufId), value: { item_name: String(state.unitFullName || state.unit) } });
   if (cfId && state.componentName) fu.push({ id: Number(cfId), value: { item_name: String(state.componentName) } });
-  if (fu.length) body.field_updates = fu;
-
-  try { await pyrusPost("tasks/" + TASK_ID + "/comments", body); state.stage = "escalated"; }
-  catch (e) { Log.warn({ message: "escalateToHuman error: " + e }); state.error = String(e); }
+  if (fu.length) state._closeFieldUpdates = fu;
+  state.stage = "escalated";
   return state;
 }
 
@@ -410,19 +409,18 @@ async function stageClosed(state) {
   const unitVal = state.unitFullName || state.unit, compVal = state.componentName;
   if (!unitVal || !compVal) {
     Log.warn({ message: "closeTask: missing unit/component, escalating" });
-    const body = { text: "Передача на оператора (бот не смог закрыть задачу: не проставлены юнит и/или компонент).", approval_choice: "approved" };
-    if (ufId && unitVal) { body.field_updates = [{ id: Number(ufId), value: { item_name: String(unitVal) } }]; }
-    try { await pyrusPost("tasks/" + TASK_ID + "/comments", body); } catch (e) {}
     state.stage = "escalated";
+    state._reply = "Передача на оператора (бот не смог закрыть задачу: не проставлены юнит и/или компонент).";
+    state._escalateApproval = true;
+    if (ufId && unitVal) state._closeFieldUpdates = [{ id: Number(ufId), value: { item_name: String(unitVal) } }];
     return state;
   }
   const fu = [];
   if (ufId) fu.push({ id: Number(ufId), value: { item_name: String(unitVal) } });
   if (cfId) fu.push({ id: Number(cfId), value: { item_name: String(compVal) } });
-  const body = { text: state.closeComment || "Обращение обработано ботом.", action: "finished" };
-  if (fu.length) body.field_updates = fu;
-  try { await pyrusPost("tasks/" + TASK_ID + "/comments", body); }
-  catch (e) { Log.info({ message: "closeTask error: " + e }); state.error = String(e); }
+  // Don't post comment here — sendReply will include action + field_updates in one comment
+  state._closeAction = "finished";
+  state._closeFieldUpdates = fu.length ? fu : null;
   return state;
 }
 
@@ -455,11 +453,15 @@ for (let i = 0; i < MAX_ITER; i++) {
   } else if (stage === "escalating") {
     state = await stageEscalating(state);
     saveState(state);
-    return { replyText: replyText || state._reply || null, newStage: state.stage, done: true };
+    return { replyText: replyText || state._reply || null, newStage: state.stage, done: true, closeAction: state._closeAction || null, closeFieldUpdates: state._closeFieldUpdates || null, escalateApproval: state._escalateApproval || false };
   } else if (stage === "closed") {
     state = await stageClosed(state);
+    if (state.stage === "escalated") {
+      // stageClosed redirected to escalating
+      state = await stageEscalating(state);
+    }
     saveState(state);
-    return { replyText: replyText || state._reply || null, newStage: state.stage, done: true };
+    return { replyText: replyText || state._reply || null, newStage: state.stage, done: true, closeAction: state._closeAction || null, closeFieldUpdates: state._closeFieldUpdates || null, escalateApproval: state._escalateApproval || false };
   } else {
     // escalated or unknown — nothing to do
     break;
