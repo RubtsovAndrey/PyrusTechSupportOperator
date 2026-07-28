@@ -45,6 +45,7 @@ parameters:
       Если проблема соответствует тематике — верни её key и route.
       Если нет уверенно — верни topicKey: null.
 
+      ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
       Верни JSON: {"topicKey": "ключ|null", "route": "solver|subtask|escalate|null", "reason": "кратко"}
     query-override: "Определи тематику проблемы партнёра из контекста (incomingText) и найди её в базе знаний."
   tools:
