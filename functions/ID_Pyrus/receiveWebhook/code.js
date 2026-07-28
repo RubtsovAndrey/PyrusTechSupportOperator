@@ -93,6 +93,18 @@ AgentContext.putValue({ key: "escalateApproval", value: null });
 AgentContext.putValue({ key: "closeFieldUpdates", value: null });
 AgentContext.putValue({ key: "newStage", value: null });
 
+// ── Restore persisted fields from DB state ──
+try {
+  const dbState = Db.get({ dbIntegration: "1000299722-pyrus_bot_database-hul", documentKey: "state:" + taskId });
+  if (dbState && dbState.value) {
+    if (dbState.value.unitFullName) AgentContext.putValue({ key: "unitFullName", value: dbState.value.unitFullName });
+    if (dbState.value.componentName) AgentContext.putValue({ key: "componentName", value: dbState.value.componentName });
+    if (dbState.value.problemSummary) AgentContext.putValue({ key: "problemSummary", value: dbState.value.problemSummary });
+  }
+} catch (e) {
+  Log.info({ message: "receiveWebhook: restore DB state error: " + e });
+}
+
 // ── Context Hydration: AgentContext.putValue for structured data ──
 AgentContext.putValue({ key: "taskId", value: taskId });
 AgentContext.putValue({ key: "incomingText", value: incomingText });

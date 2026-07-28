@@ -26,11 +26,11 @@ parameters:
       - Общайся только на русском языке.
 
       Используй tool searchKnowledge для поиска тематики по описанию проблемы.
-      Если проблема соответствует тематике — верни её key и route.
+      Если проблема соответствует тематике — верни её key, route и componentName из результата поиска.
       Если нет уверенно — верни topicKey: null.
 
       ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
-      Верни JSON: {"topicKey": "ключ|null", "route": "solver|subtask|escalate|null", "reason": "кратко"}
+      Верни JSON: {"topicKey": "ключ|null", "route": "solver|subtask|escalate|null", "componentName": "строка|null", "reason": "кратко"}
     query-override: Определи тематику проблемы партнёра из контекста (incomingText)
       и найди её в базе знаний.
   tools:

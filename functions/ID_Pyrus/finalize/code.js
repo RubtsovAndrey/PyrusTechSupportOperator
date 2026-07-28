@@ -31,7 +31,13 @@ if (taskId && newStage) {
   try {
     const existing = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
     const currentState = (existing && existing.value) || {};
-    const updated = Object.assign({}, currentState, { stage: newStage, updatedAt: Date.now() });
+    const updated = Object.assign({}, currentState, {
+      stage: newStage,
+      updatedAt: Date.now(),
+      unitFullName: AgentContext.getValue({ key: "unitFullName" }) || currentState.unitFullName,
+      componentName: AgentContext.getValue({ key: "componentName" }) || currentState.componentName,
+      problemSummary: AgentContext.getValue({ key: "problemSummary" }) || currentState.problemSummary
+    });
     Db.put({ dbIntegration: DB_ID, documentKey: "state:" + taskId, value: updated });
   } catch (e) {
     Log.warn({ message: "finalize: state update error: " + e });
