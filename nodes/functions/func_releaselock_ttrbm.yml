@@ -2,8 +2,8 @@
 id: func_releaselock_ttrbm
 name: releaseLock
 position:
-  x: 1600
-  y: 0
+  x: 1710
+  y: 12
 next-step: null
 next-error-step: null
 parameters:
