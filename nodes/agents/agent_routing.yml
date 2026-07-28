@@ -56,8 +56,8 @@ parameters:
     allowed-agent-node-ids: []
   stay-in-agent: false
   telephony-config: null
-  enable-context: true
-  chat-history-limit: 20
+  enable-context: false
+  chat-history-limit: 5
   sequential-tool-calls-limit: 3
   unique-tools-count-limit: 1
   total-response-timeout: null
