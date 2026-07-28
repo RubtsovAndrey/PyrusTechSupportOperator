@@ -340,24 +340,16 @@ async function stageTransferring(state) {
     return state;
   }
 
-  // Load form fields (cached)
+  // Load form template from DB
   let formFields = [];
-  const cacheKey = "form_fields:" + SUBTASK_FORM_ID;
   try {
-    const r = Db.get({ dbIntegration: DB_ID, documentKey: cacheKey });
-    if (r?.value?.formFields && Date.now() - (r.value.ts || 0) < 3600000) formFields = r.value.formFields;
-  } catch (e) {}
+    const r = Db.get({ dbIntegration: DB_ID, documentKey: "form_template:" + SUBTASK_FORM_ID });
+    if (r && r.value && Array.isArray(r.value.fields)) formFields = r.value.fields;
+  } catch (e) { Log.info({ message: "loadFormTemplate error: " + e }); }
   if (!formFields.length) {
-    try {
-      const resp = await Http.get({ url: API_URL + "forms/" + SUBTASK_FORM_ID, headers: { "Authorization": "Bearer " + TOKEN } });
-      const form = resp?.body ?? resp;
-      formFields = flattenFields(form.fields || []);
-      try { Db.put({ dbIntegration: DB_ID, documentKey: cacheKey, value: { formFields, ts: Date.now() } }); } catch (e) {}
-    } catch (e) {
-      state.stage = "escalating"; state.error = String(e);
-      state._reply = "Не удалось создать подзадачу. Перевожу на оператора.";
-      return state;
-    }
+    state.stage = "escalating"; state.error = "Шаблон формы " + SUBTASK_FORM_ID + " не найден в БД";
+    state._reply = "Не удалось создать подзадачу: не настроен шаблон формы. Перевожу на оператора.";
+    return state;
   }
 
   const findField = (...names) => formFields.find(f => names.includes(f.name));
