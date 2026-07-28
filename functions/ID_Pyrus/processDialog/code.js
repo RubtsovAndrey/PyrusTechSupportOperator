@@ -476,6 +476,7 @@ for (let i = 0; i < MAX_ITER; i++) {
   // Check if we're approaching timeout or LLM call limit
   if (llmCallCount >= MAX_LLM_CALLS || (Date.now() - START_TIME) > SOFT_TIMEOUT_MS) {
     saveState(state);
+    Context.set({ key: "processDialogDone", value: false });
     return { replyText: replyText || null, newStage: state.stage, done: false };
   }
 
@@ -494,6 +495,7 @@ for (let i = 0; i < MAX_ITER; i++) {
   } else if (stage === "escalating") {
     state = await stageEscalating(state);
     saveState(state);
+    Context.set({ key: "processDialogDone", value: true });
     return { replyText: replyText || state._reply || null, newStage: state.stage, done: true, closeAction: state._closeAction || null, closeFieldUpdates: state._closeFieldUpdates || null, escalateApproval: state._escalateApproval || false };
   } else if (stage === "closed") {
     state = await stageClosed(state);
@@ -502,6 +504,7 @@ for (let i = 0; i < MAX_ITER; i++) {
       state = await stageEscalating(state);
     }
     saveState(state);
+    Context.set({ key: "processDialogDone", value: true });
     return { replyText: replyText || state._reply || null, newStage: state.stage, done: true, closeAction: state._closeAction || null, closeFieldUpdates: state._closeFieldUpdates || null, escalateApproval: state._escalateApproval || false };
   } else {
     // escalated or unknown — nothing to do
@@ -514,6 +517,7 @@ for (let i = 0; i < MAX_ITER; i++) {
     // Don't return yet if terminal stage needs to run (closed/escalating)
     if (state.stage !== "closed" && state.stage !== "escalating") {
       saveState(state);
+      Context.set({ key: "processDialogDone", value: true });
       return { replyText, newStage: state.stage, done: true };
     }
   }
@@ -522,4 +526,5 @@ for (let i = 0; i < MAX_ITER; i++) {
 }
 
 saveState(state);
+Context.set({ key: "processDialogDone", value: true });
 return { replyText: null, newStage: state.stage, done: true };
