@@ -190,22 +190,18 @@ For detailed info about parameters and response, read the corresponding file.
 
 - `ID_Pyrus.receiveWebhook` — Parses Pyrus webhook payload, sets idempotency lock, hydrates AgentContext with dialog history (addNote) and structured data (putValue)
   Directory: functions/ID_Pyrus/receiveWebhook/
-- `ID_Pyrus.sendReply` — Sends bot reply as comment to Pyrus task. Reads replyText, closeAction, escalateApproval from AgentContext. Includes debounce check.
-  Directory: functions/ID_Pyrus/sendReply/
-- `ID_Pyrus.releaseLock` — Releases the processing lock for a Pyrus task. Reads taskId from AgentContext or parameter.
-  Directory: functions/ID_Pyrus/releaseLock/
-- `ID_State.getDialogState` — Reads dialog state from DB by taskId. Returns state object with stage, unit, problemSummary, etc.
-  Directory: functions/ID_State/getDialogState/
-- `ID_State.updateDialogState` — Saves dialog state to DB by taskId (upsert). Merges provided fields with existing state.
-  Directory: functions/ID_State/updateDialogState/
+- `ID_Pyrus.finalize` — Terminal function: sends reply to Pyrus, updates dialog state in DB, releases lock. Infers newStage from context.
+  Directory: functions/ID_Pyrus/finalize/
+- `ID_State.routeStage` — Reads dialog state from DB, returns current stage name for graph routing. Maps face_control/gathering → intake.
+  Directory: functions/ID_State/routeStage/
 - `ID_Tools.matchUnit` — Searches unit catalog by text query. Returns matching units with name, business, fullName. Used as LLM agent tool.
   Directory: functions/ID_Tools/matchUnit/
 - `ID_Tools.searchKnowledge` — Searches knowledge catalog for matching topic by problem description. Returns topic key, route, solverInstruction. Used as LLM agent tool.
   Directory: functions/ID_Tools/searchKnowledge/
 - `ID_Actions.createSubtask` — Creates a subtask in Pyrus with unit, component, and email fields. Posts summary comment to subtask.
   Directory: functions/ID_Actions/createSubtask/
-- `ID_Actions.escalateToHuman` — Escalates task to human operator: sets escalateApproval in AgentContext, updates unit/component fields if available.
+- `ID_Actions.escalateToHuman` — Escalates task to human operator: sets escalateApproval and newStage in AgentContext.
   Directory: functions/ID_Actions/escalateToHuman/
-- `ID_Actions.closeTask` — Closes task in Pyrus with action=finished, updates unit/component fields. Sets closeAction in AgentContext.
+- `ID_Actions.closeTask` — Closes task in Pyrus with action=finished, sets closeAction and newStage in AgentContext.
   Directory: functions/ID_Actions/closeTask/
 

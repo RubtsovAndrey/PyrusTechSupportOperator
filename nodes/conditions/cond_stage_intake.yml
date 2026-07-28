@@ -1,0 +1,14 @@
+---
+id: cond_stage_intake
+name: intake?
+position:
+  x: 900
+  y: -200
+next-step: agent_intake
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const s = Context.getLastFunctionResult(); s && s.stage === 'intake'"
+  true-step: agent_intake
+  false-step: cond_stage_routing
+  context-config: null

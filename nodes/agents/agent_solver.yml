@@ -1,11 +1,11 @@
 ---
 id: agent_solver
-name: Solver
+name: Solver Agent
 position:
-  x: 2600
-  y: -200
-next-step: func_updatedialogstate_solv
-next-error-step: func_releaselock_ttrbm
+  x: 1300
+  y: 100
+next-step: func_finalize_p1x9k
+next-error-step: null
 parameters:
   llm-model-key: 1000299722-yandex_aliceaillmfla-div
   chat-history-limit: 20
@@ -38,7 +38,6 @@ parameters:
       properties:
         replyText:
           type: string
-          description: step-by-step solution for the partner
       required:
         - replyText
     verbose-mode: false

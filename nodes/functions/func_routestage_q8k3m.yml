@@ -1,23 +1,19 @@
 ---
-id: func_updatedialogstate_p7n3q
-name: updateDialogState
+id: func_routestage_q8k3m
+name: routeStage
 position:
-  x: 3100
+  x: 500
   y: 0
-next-step: func_sendreply_rzlnx
-next-error-step: func_releaselock_ttrbm
+next-step: cond_stage_group1
+next-error-step: null
 parameters:
   type: USER
   collection: ID_State
-  function: updateDialogState
+  function: routeStage
   is-tool: false
   parameters:
     taskId:
       type: STRING
-      value: null
-      filled-ai: false
-    state:
-      type: OBJECT
       value: null
       filled-ai: false
   context-config: null

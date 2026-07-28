@@ -1,0 +1,14 @@
+---
+id: cond_intake_escalate
+name: intake escalate?
+position:
+  x: 1700
+  y: -300
+next-step: func_escalate_m9k4j
+next-error-step: null
+parameters:
+  type: CONDITION
+  condition: "const r = Context.getLastFunctionResult(); r && r.action === 'escalate'"
+  true-step: func_escalate_m9k4j
+  false-step: func_finalize_p1x9k
+  context-config: null

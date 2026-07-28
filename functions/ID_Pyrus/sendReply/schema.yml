@@ -1,7 +1,0 @@
----
-id: sendReply
-name: sendReply
-description: Sends bot reply as comment to Pyrus task. Reads replyText, closeAction, escalateApproval from AgentContext. Includes debounce check.
-response-description: "{ success, skipped?, debounced? }"
-parameters: []
-language: JAVASCRIPT

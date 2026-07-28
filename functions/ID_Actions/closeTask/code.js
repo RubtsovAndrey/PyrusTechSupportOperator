@@ -20,6 +20,6 @@ const closeReply = replyText || "Рад был помочь! Если появя
 AgentContext.putValue({ key: "replyText", value: closeReply });
 AgentContext.putValue({ key: "closeAction", value: "finished" });
 AgentContext.putValue({ key: "closeFieldUpdates", value: fieldUpdates.length ? fieldUpdates : null });
-AgentContext.putValue({ key: "dialogDone", value: true });
+AgentContext.putValue({ key: "newStage", value: "closed" });
 
 return { success: true, replyText: closeReply };

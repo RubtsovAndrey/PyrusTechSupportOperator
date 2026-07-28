@@ -1,0 +1,4 @@
+---
+description: Finalize function — sends reply, updates state, releases lock
+dependencies: null
+language: JAVASCRIPT

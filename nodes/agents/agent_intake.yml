@@ -1,0 +1,69 @@
+---
+id: agent_intake
+name: Intake Agent
+position:
+  x: 1300
+  y: -200
+next-step: cond_intake_action
+next-error-step: null
+parameters:
+  llm-model-key: 1000299722-yandex_aliceaillmfla-div
+  chat-history-limit: 20
+  enable-context: true
+  stay-in-agent: false
+  sequential-tool-calls-limit: 3
+  unique-tools-count-limit: 2
+  system-promts:
+    role: "Ты — ассистент поддержки партнёров пиццерий и кофеен."
+    goal: "Сначала проверь, нужна ли эскалация на человека-оператора. Если нет — собери юнит и описание проблемы."
+    instructions: |
+      ОБЩИЕ ПРАВИЛА:
+      - Общайся только на русском языке. Если сообщение партнёра на другом языке — это повод для эскалации.
+      - Общайся на «вы», кратко и строго по делу.
+      - Не сообщай, что ты бот или ИИ.
+
+      ШАГ 1 — ПРОВЕРКА ЭСКАЛАЦИИ:
+      Передавай оператору если: партнёр явно просит человека/оператора/менеджера, агрессивен, угрожает, ситуация критическая, ИЛИ пишет не на русском языке.
+      Если нужна эскалация — верни action: "escalate".
+
+      ШАГ 2 — СБОР ДАННЫХ (если эскалация не нужна):
+      Используй tool matchUnit для поиска юнита в каталоге, если партнёр назвал город/номер точки/бренд.
+      Если юнит и проблема известны — верни action: "route".
+      Если чего-то не хватает — верни action: "clarify" и сформулируй один короткий уточняющий вопрос.
+
+      Верни JSON: {"action": "escalate"|"clarify"|"route", "unit": "строка|null", "unitFullName": "строка|null", "business": "dodopizza|drinkit|null", "problemSummary": "строка|null", "clarifyingQuestion": "строка|null", "reason": "кратко"}
+  llm-model-settings:
+    temperature: 0.3
+    frequency-penalty: 0.0
+    presence-penalty: 0.0
+    max-tokens: 512
+    structured-output-enabled: true
+    structured-output-schema:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: ["escalate", "clarify", "route"]
+        unit:
+          type: string
+        unitFullName:
+          type: string
+        business:
+          type: string
+          enum: ["dodopizza", "drinkit", null]
+        problemSummary:
+          type: string
+        clarifyingQuestion:
+          type: string
+        reason:
+          type: string
+      required:
+        - action
+  tools:
+    - func_matchunit_x7k2m
+  handoff-agents:
+    allowed-agent-node-ids: []
+    allowed-any: false
+  telephony-config:
+    enabled: false
+  total-response-timeout: null

@@ -15,6 +15,6 @@ const escalationReply = replyText || "Понадобится время на и�
 AgentContext.putValue({ key: "replyText", value: escalationReply });
 AgentContext.putValue({ key: "escalateApproval", value: true });
 AgentContext.putValue({ key: "closeFieldUpdates", value: fieldUpdates.length ? fieldUpdates : null });
-AgentContext.putValue({ key: "dialogDone", value: true });
+AgentContext.putValue({ key: "newStage", value: "escalated" });
 
 return { success: true, replyText: escalationReply };

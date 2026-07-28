@@ -1,21 +1,17 @@
 ---
-id: func_releaselock_ttrbm
-name: releaseLock
+id: func_finalize_p1x9k
+name: finalize
 position:
-  x: 1710
-  y: 12
+  x: 2100
+  y: 0
 next-step: null
 next-error-step: null
 parameters:
   type: USER
   collection: ID_Pyrus
-  function: releaseLock
+  function: finalize
   is-tool: false
-  parameters:
-    taskId:
-      type: STRING
-      value: "{{ taskId }}"
-      filled-ai: false
+  parameters: {}
   context-config: null
   hitl-tool-config: null
   custom-headers: null

@@ -2,10 +2,10 @@
 id: func_createsubtask_v5r8k
 name: createSubtask
 position:
-  x: 2300
-  y: 300
-next-step: func_updatedialogstate_p7n3q
-next-error-step: func_releaselock_ttrbm
+  x: 1900
+  y: 100
+next-step: func_finalize_p1x9k
+next-error-step: null
 parameters:
   type: USER
   collection: ID_Actions

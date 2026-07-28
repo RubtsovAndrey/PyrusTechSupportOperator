@@ -1,14 +1,14 @@
 ---
 id: cond_confirmation_more
-name: confirmationMoreQuestions?
+name: more_questions?
 position:
-  x: 2900
-  y: 500
-next-step: agent_infogatherer
+  x: 1700
+  y: 350
+next-step: agent_intake
 next-error-step: null
 parameters:
   type: CONDITION
   condition: "const r = Context.getLastFunctionResult(); r && r.status === 'more_questions'"
-  true-step: agent_infogatherer
-  false-step: func_sendreply_rzlnx
+  true-step: agent_intake
+  false-step: func_finalize_p1x9k
   context-config: null
