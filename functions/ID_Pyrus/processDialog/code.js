@@ -179,10 +179,21 @@ async function stageGathering(state) {
   if (unitCandidates?.length && incomingText) {
     const biz = detectBiz(incomingText) || (r.business || "").toLowerCase();
     let filtered = biz ? unitCandidates.filter(c => c.business === biz) : unitCandidates;
+    if (biz && filtered.length === 0) {
+      const catalog = loadUnitCatalog();
+      const bizCatalog = catalog.filter(c => c.business === biz);
+      const q = cleanForMatch(incomingText);
+      filtered = q ? matchUnit(q, bizCatalog) : bizCatalog;
+    }
     const q = cleanForMatch(incomingText);
     const refined = q ? matchUnit(q, filtered) : filtered;
     if (refined.length === 1) { unitName = refined[0].name; unitFullName = refined[0].fullName; unitItemId = refined[0].itemId; unitKnown = true; unitCandidates = null; }
     else if (refined.length > 1) unitCandidates = refined;
+    else if (filtered.length === 0 && biz) {
+      const catalog = loadUnitCatalog();
+      const bizCatalog = catalog.filter(c => c.business === biz);
+      if (bizCatalog.length > 0) unitCandidates = bizCatalog;
+    }
   } else if (r.unit?.trim()) {
     const raw = r.unit.trim();
     const q = cleanForMatch(raw);
@@ -212,7 +223,7 @@ async function stageGathering(state) {
     state.stage = "routing"; state.gatherAttempts = 0;
     return state;
   }
-  if (effectiveAttempts >= 5) {
+  if (effectiveAttempts >= 7) {
     state.stage = "escalating"; state.gatherAttempts = 0;
     return state;
   }
@@ -220,8 +231,8 @@ async function stageGathering(state) {
   let q = r.clarifyingQuestion;
   if (!q) {
     if (unitCandidates?.length) {
-      const opts = unitCandidates.map(c => c.name + " — " + (c.business === "drinkit" ? "кофейня" : c.business === "dodopizza" ? "пиццерия" : c.business)).filter((v, i, a) => a.indexOf(v) === i);
-      q = "Нашлось несколько юнитов. Уточните: " + opts.join(" или ") + "?";
+      const opts = unitCandidates.slice(0, 5).map((c, i) => `${i + 1}. ${c.fullName || c.name} (${c.business === "drinkit" ? "кофейня" : c.business === "dodopizza" ? "пиццерия" : c.business})`);
+      q = "Нашлось несколько юнитов. Уточните ваш:\n" + opts.join("\n");
     } else if (!unitKnown && !problemKnown) q = "Пожалуйста, уточните юнит и опишите проблему.";
     else if (!unitKnown) q = "Пожалуйста, уточните юнит (город и номер точки, например Москва 1-1).";
     else q = "Пожалуйста, опишите проблему подробнее.";
