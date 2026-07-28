@@ -1,7 +1,0 @@
----
-id: routeAfterConfirmation
-name: routeAfterConfirmation
-description: Processes confirmationClassifier result and determines next stage and reply
-response-description: '{ action: "reply", replyText: string, newStage: string }'
-parameters: []
-language: JAVASCRIPT

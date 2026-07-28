@@ -1,7 +1,0 @@
----
-id: infoGatherer
-name: infoGatherer
-description: LLM-based extraction of unit and problem from chat history. Matches unit against Pyrus catalog.
-response-description: '{ unitKnown, unit, unitFullName, unitItemId, unitCandidates, problemKnown, problemSummary, clarifyingQuestion }'
-parameters: []
-language: JAVASCRIPT

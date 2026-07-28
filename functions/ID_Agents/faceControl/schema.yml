@@ -1,7 +1,0 @@
----
-id: faceControl
-name: faceControl
-description: LLM-based filter deciding whether to escalate to human immediately. Sets stage to gathering if not escalating.
-response-description: '{ escalate: boolean, reason: string }'
-parameters: []
-language: JAVASCRIPT

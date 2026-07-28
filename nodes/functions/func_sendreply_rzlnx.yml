@@ -2,9 +2,9 @@
 id: func_sendreply_rzlnx
 name: sendReply
 position:
-  x: 3600
-  y: 400
-next-step: cond_after_reply_vzswr
+  x: 1200
+  y: 0
+next-step: func_releaselock_ttrbm
 next-error-step: func_releaselock_ttrbm
 parameters:
   type: USER

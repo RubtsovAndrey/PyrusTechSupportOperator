@@ -1,7 +1,0 @@
----
-id: solver
-name: solver
-description: LLM-based solver using knowledge base instructions. Updates dialogState stage to awaiting_confirmation or escalating.
-response-description: '{ replyText, newStage, fallback }'
-parameters: []
-language: JAVASCRIPT

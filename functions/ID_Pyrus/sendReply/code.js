@@ -5,7 +5,7 @@ const token = Context.get({ key: "token" });
 const lastResult = Context.getLastFunctionResult() || {};
 const replyText = lastResult.replyText;
 
-if (!replyText) return { success: false, reason: "empty text", newStage: lastResult.newStage };
+if (!replyText) return { success: true, skipped: true, newStage: lastResult.newStage };
 
 let outboundChannel = Context.get({ key: "outboundChannel" });
 

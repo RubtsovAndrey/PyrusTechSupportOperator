@@ -1,7 +1,0 @@
----
-id: createSubtask
-name: createSubtask
-description: Creates a subtask in Pyrus with form fields (unit, component, email). Asks for email if missing.
-response-description: '{ replyText, newStage, subtaskId? }'
-parameters: []
-language: JAVASCRIPT

@@ -1,7 +1,0 @@
----
-id: confirmationClassifier
-name: confirmationClassifier
-description: LLM-based classifier for partner's confirmation response (resolved/failed/more_questions/unclear)
-response-description: '{ status, reason }'
-parameters: []
-language: JAVASCRIPT

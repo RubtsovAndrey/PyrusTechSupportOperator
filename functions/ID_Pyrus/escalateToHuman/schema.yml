@@ -1,7 +1,0 @@
----
-id: escalateToHuman
-name: escalateToHuman
-description: Approves Pyrus task step to transfer to human operator with summary comment
-response-description: '{ escalated, error? }'
-parameters: []
-language: JAVASCRIPT
