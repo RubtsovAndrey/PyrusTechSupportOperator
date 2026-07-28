@@ -2,11 +2,10 @@
 id: cond_check_done
 name: checkDone
 position:
-  x: 1000
-  y: 90
+  x: 784
+  y: -224
 next-step: func_processdialog_v1a2b
 next-error-step: func_sendreply_rzlnx
 parameters:
-  type: CONDITION
   condition: "{{ lastResult.done === false }}"
-  context-config: null
+  false-step: null

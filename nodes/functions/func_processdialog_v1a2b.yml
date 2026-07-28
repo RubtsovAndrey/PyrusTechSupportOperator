@@ -2,8 +2,8 @@
 id: func_processdialog_v1a2b
 name: processDialog
 position:
-  x: 796
-  y: 90
+  x: 797
+  y: 91
 next-step: cond_check_done
 next-error-step: func_releaselock_ttrbm
 parameters:
