@@ -4,7 +4,7 @@ name: Intake Agent
 position:
   x: 3054
   y: -466
-next-step: cond_intake_action
+next-step: func_parsejson_intake
 next-error-step: null
 parameters:
   llm-model-key: 1000299722-yandex_aliceaillmfla-div
@@ -15,7 +15,7 @@ parameters:
     frequency-penalty: 0.0
     presence-penalty: 0.0
     verbose-mode: false
-    structured-output-enabled: true
+    structured-output-enabled: false
     structured-output-schema:
       type: object
       properties:

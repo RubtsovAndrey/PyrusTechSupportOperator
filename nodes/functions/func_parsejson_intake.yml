@@ -1,0 +1,17 @@
+---
+id: func_parsejson_intake
+name: parseIntake
+position:
+  x: 3400
+  y: -466
+next-step: cond_intake_action
+next-error-step: null
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: parseLlmJson
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

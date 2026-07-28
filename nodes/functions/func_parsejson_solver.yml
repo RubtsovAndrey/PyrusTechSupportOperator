@@ -1,0 +1,17 @@
+---
+id: func_parsejson_solver
+name: parseSolver
+position:
+  x: 3700
+  y: 51
+next-step: func_finalize_p1x9k
+next-error-step: null
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: parseLlmJson
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

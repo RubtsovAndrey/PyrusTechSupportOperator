@@ -4,7 +4,7 @@ name: Solver Agent
 position:
   x: 3349
   y: 51
-next-step: func_finalize_p1x9k
+next-step: func_parsejson_solver
 next-error-step: null
 parameters:
   llm-model-key: 1000299722-yandex_aliceaillmfla-div
@@ -15,7 +15,7 @@ parameters:
     frequency-penalty: 0.0
     presence-penalty: 0.0
     verbose-mode: false
-    structured-output-enabled: true
+    structured-output-enabled: false
     structured-output-schema:
       type: object
       properties:
