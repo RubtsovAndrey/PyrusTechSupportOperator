@@ -1,5 +1,5 @@
-const DB_ID = "REPLACE_WITH_YOUR_DB_KEY";
-const LLM_KEY = Context.get({ key: "llmModelKey" }) || "REPLACE_WITH_YOUR_LLM_KEY";
+const DB_ID = "1000299722-pyrus_bot_database-hul";
+const LLM_KEY = Context.get({ key: "llmModelKey" }) || "1000299722-yandex_aliceaillmfla-div";
 const API_URL = Context.get({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
 const TOKEN = Context.get({ key: "token" });
 const TASK_ID = Context.get({ key: "taskId" });

@@ -7,5 +7,5 @@ position:
 next-step: func_recvwebhook_kx7m2
 next-error-step: null
 parameters:
-  url: REPLACE_WITH_YOUR_WEBHOOK_URL
+  url: https://agentplatform.just-ai.com/workflow-trigger/ede0819c-4ba6-419f-8460-d3269e5db77d
   mock-payload: null

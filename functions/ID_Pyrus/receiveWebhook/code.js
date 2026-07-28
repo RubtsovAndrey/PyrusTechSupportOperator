@@ -1,4 +1,4 @@
-const DB_ID = "REPLACE_WITH_YOUR_DB_KEY";
+const DB_ID = "1000299722-pyrus_bot_database-hul";
 
 const raw = Context.getMessageContent().payload;
 const taskId = String(raw.task_id);
@@ -75,7 +75,7 @@ Context.set({ key: "incomingText", value: incomingText });
 Context.set({ key: "chatHistory", value: chatHistory.trim() });
 Context.set({ key: "apiUrl", value: apiUrl });
 Context.set({ key: "token", value: token });
-Context.set({ key: "llmModelKey", value: "REPLACE_WITH_YOUR_LLM_KEY" });
+Context.set({ key: "llmModelKey", value: "1000299722-yandex_aliceaillmfla-div" });
 Context.set({ key: "formId", value: String(task.form_id) });
 Context.set({ key: "unitFieldId", value: unitFieldId });
 Context.set({ key: "componentFieldId", value: componentFieldId });

@@ -188,12 +188,12 @@ For detailed info about parameters and response, read the corresponding file.
 
 ## User Functions
 
-- `ID_Pyrus.processDialog` — Main orchestrator — reads dialog state, loops through stages (faceControl, infoGatherer, routing, solver, confirmation), performs Pyrus API actions (escalate, close, subtask), returns replyText if needed
-  Directory: functions/ID_Pyrus/processDialog/
 - `ID_Pyrus.receiveWebhook` — Parses Pyrus webhook payload, sets lock, publishes data to Context
   Directory: functions/ID_Pyrus/receiveWebhook/
 - `ID_Pyrus.releaseLock` — Releases the processing lock for a Pyrus task
   Directory: functions/ID_Pyrus/releaseLock/
 - `ID_Pyrus.sendReply` — Sends bot reply as a comment to Pyrus task
   Directory: functions/ID_Pyrus/sendReply/
+- `ID_Pyrus.processDialog` — Main orchestrator — reads dialog state, loops through stages (faceControl, infoGatherer, routing, solver, confirmation), performs Pyrus API actions (escalate, close, subtask), returns replyText if needed
+  Directory: functions/ID_Pyrus/processDialog/
 

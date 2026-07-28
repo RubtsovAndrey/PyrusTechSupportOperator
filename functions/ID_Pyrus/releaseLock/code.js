@@ -1,4 +1,4 @@
-const DB_ID = "REPLACE_WITH_YOUR_DB_KEY";
+const DB_ID = "1000299722-pyrus_bot_database-hul";
 
 const taskIdFromContext = Context.get({ key: "taskId" });
 let effectiveTaskId = taskId;
