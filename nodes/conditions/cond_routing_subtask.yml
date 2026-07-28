@@ -2,13 +2,10 @@
 id: cond_routing_subtask
 name: routing subtask?
 position:
-  x: 4500
-  y: -50
-next-step: null
+  x: 4448
+  y: -110
+next-step: func_createsubtask_v5r8k
 next-error-step: null
 parameters:
-  type: CONDITION
-  condition: "const r = Context.getLastFunctionResult(); r && r.route === 'subtask'"
-  true-step: func_createsubtask_v5r8k
+  condition: const r = Context.getLastFunctionResult(); r && r.route === 'subtask'
   false-step: func_escalate_m9k4j
-  context-config: null

@@ -2,13 +2,10 @@
 id: cond_stage_confirmation
 name: confirmation?
 position:
-  x: 3000
-  y: 300
-next-step: null
+  x: 2928
+  y: 272
+next-step: agent_confirmation
 next-error-step: null
 parameters:
-  type: CONDITION
-  condition: "const s = Context.getLastFunctionResult(); s && s.stage === 'awaiting_confirmation'"
-  true-step: agent_confirmation
+  condition: const s = Context.getLastFunctionResult(); s && s.stage === 'awaiting_confirmation'
   false-step: func_createsubtask_v5r8k
-  context-config: null

@@ -188,16 +188,16 @@ For detailed info about parameters and response, read the corresponding file.
 
 ## User Functions
 
+- `ID_Pyrus.receiveWebhook` — Parses Pyrus webhook payload, verifies HMAC signature, sets idempotency lock, hydrates AgentContext with dialog history and structured data
+  Directory: functions/ID_Pyrus/receiveWebhook/
+- `ID_Pyrus.finalize` — Sends bot reply to Pyrus, updates dialog state in DB, releases lock. Single terminal function for all paths.
+  Directory: functions/ID_Pyrus/finalize/
 - `ID_Actions.closeTask` — Closes task in Pyrus with action=finished, updates unit/component fields.
   Directory: functions/ID_Actions/closeTask/
 - `ID_Actions.createSubtask` — Creates a subtask in Pyrus with unit, component, and email fields. Posts summary comment to subtask.
   Directory: functions/ID_Actions/createSubtask/
 - `ID_Actions.escalateToHuman` — Escalates task to human operator: approves bot stage in Pyrus, updates unit/component fields if available.
   Directory: functions/ID_Actions/escalateToHuman/
-- `ID_Pyrus.finalize` — Sends bot reply to Pyrus, updates dialog state in DB, releases lock. Single terminal function for all paths.
-  Directory: functions/ID_Pyrus/finalize/
-- `ID_Pyrus.receiveWebhook` — Parses Pyrus webhook payload, verifies HMAC signature, sets idempotency lock, hydrates AgentContext with dialog history and structured data
-  Directory: functions/ID_Pyrus/receiveWebhook/
 - `ID_State.routeStage` — Reads dialog state from DB by taskId and returns the current stage name. Used for graph routing.
   Directory: functions/ID_State/routeStage/
 - `ID_Tools.matchUnit` — Searches unit catalog by text query. Returns matching units with name, business, fullName. Use when partner mentions their unit (city, point number, or brand).

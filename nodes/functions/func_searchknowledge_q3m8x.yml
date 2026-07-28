@@ -2,8 +2,8 @@
 id: func_searchknowledge_q3m8x
 name: searchKnowledge
 position:
-  x: 3500
-  y: -550
+  x: 3337
+  y: -785
 next-step: null
 next-error-step: null
 parameters:
