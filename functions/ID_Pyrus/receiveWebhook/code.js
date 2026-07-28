@@ -7,6 +7,12 @@ const token = raw.access_token;
 const task = raw.task;
 const comments = task.comments || [];
 
+// Skip non-comment events (close, etc.) — no action needed
+if (raw.event !== "comment") {
+  Context.set({ key: "skipProcessing", value: true });
+  return { taskId, incomingText: "", chatHistory: "", apiUrl, token, skipProcessing: true };
+}
+
 let chatHistory = "";
 const historyComments = comments
   .filter(c => c.text || c.formatted_text)
