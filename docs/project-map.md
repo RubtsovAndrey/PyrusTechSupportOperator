@@ -36,7 +36,17 @@
 - **Запросы от сети.** `matchUnit` с `scope: "network"` берёт первую точку сети, номер
   точки у партнёра не запрашивается.
 - **Пошаговая БЗ.** Статья — упорядоченный список решений; за виток выдаётся одно.
-  `preQuestions` задаются до решения, `onFail` определяет выход после последнего шага.
+  `onFail` определяет выход после последнего шага.
+- **`preQuestions` выдаются отдельным витком.** Пока они не заданы, `searchKnowledge`
+  вообще не отдаёт `solverInstruction` — модель физически не может склеить вопрос с
+  решением. Факт показа вопросов живёт в `data.preQuestionsAsked`.
+- **Шаги считаются по номеру, а не по числу ответов.** `searchKnowledge` записывает
+  выданный шаг в `data.offeredStep`, `parseAgentJson` логирует попытку с этим номером и не
+  дублирует его. Когда шаги исчерпаны, инструмент говорит `stepsExhausted` вместо того,
+  чтобы повторить последний.
+- **Email для подзадачи спрашивается без выхода из ветки.** Исход `clarify_email` ставит
+  стадию `awaiting_email`, адрес из ответа вытаскивает регуляркой `receiveWebhook`, и виток
+  идёт сразу в `createSubtask`, минуя intake и solver.
 - **Саммари оператору.** Перед каждой эскалацией во внутреннюю переписку уходит комментарий
   без `channel`: кто обращается, суть, тематика, что уже пробовали, причина передачи.
 - **Подзадачи.** Поля исходного чата и подзадачи заполняются, в подзадачу уходит внутренний
@@ -65,6 +75,7 @@
 trigger_webhook_pyrus → receiveWebhook → skip?
   skip=true                         → finalize
   reopened after close?  reopened   → Outcome - silent handover → finalize
+  waiting for email?  awaiting_email → createSubtask
   confirmation?  awaiting_confirmation → agent_confirmation → parseConfirmation
     │                                     resolved      → Outcome - solved → finalize
     │                                     more_questions → agent_intake
@@ -81,7 +92,7 @@ trigger_webhook_pyrus → receiveWebhook → skip?
                              иначе          → Outcome - reply
           route=subtask → createSubtask → subtask created?
                              success → Outcome - subtask created
-                             иначе   → subtask needs email? → Outcome - clarify | escalate
+                             иначе   → subtask needs email? → Outcome - clarify email | escalate
           иначе         → Outcome - escalate
 ```
 
@@ -104,9 +115,11 @@ trigger_webhook_pyrus → receiveWebhook → skip?
 ## Документ задачи `state:<taskId>`
 
 ```
-stage            gathering | awaiting_confirmation | closed | escalated
+stage            gathering | awaiting_confirmation | awaiting_email | closed | escalated
 data.unitFullName, componentName, problemSummary, email, topicKey
-data.attempts    [{ topicKey, step, at, advice }] — что уже предлагали
+data.attempts    [{ topicKey, step, at, advice }] — что уже предлагали, без дублей
+data.offeredStep { topicKey, stepNumber, at } — что выдал инструмент на этом витке
+data.preQuestionsAsked [topicKey] — чьи вопросы из статьи уже заданы
 runtime          apiUrl, token, outboundChannel, lastInboundCommentId, formId,
                  unitFieldId, componentFieldId, isFirstBotReply, partnerName
 clarifyStreak    сколько уточняющих вопросов подряд — страховка от зацикливания

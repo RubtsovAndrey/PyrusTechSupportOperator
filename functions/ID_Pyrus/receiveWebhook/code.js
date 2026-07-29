@@ -135,15 +135,25 @@ try {
   Log.warn({ message: "receiveWebhook: state read failed: " + e });
 }
 
-const data = stored.data || {};
+const data = Object.assign({}, stored.data);
+
+// An address is recognisable without a model, and the one stage that waits for it must
+// not depend on an agent noticing it: the subtask branch asks for the email and the
+// answer goes straight back to creating the subtask, with no intake in between.
+const emailMatch = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.exec(incomingText || "");
+if (!data.email && emailMatch) {
+  data.email = emailMatch[0];
+  Log.info({ message: "receiveWebhook: picked up email " + data.email + " from the message on task " + taskId });
+}
 
 // ── Stage the graph should enter (this replaces the separate routeStage function) ──
-// Only four stages are reachable. Anything else falls back to intake, which is
+// Only these stages are reachable. Anything else falls back to intake, which is
 // always safe: intake re-gathers whatever is missing.
 let stage = "intake";
 if (stored.stage === "closed") stage = "reopened";               // bot had finished, partner wrote again
 else if (stored.stage === "escalated") stage = "escalated";      // operator owns the thread now
 else if (stored.stage === "awaiting_confirmation") stage = "awaiting_confirmation";
+else if (stored.stage === "awaiting_email") stage = "awaiting_email";
 
 // Request-scoped Pyrus data lives in the task document, not in the session, so
 // concurrent webhooks for different tasks cannot overwrite each other.
@@ -153,6 +163,7 @@ try {
     documentKey: "state:" + taskId,
     value: Object.assign({}, stored, {
       updatedAt: now,
+      data: data,
       runtime: {
         apiUrl: apiUrl,
         token: token,

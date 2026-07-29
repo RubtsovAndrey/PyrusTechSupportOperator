@@ -98,36 +98,47 @@ try {
   Log.error({ message: "createSubtask: could not persist subtaskId " + subtaskId + ": " + e });
 }
 
-// One comment does both jobs: it leaves the summary in the internal correspondence
-// (no `channel`, so nothing reaches the partner) and completes the current workflow
-// step with `action: "finished"`, which is what moves the subtask on to the people
-// who have to work it.
-const attempts = Array.isArray(data.attempts) ? data.attempts : [];
-try {
-  await Http.post({
-    url: apiUrl + "tasks/" + subtaskId + "/comments",
-    headers: headers,
-    body: {
-      text: [
-        "[Внутренняя переписка]",
-        "Подзадача создана ботом техподдержки.",
-        "Юнит: " + data.unitFullName,
-        "Компонент: " + data.componentName,
-        data.problemSummary ? "Проблема: " + data.problemSummary : null,
-        data.topicKey ? "Тематика БЗ: " + data.topicKey : null,
-        attempts.length
-          ? "Уже пробовали:\n" + attempts.map((a, i) => "  " + (i + 1) + ") " + (a.advice || "—")).join("\n")
-          : null,
-        "Email партнёра: " + data.email,
-        "Родительская задача: №" + taskId
-      ].filter(Boolean).join("\n"),
-      action: "finished"
-    }
-  });
-} catch (e) {
-  // The subtask exists; a missing summary comment is not worth failing the turn.
-  Log.warn({ message: "createSubtask: summary comment failed: " + e });
+// Two requests where there used to be one. A single comment carrying both the summary
+// and `action: "finished"` failed as a whole — Pyrus answered 400 — and the subtask was
+// left without the summary AND standing on its first step, so nobody picked it up.
+// Split, one failure can no longer cost both.
+function describe(e) {
+  const body = e && (e.body || (e.response && e.response.body));
+  return String(e) + (body ? " | Pyrus: " + (typeof body === "string" ? body : JSON.stringify(body)).slice(0, 500) : "");
 }
+
+async function comment(body, what) {
+  try {
+    await Http.post({ url: apiUrl + "tasks/" + subtaskId + "/comments", headers: headers, body: body });
+    return true;
+  } catch (e) {
+    Log.warn({ message: "createSubtask: " + what + " failed on subtask " + subtaskId + ": " + describe(e) });
+    return false;
+  }
+}
+
+// The summary goes into the internal correspondence: no `channel`, so nothing of it
+// reaches the partner.
+const attempts = Array.isArray(data.attempts) ? data.attempts : [];
+await comment({
+  text: [
+    "[Внутренняя переписка]",
+    "Подзадача создана ботом техподдержки.",
+    "Юнит: " + data.unitFullName,
+    "Компонент: " + data.componentName,
+    data.problemSummary ? "Проблема: " + data.problemSummary : null,
+    data.topicKey ? "Тематика БЗ: " + data.topicKey : null,
+    attempts.length
+      ? "Уже пробовали:\n" + attempts.map(a => "  " + (a.step || "?") + ") " + (a.advice || "—")).join("\n")
+      : null,
+    "Email партнёра: " + data.email,
+    "Родительская задача: №" + taskId
+  ].filter(Boolean).join("\n")
+}, "summary comment");
+
+// Completing the current workflow step is what moves the subtask on to the people who
+// have to work it, so it is worth its own request even if the summary did not go in.
+await comment({ action: "finished" }, "step advance");
 
 // Parent task fields are updated by finalize together with the closing comment,
 // so no extra request is made here.

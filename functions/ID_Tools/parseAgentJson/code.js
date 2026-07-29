@@ -109,16 +109,30 @@ if (taskId) {
     // Every solution handed to the partner is logged: searchKnowledge reads this to
     // pick the next step of the article instead of repeating the first one, and the
     // escalation summary reads it to tell the operator what has been tried already.
+    //
+    // The step number comes from searchKnowledge, which wrote down what it handed out,
+    // and a step already logged is never logged twice. Numbering the attempts by their
+    // own count instead made the log lie about the article: one repeated answer became
+    // a third "attempt" on a two-step article, and the counter ran past the end.
     if (String(stage || "") === "solver" && parsed.replyText && String(parsed.kind || "solution") !== "questions") {
       const attempts = Array.isArray(data.attempts) ? data.attempts.slice() : [];
       const topicKey = data.topicKey || null;
-      attempts.push({
-        topicKey: topicKey,
-        step: attempts.filter(a => a && String(a.topicKey || "") === String(topicKey)).length + 1,
-        at: Date.now(),
-        advice: String(parsed.replyText).replace(/\s+/g, " ").trim().slice(0, 200)
-      });
-      data.attempts = attempts;
+      const mine = attempts.filter(a => a && String(a.topicKey || "") === String(topicKey));
+      const offered = data.offeredStep && String(data.offeredStep.topicKey || "") === String(topicKey)
+        ? Number(data.offeredStep.stepNumber) || 0
+        : 0;
+      const step = offered || mine.length + 1;
+      if (mine.some(a => Number(a.step) === step)) {
+        Log.warn({ message: "parseAgentJson: step " + step + " of topic " + topicKey + " was already delivered, not counting it again" });
+      } else {
+        attempts.push({
+          topicKey: topicKey,
+          step: step,
+          at: Date.now(),
+          advice: String(parsed.replyText).replace(/\s+/g, " ").trim().slice(0, 200)
+        });
+        data.attempts = attempts;
+      }
     }
     Db.put({
       dbIntegration: DB_ID,

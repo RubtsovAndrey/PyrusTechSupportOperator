@@ -5,9 +5,12 @@ description: "Finds the knowledge topic that matches a problem description, rank
   \ by token overlap. Returns found=false when nothing matches (never guesses), with\
   \ knowledge-base chunks as a hint. Pass topicKey for an exact lookup."
 response-description: "With query: { found, source, topics: [{ score, key, description,\
-  \ route, componentName }], chunks }. With topicKey: one solution step to deliver\
-  \ now — { found, key, componentName, preQuestions, onFail, solverInstruction, followUpQuestion,\
-  \ stepNumber, stepCount, isLastStep, stepsExhausted }"
+  \ route, componentName }], chunks }. With topicKey, one of three: the article's own\
+  \ questions, which must be asked before any solution — { found: true, needsPreQuestions:\
+  \ true, preQuestions, solverInstruction: null }; the single step to deliver now —\
+  \ { found: true, solverInstruction, followUpQuestion, stepNumber, stepCount, isLastStep,\
+  \ preQuestions, onFail, key, componentName }; or nothing left to try — { found: false,\
+  \ stepsExhausted: true, onFail }"
 parameters:
 - name: query
   type: STRING

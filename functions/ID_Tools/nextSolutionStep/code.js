@@ -47,11 +47,17 @@ const stepCount = Array.isArray(topic.steps) && topic.steps.length
   ? topic.steps.filter(s => s && (typeof s === "string" ? s : s.instruction)).length
   : (topic.solverInstruction ? 1 : 0);
 
+// Which step the article has got to, not how many answers were sent: mirrors stepDone
+// in searchKnowledge. Counting the answers let a single repeated reply declare a
+// two-step article finished after the first step had barely been tried.
 const attempts = Array.isArray(data.attempts) ? data.attempts : [];
-const made = attempts.filter(a => a && String(a.topicKey || "") === String(topicKey)).length;
+const mine = attempts.filter(a => a && String(a.topicKey || "") === String(topicKey));
+let made = 0;
+mine.forEach(a => { const n = Number(a.step); if (n > made) made = n; });
+if (!made) made = mine.length;
 
 const onFail = String(topic.onFail || "escalate") === "subtask" ? "subtask" : "escalate";
-const extra = { topicKey: topicKey, attemptsMade: made, stepCount: stepCount };
+const extra = { topicKey: topicKey, stepsTried: made, attemptsLogged: mine.length, stepCount: stepCount };
 
 if (made < stepCount) return decide("solver", "step " + (made + 1) + " of " + stepCount + " is still untried", extra);
 

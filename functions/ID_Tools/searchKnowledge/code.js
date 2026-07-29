@@ -53,20 +53,47 @@ function normalizeTopic(t) {
   };
 }
 
-// How many solutions this task has already been given for the topic. Written by
-// parseAgentJson after every solver turn, so a repeated step cannot be sent twice.
-function attemptsMade(key) {
+const taskId = (AgentContext.getValue({ key: "dialog" }) || {}).taskId || null;
+
+function loadData() {
+  if (!taskId) return {};
   try {
-    const dialog = AgentContext.getValue({ key: "dialog" }) || {};
-    if (!dialog.taskId) return 0;
-    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + dialog.taskId });
-    const attempts = doc && doc.value && doc.value.data ? doc.value.data.attempts : null;
-    if (!Array.isArray(attempts)) return 0;
-    return attempts.filter(a => a && String(a.topicKey || "") === String(key)).length;
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
+    return (doc && doc.value && doc.value.data) || {};
   } catch (e) {
-    Log.warn({ message: "searchKnowledge: attempts read failed: " + e });
-    return 0;
+    Log.warn({ message: "searchKnowledge: state read failed: " + e });
+    return {};
   }
+}
+
+// Written straight into the task document rather than returned to the agent: what the
+// article has already spent on this task must not depend on the model repeating it.
+function patchData(patch) {
+  if (!taskId) return;
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
+    const state = (doc && doc.value) || {};
+    Db.put({
+      dbIntegration: DB_ID,
+      documentKey: "state:" + taskId,
+      value: Object.assign({}, state, { data: Object.assign({}, state.data, patch), updatedAt: Date.now() })
+    });
+  } catch (e) {
+    Log.warn({ message: "searchKnowledge: state write failed: " + e });
+  }
+}
+
+// The highest step of this article the partner has already been given. Counting the
+// attempts instead was what let one repeated answer shift the whole article: every
+// extra delivery moved the index on, and once it ran past the end it was clamped back
+// to the last step, so the same advice was sent again and again. The number of the
+// step is recorded with the attempt, and that number is what decides the next one.
+function stepDone(attempts, key) {
+  const mine = (Array.isArray(attempts) ? attempts : []).filter(a => a && String(a.topicKey || "") === String(key));
+  let max = 0;
+  mine.forEach(a => { const n = Number(a.step); if (n > max) max = n; });
+  // Attempts written before the step number was recorded: fall back to counting them.
+  return max || mine.length;
 }
 
 let topics = [];
@@ -95,10 +122,50 @@ if (topicKey) {
       Log.warn({ message: "searchKnowledge: topic " + topic.key + " has no solution steps" });
       return { found: false, topics: [], source: "no-steps", onFail: topic.onFail };
     }
-    const done = attemptsMade(topic.key);
-    const index = Math.min(done, topic.steps.length - 1);
+    const data = loadData();
+
+    // The article's own questions come FIRST and alone. Handing the instruction over
+    // together with them let the model answer both at once: the partner got the first
+    // solution attached to a question, that turn counted as "questions" and was never
+    // logged, and the next turn served the very same solution again.
+    const asked = Array.isArray(data.preQuestionsAsked) ? data.preQuestionsAsked : [];
+    if (topic.preQuestions.length && asked.indexOf(topic.key) < 0) {
+      patchData({ preQuestionsAsked: asked.concat([topic.key]) });
+      Log.info({ message: "searchKnowledge: topic " + topic.key + " asks " + topic.preQuestions.length + " question(s) before any solution" });
+      return {
+        found: true,
+        source: "pre-questions",
+        key: topic.key,
+        description: topic.description,
+        componentName: topic.componentName,
+        preQuestions: topic.preQuestions,
+        onFail: topic.onFail,
+        needsPreQuestions: true,
+        stepCount: topic.steps.length,
+        solverInstruction: null,
+        followUpQuestion: null
+      };
+    }
+
+    const done = stepDone(data.attempts, topic.key);
+    // Every step has been tried. Repeating the last one is worse than admitting it:
+    // the caller leaves the topic through onFail instead.
+    if (done >= topic.steps.length) {
+      Log.warn({ message: "searchKnowledge: topic " + topic.key + " is exhausted (" + done + " of " + topic.steps.length + " steps tried)" });
+      return {
+        found: false,
+        topics: [],
+        source: "steps-exhausted",
+        key: topic.key,
+        stepsExhausted: true,
+        stepCount: topic.steps.length,
+        onFail: topic.onFail
+      };
+    }
+    const index = done;
     const step = topic.steps[index];
-    Log.info({ message: "searchKnowledge: topic " + topic.key + " step " + (index + 1) + "/" + topic.steps.length + " (attempts made: " + done + ")" });
+    patchData({ offeredStep: { topicKey: topic.key, stepNumber: index + 1, at: Date.now() } });
+    Log.info({ message: "searchKnowledge: topic " + topic.key + " step " + (index + 1) + "/" + topic.steps.length + " (steps tried: " + done + ")" });
     return {
       found: true,
       source: "key",
@@ -110,7 +177,7 @@ if (topicKey) {
       stepNumber: index + 1,
       stepCount: topic.steps.length,
       isLastStep: index >= topic.steps.length - 1,
-      stepsExhausted: done >= topic.steps.length,
+      stepsExhausted: false,
       solverInstruction: step.instruction,
       followUpQuestion: step.followUpQuestion
     };

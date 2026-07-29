@@ -4,7 +4,7 @@ name: subtask needs email?
 position:
   x: 5344
   y: -462
-next-step: func_clarify
+next-step: func_clarify_email
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).action === 'clarify'"

@@ -10,6 +10,17 @@ const OUTCOMES = {
     withFieldUpdates: false,
     defaultReply: "Уточните, пожалуйста, детали вопроса."
   },
+  // Asking for the email is the one clarification that must come back to where it was
+  // asked from. Sent as a plain clarify, the answer "a@b.ru" landed in the intake stage
+  // and travelled the whole pipeline again: intake, routing, solver — and the partner
+  // got a solution he had already been given instead of the subtask he was waiting for.
+  clarify_email: {
+    nextStage: "awaiting_email",
+    action: null,
+    approvalChoice: null,
+    withFieldUpdates: false,
+    defaultReply: "Укажите, пожалуйста, ваш email — на него придёт ответ по обращению."
+  },
   reply: {
     nextStage: "awaiting_confirmation",
     action: null,
@@ -84,7 +95,8 @@ const runtime = state.runtime || {};
 // row a human takes over, and the summary tells him what the bot could not collect.
 const MAX_CLARIFY_STREAK = 3;
 const isClarify = String(outcome || "") === "clarify";
-let clarifyStreak = isClarify ? (Number(state.clarifyStreak) || 0) + 1 : 0;
+const asksSomething = isClarify || String(outcome || "") === "clarify_email";
+let clarifyStreak = asksSomething ? (Number(state.clarifyStreak) || 0) + 1 : 0;
 let loopBroken = false;
 if (clarifyStreak > MAX_CLARIFY_STREAK) {
   Log.warn({ message: "applyOutcome: " + (clarifyStreak - 1) + " clarifying questions in a row on task " + taskId + ", handing over to an operator" });
@@ -168,7 +180,7 @@ let internalNote = null;
 if (spec.nextStage === "escalated") {
   const attempts = Array.isArray(data.attempts) ? data.attempts : [];
   const tried = attempts.length
-    ? attempts.map((a, i) => "  " + (i + 1) + ") " + (a.advice || "—")).join("\n")
+    ? attempts.map((a, i) => "  " + (a.step || i + 1) + ") " + (a.advice || "—")).join("\n")
     : "  ничего не предлагалось";
   const who = [runtime.partnerName, data.unitFullName ? "юнит " + data.unitFullName : null, data.email]
     .filter(Boolean).join(", ");
