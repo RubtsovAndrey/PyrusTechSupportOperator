@@ -56,7 +56,7 @@ const dialog = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = prev.taskId || dialog.taskId || null;
 
 // An unknown outcome name would silently do nothing, so escalate instead of guessing.
-const spec = OUTCOMES[String(outcome || "")] || OUTCOMES.escalated;
+let spec = OUTCOMES[String(outcome || "")] || OUTCOMES.escalated;
 if (!OUTCOMES[String(outcome || "")]) {
   Log.error({ message: "applyOutcome: unknown outcome '" + outcome + "', escalating task " + taskId });
 }
@@ -76,6 +76,22 @@ try {
 
 const data = state.data || {};
 const runtime = state.runtime || {};
+
+// Insurance against the failure a partner actually lived through: asked for the unit,
+// then for the problem, then for the unit again, four times over. The question is now
+// composed from the task document, which removes the cause, but no future defect in an
+// agent may be allowed to hold a partner in that loop — after this many questions in a
+// row a human takes over, and the summary tells him what the bot could not collect.
+const MAX_CLARIFY_STREAK = 3;
+const isClarify = String(outcome || "") === "clarify";
+let clarifyStreak = isClarify ? (Number(state.clarifyStreak) || 0) + 1 : 0;
+let loopBroken = false;
+if (clarifyStreak > MAX_CLARIFY_STREAK) {
+  Log.warn({ message: "applyOutcome: " + (clarifyStreak - 1) + " clarifying questions in a row on task " + taskId + ", handing over to an operator" });
+  spec = OUTCOMES.escalated;
+  loopBroken = true;
+  clarifyStreak = 0;
+}
 
 // Pyrus field updates are built here only, instead of being repeated in every action.
 let fieldUpdates = null;
@@ -97,32 +113,39 @@ let text = spec.silent ? null : (replyText || prev.clarifyingQuestion || prev.re
 // know at which moment the error appears — then repeated all of it verbatim on the
 // next turn. Only the unit and the essence of the problem are needed, so the wording
 // of every routine question is fixed here instead of being generated.
-const CLARIFY_TEXT = {
-  need_unit_and_problem: "Подскажите, о какой точке идёт речь (город и номер) и что именно сейчас не работает?",
-  need_unit: "Подскажите, о какой точке идёт речь — город и номер?",
-  need_problem: "Подскажите, что именно сейчас не работает или что произошло?",
-  need_business: "Подскажите, это пиццерия или кофейня?",
-  need_point_number: "Подскажите, пожалуйста, номер точки.",
+//
+// The question is also COMPOSED from what the task document is missing rather than
+// picked by the agent. Letting the agent choose one of these produced the loop the
+// partner saw: it asked for the unit, then for the problem, then for the unit again,
+// because each turn it named a single missing fact and got a single fact back. Asking
+// for everything that is still missing at once cannot loop — the question shrinks with
+// every answer, and when nothing is left there is nothing to ask.
+const UNIT_QUESTION = {
+  need_business: "это пиццерия или кофейня",
+  need_point_number: "номер точки",
   // Asked when the partner writes on behalf of a whole network: the point number is
   // deliberately not requested, any point of that network will do.
-  need_city_and_business: "Подскажите, о каком городе идёт речь и это пиццерии или кофейни?",
-  need_city: "Подскажите, о каком городе идёт речь?"
+  need_city_and_business: "о каком городе идёт речь и это пиццерии или кофейни",
+  need_city: "о каком городе идёт речь"
 };
+const UNIT_QUESTION_DEFAULT = "о какой точке идёт речь — город и номер";
+const PROBLEM_QUESTION = "что именно сейчас не работает или что произошло";
 
-if (String(outcome || "") === "clarify") {
+if (isClarify && !loopBroken) {
   const kind = String(prev.clarifyKind || "");
-  if (CLARIFY_TEXT[kind]) {
-    text = CLARIFY_TEXT[kind];
-  } else if (String(prev.agentStage || "") === "intake") {
-    // No usable kind from the agent: fall back to the facts the task document is
-    // still missing. parseAgentJson has already stored this turn's findings.
-    const needUnit = !data.unitFullName;
-    const needProblem = !data.problemSummary;
-    if (needUnit && needProblem) text = CLARIFY_TEXT.need_unit_and_problem;
-    else if (needUnit) text = CLARIFY_TEXT.need_unit;
-    else if (needProblem) text = CLARIFY_TEXT.need_problem;
+  // The solver also clarifies, but about the problem itself, and its wording is the
+  // only thing that can carry the article's question — leave it alone.
+  const fromIntake = String(prev.agentStage || "") === "intake" || kind.indexOf("need_") === 0;
+  if (fromIntake) {
+    const parts = [];
+    if (!data.unitFullName) parts.push(UNIT_QUESTION[kind] || UNIT_QUESTION_DEFAULT);
+    if (!data.problemSummary) parts.push(PROBLEM_QUESTION);
+    if (parts.length) text = "Подскажите, " + parts.join(", а также ") + "?";
+    else Log.info({ message: "applyOutcome: intake asked '" + (kind || "?") + "' on task " + taskId + " while unit and problem are both known" });
   }
 }
+
+if (loopBroken) text = spec.defaultReply;
 
 // Greeting is decided by the real Pyrus thread, not by the model, which got it wrong
 // in both directions: it skipped the greeting on the first reply and repeated it later.
@@ -157,12 +180,14 @@ if (spec.nextStage === "escalated") {
     "Тематика БЗ: " + (data.topicKey || "не определена"),
     "Уже пробовали:",
     tried,
-    "Причина передачи: " + (spec.silent ? "партнёр написал в закрытый чат" : (prev.reason || "не указана"))
+    "Причина передачи: " + (loopBroken
+      ? "бот задал подряд " + MAX_CLARIFY_STREAK + " уточняющих вопроса и так и не собрал данные"
+      : (spec.silent ? "партнёр написал в закрытый чат" : (prev.reason || "не указана")))
   ].join("\n");
 }
 
 const pendingOutcome = {
-  kind: String(outcome || "escalated"),
+  kind: loopBroken ? "escalated" : String(outcome || "escalated"),
   replyText: text,
   internalNote: internalNote,
   action: spec.action,
@@ -175,7 +200,7 @@ try {
   Db.put({
     dbIntegration: DB_ID,
     documentKey: "state:" + taskId,
-    value: Object.assign({}, state, { pendingOutcome: pendingOutcome, updatedAt: Date.now() })
+    value: Object.assign({}, state, { pendingOutcome: pendingOutcome, clarifyStreak: clarifyStreak, updatedAt: Date.now() })
   });
 } catch (e) {
   Log.error({ message: "applyOutcome: state write failed for task " + taskId + ": " + e });

@@ -121,6 +121,33 @@ if (String(scope || "").toLowerCase() === "network" && !resolvedFullName && matc
   }
 }
 
+// The resolution reached the task document only if the agent echoed it back in its
+// JSON, and it kept not doing so: the partner named "Москва 1-1", the unit resolved
+// here, the answer came back with unitFullName null, and the next turn asked for the
+// point all over again — the dialog looped between the two questions. The value is
+// written where it is known to be right, by the code that took it out of the catalog.
+if (resolvedFullName) {
+  try {
+    const taskId = (AgentContext.getValue({ key: "dialog" }) || {}).taskId || null;
+    if (taskId) {
+      const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
+      const state = (doc && doc.value) || {};
+      const data = Object.assign({}, state.data);
+      if (data.unitFullName !== resolvedFullName) {
+        data.unitFullName = resolvedFullName;
+        Db.put({
+          dbIntegration: DB_ID,
+          documentKey: "state:" + taskId,
+          value: Object.assign({}, state, { data: data, updatedAt: Date.now() })
+        });
+        Log.info({ message: "matchUnit: persisted unit \"" + resolvedFullName + "\" for task " + taskId });
+      }
+    }
+  } catch (e) {
+    Log.warn({ message: "matchUnit: unit persist failed: " + e });
+  }
+}
+
 Log.info({ message: "matchUnit: query=\"" + String(query || "") + "\" scope=" + (scope || "unit") + " count=" + matches.length + " resolved=" + (resolvedFullName || "-") + (networkPick ? " (first of network)" : "") + " needsBusiness=" + needsBusinessClarification });
 
 return {
