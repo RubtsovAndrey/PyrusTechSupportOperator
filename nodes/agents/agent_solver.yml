@@ -2,8 +2,8 @@
 id: agent_solver
 name: Solver Agent
 position:
-  x: 4000
-  y: -1000
+  x: 3952
+  y: -1420
 next-step: func_parsejson_solver
 next-error-step: func_escalate_m9k4j
 parameters:

@@ -2,8 +2,8 @@
 id: func_parsejson_intake
 name: parseIntake
 position:
-  x: 2400
-  y: -300
+  x: 2210
+  y: -644
 next-step: cond_intake_action
 next-error-step: func_escalate_m9k4j
 parameters:
