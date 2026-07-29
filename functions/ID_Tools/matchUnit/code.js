@@ -45,4 +45,15 @@ function matchUnitRaw(raw, catalog) {
 const catalog = loadUnitCatalog();
 const matches = matchUnitRaw(query, catalog);
 
-return { matches: matches.slice(0, 10), count: matches.length };
+// Detect duplicate names across different businesses (e.g. "Москва 1-1" as both pizzeria and coffee shop)
+var hasDuplicateNames = false;
+if (matches.length > 1) {
+  var nameMap = {};
+  for (var i = 0; i < matches.length; i++) {
+    var n = matches[i].name.toLowerCase().replace(/ё/g, "е");
+    if (nameMap[n]) { hasDuplicateNames = true; break; }
+    nameMap[n] = matches[i].business;
+  }
+}
+
+return { matches: matches.slice(0, 10), count: matches.length, hasDuplicateNames: hasDuplicateNames };
