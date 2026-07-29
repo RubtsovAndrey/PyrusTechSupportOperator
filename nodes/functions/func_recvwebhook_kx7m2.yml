@@ -2,10 +2,10 @@
 id: func_recvwebhook_kx7m2
 name: receiveWebhook
 position:
-  x: 1108
-  y: -92
+  x: 400
+  y: 0
 next-step: cond_skip_processing
-next-error-step: null
+next-error-step: func_finalize_p1x9k
 parameters:
   type: USER
   collection: ID_Pyrus

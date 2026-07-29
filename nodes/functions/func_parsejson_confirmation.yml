@@ -2,16 +2,20 @@
 id: func_parsejson_confirmation
 name: parseConfirmation
 position:
-  x: 3934
-  y: 882
-next-step: cond_confirmation_status
-next-error-step: null
+  x: 2400
+  y: 500
+next-step: cond_confirmation_resolved
+next-error-step: func_escalate_m9k4j
 parameters:
   type: USER
   collection: ID_Tools
-  function: parseLlmJson
+  function: parseAgentJson
   is-tool: false
-  parameters: {}
+  parameters:
+    stage:
+      type: STRING
+      value: confirmation
+      filled-ai: false
   context-config: null
   hitl-tool-config: null
   custom-headers: null

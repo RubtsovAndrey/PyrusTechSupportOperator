@@ -2,8 +2,8 @@
 id: func_searchknowledge_q3m8x
 name: searchKnowledge
 position:
-  x: 3263
-  y: -787
+  x: 2800
+  y: -900
 next-step: null
 next-error-step: null
 parameters:
@@ -13,6 +13,10 @@ parameters:
   is-tool: true
   parameters:
     query:
+      type: STRING
+      value: null
+      filled-ai: true
+    topicKey:
       type: STRING
       value: null
       filled-ai: true

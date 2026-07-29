@@ -2,11 +2,10 @@
 id: cond_intake_escalate
 name: intake escalate?
 position:
-  x: 4500
-  y: -650
+  x: 3200
+  y: -300
 next-step: func_escalate_m9k4j
 next-error-step: null
 parameters:
-  condition: Context.getLastFunctionResult() && Context.getLastFunctionResult().action
-    === 'escalate'
-  false-step: func_finalize_p1x9k
+  condition: "(Context.getLastFunctionResult() || {}).action === 'escalate'"
+  false-step: func_clarify

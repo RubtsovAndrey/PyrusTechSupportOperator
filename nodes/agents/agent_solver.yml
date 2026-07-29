@@ -2,16 +2,16 @@
 id: agent_solver
 name: Solver Agent
 position:
-  x: 3349
-  y: 51
+  x: 4000
+  y: -1000
 next-step: func_parsejson_solver
-next-error-step: null
+next-error-step: func_escalate_m9k4j
 parameters:
   llm-model-key: 1000299722-yandex_aliceaillmfla-div
   llm-model-settings:
     max-tokens: 1024
     temperature: 0.5
-    top-p: 0.0
+    top-p: 1.0
     frequency-penalty: 0.0
     presence-penalty: 0.0
     verbose-mode: false
@@ -29,14 +29,15 @@ parameters:
       - Не выходи за рамки инструкции. Если нет готового решения — сообщай, что понадобится время.
       - ПЕРВЫЙ ответ бота в диалоге начинай с «Добрый день!». Если уже здоровался ранее — не повторяй приветствие.
 
-      Используй tool searchKnowledge для получения инструкции по теме.
-      Напиши пошаговое руководство строго по инструкции.
+      Вызови tool searchKnowledge, передав topicKey из контекста (dialog.topicKey) — так ты получишь ровно ту инструкцию, которую выбрал маршрутизатор.
+      Напиши пошаговое руководство строго по solverInstruction из результата.
+      Если tool вернул found: false — не импровизируй: ответь, что понадобится время на изучение вопроса.
       Закончи вопросом из followUpQuestion, отделив его пустой строкой (абзацем) от основного текста.
 
       ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
       Верни JSON: {"replyText": "твой ответ партнёру"}
-    query-override: Найди решение проблемы партнёра из контекста (incomingText) в
-      базе знаний и напиши ответ.
+    query-override: "Найди в базе знаний инструкцию по тематике dialog.topicKey\
+      \ и напиши ответ на проблему dialog.problemSummary."
   tools:
   - func_searchknowledge_q3m8x
   handoff-agents:
@@ -45,7 +46,7 @@ parameters:
   stay-in-agent: false
   telephony-config: null
   enable-context: true
-  chat-history-limit: 5
+  chat-history-limit: 10
   sequential-tool-calls-limit: 2
   unique-tools-count-limit: 1
   total-response-timeout: null

@@ -1,11 +1,11 @@
 ---
 id: cond_skip_processing
-name: skipProcessing?
+name: skip?
 position:
-  x: 1502
-  y: 8
+  x: 800
+  y: 0
 next-step: func_finalize_p1x9k
 next-error-step: null
 parameters:
-  condition: "AgentContext.getValue({ key: 'skipProcessing' }) === true"
-  false-step: func_routestage_q8k3m
+  condition: "(Context.getLastFunctionResult() || {}).skip === true"
+  false-step: cond_stage_reopened

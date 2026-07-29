@@ -1,132 +1,114 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
 
-var _prev = Context.getLastFunctionResult() || {};
-const taskId = _prev.taskId || AgentContext.getValue({ key: "taskId" });
-const apiUrl = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
-const token = AgentContext.getValue({ key: "token" });
+const prev = Context.getLastFunctionResult() || {};
+const dialog = AgentContext.getValue({ key: "dialog" }) || {};
+const taskId = prev.taskId || dialog.taskId || null;
 
-let replyText = AgentContext.getValue({ key: "replyText" });
-let closeAction = AgentContext.getValue({ key: "closeAction" });
-let escalateApproval = AgentContext.getValue({ key: "escalateApproval" });
-let closeFieldUpdates = AgentContext.getValue({ key: "closeFieldUpdates" });
-let newStage = AgentContext.getValue({ key: "newStage" });
+// A duplicate webhook turned away by the lock reaches finalize with skip=true and
+// no lockToken. It must not release the in-flight run's lock nor write to the chat.
+const foreignSkip = prev.skip === true && !prev.lockToken;
 
-// Infer newStage and replyText from last function result if not explicitly set
-if (!newStage) {
-  const lastResult = Context.getLastFunctionResult() || {};
-  if (lastResult.action === "clarify" && lastResult.clarifyingQuestion) {
-    AgentContext.putValue({ key: "replyText", value: lastResult.clarifyingQuestion });
-    replyText = lastResult.clarifyingQuestion;
-    newStage = "gathering";
-  } else if (lastResult.replyText && !closeAction && !escalateApproval) {
-    AgentContext.putValue({ key: "replyText", value: lastResult.replyText });
-    replyText = lastResult.replyText;
-    newStage = "awaiting_confirmation";
-  } else if (lastResult.subtaskId) {
-    newStage = "closed";
-    const subtaskReply = "Обращение создано и передано специалистам. Мы вернёмся с ответом на ваш email.";
-    AgentContext.putValue({ key: "replyText", value: subtaskReply });
-    replyText = subtaskReply;
-    AgentContext.putValue({ key: "closeAction", value: "finished" });
-    closeAction = "finished";
-    var ufId = AgentContext.getValue({ key: "unitFieldId" });
-    var cfId = AgentContext.getValue({ key: "componentFieldId" });
-    var unitVal = AgentContext.getValue({ key: "unitFullName" });
-    var compVal = AgentContext.getValue({ key: "componentName" });
-    var fieldUpdates = [];
-    if (ufId && unitVal) fieldUpdates.push({ id: Number(ufId), value: { item_name: String(unitVal) } });
-    if (cfId && compVal) fieldUpdates.push({ id: Number(cfId), value: { item_name: String(compVal) } });
-    if (fieldUpdates.length) {
-      AgentContext.putValue({ key: "closeFieldUpdates", value: fieldUpdates });
-      closeFieldUpdates = fieldUpdates;
+if (!taskId) {
+  Log.warn({ message: "finalize: no taskId, nothing to do" });
+  return { success: false, reason: "no taskId" };
+}
+
+let state = {};
+try {
+  const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
+  if (doc && doc.value) state = doc.value;
+} catch (e) {
+  Log.warn({ message: "finalize: state read failed: " + e });
+}
+
+const runtime = state.runtime || {};
+const apiUrl = runtime.apiUrl || "https://api.pyrus.com/v4/";
+const token = runtime.token;
+
+// applyOutcome and createSubtask record the decision in the task document, so it
+// is keyed by taskId and can never be crossed with another chat.
+let outcome = state.pendingOutcome || null;
+
+// Nothing decided this turn (unexpected branch, agent failure). Never leave the
+// partner unanswered: reply and hand the thread to a human.
+if (!outcome && prev.skip !== true) {
+  Log.warn({ message: "finalize: no outcome for task " + taskId + ", handing over to operator" });
+  outcome = {
+    kind: "fallback",
+    replyText: "Понадобится время на изучение вопроса, мы вернёмся с ответом.",
+    action: null,
+    approvalChoice: "approved",
+    fieldUpdates: null,
+    nextStage: "escalated"
+  };
+}
+
+// ── 1. Persist the new stage and consume the pending outcome ──
+if (outcome && outcome.nextStage) {
+  try {
+    Db.put({
+      dbIntegration: DB_ID,
+      documentKey: "state:" + taskId,
+      value: Object.assign({}, state, { stage: outcome.nextStage, pendingOutcome: null, updatedAt: Date.now() })
+    });
+  } catch (e) {
+    Log.warn({ message: "finalize: state write failed: " + e });
+  }
+}
+
+// ── 2. Send the comment to Pyrus ──
+if (outcome && token && (outcome.replyText || outcome.action || outcome.approvalChoice)) {
+  let current = null;
+  try {
+    const resp = await Http.get({ url: apiUrl + "tasks/" + taskId, headers: { "Authorization": "Bearer " + token } });
+    current = resp && resp.body && resp.body.task ? resp.body.task : null;
+  } catch (e) {
+    // A failed probe must not swallow the reply — at worst we answer a stale thread.
+    Log.warn({ message: "finalize: task probe failed, sending anyway: " + e });
+  }
+
+  const currentLastInbound = current
+    ? (current.comments || []).slice().reverse().find(c => c.channel && c.channel.direction === "inbound")
+    : null;
+  const processedId = runtime.lastInboundCommentId;
+  const superseded = !!(processedId && currentLastInbound && String(currentLastInbound.id) !== String(processedId));
+
+  if (superseded) {
+    // The partner wrote again while we were thinking; the newer webhook answers.
+    Log.info({ message: "finalize: debounced, newer inbound comment on task " + taskId });
+  } else {
+    const channel = runtime.outboundChannel || (currentLastInbound
+      ? { type: currentLastInbound.channel.type, direction: "outbound", to: currentLastInbound.channel.from }
+      : null);
+
+    const body = {};
+    if (outcome.replyText) {
+      body.text = outcome.replyText;
+      if (channel) body.channel = channel;
+    }
+    if (outcome.action) body.action = outcome.action;
+    if (outcome.approvalChoice) body.approval_choice = outcome.approvalChoice;
+    if (outcome.fieldUpdates && outcome.fieldUpdates.length) body.field_updates = outcome.fieldUpdates;
+
+    try {
+      await Http.post({
+        url: apiUrl + "tasks/" + taskId + "/comments",
+        headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+        body: body
+      });
+    } catch (e) {
+      Log.error({ message: "finalize: post comment failed for task " + taskId + ": " + e });
     }
   }
 }
 
-// ── 1. Update dialog state in DB ──
-if (taskId && newStage) {
-  try {
-    const existing = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
-    const currentState = (existing && existing.value) || {};
-    const lastResult = Context.getLastFunctionResult() || {};
-    const updated = Object.assign({}, currentState, {
-      stage: newStage,
-      updatedAt: Date.now(),
-      unitFullName: AgentContext.getValue({ key: "unitFullName" }) || currentState.unitFullName,
-      componentName: AgentContext.getValue({ key: "componentName" }) || currentState.componentName,
-      problemSummary: AgentContext.getValue({ key: "problemSummary" }) || currentState.problemSummary,
-      email: AgentContext.getValue({ key: "email" }) || currentState.email,
-      subtaskId: lastResult.subtaskId || currentState.subtaskId
-    });
-    Db.put({ dbIntegration: DB_ID, documentKey: "state:" + taskId, value: updated });
-  } catch (e) {
-    Log.warn({ message: "finalize: state update error: " + e });
-  }
-}
-
-// ── 2. Send reply to Pyrus (if replyText or action exists) ──
-if (replyText || closeAction || escalateApproval) {
-  const processedInboundId = AgentContext.getValue({ key: "lastInboundCommentId" });
-
-  let taskResponse;
-  try {
-    taskResponse = await Http.get({
-      url: apiUrl + "tasks/" + taskId,
-      headers: { "Authorization": "Bearer " + token }
-    });
-  } catch (e) {
-    Log.info({ message: "finalize: get task error: " + e });
-  }
-
-  // Debounce check
-  if (taskResponse && taskResponse.body && taskResponse.body.task) {
-    const currentComments = taskResponse.body.task.comments || [];
-    const currentLastInbound = currentComments.slice().reverse().find(c => c.channel && c.channel.direction === "inbound");
-    const currentLastInboundId = currentLastInbound ? currentLastInbound.id : null;
-    if (processedInboundId && currentLastInboundId && String(currentLastInboundId) !== String(processedInboundId)) {
-      Log.info({ message: "finalize: debounced — newer inbound comment" });
-    } else {
-      let outboundChannel = AgentContext.getValue({ key: "outboundChannel" });
-      if (!outboundChannel && currentLastInbound) {
-        outboundChannel = { type: currentLastInbound.channel.type, direction: "outbound", to: currentLastInbound.channel.from };
-      }
-
-      const body = {};
-      if (replyText) {
-        body.text = replyText;
-        if (outboundChannel) body.channel = outboundChannel;
-      } else {
-        body.text = "";
-      }
-      if (closeAction) {
-        body.action = closeAction;
-        if (closeFieldUpdates) body.field_updates = closeFieldUpdates;
-      }
-      if (escalateApproval) {
-        body.approval_choice = "approved";
-        if (closeFieldUpdates) body.field_updates = closeFieldUpdates;
-      }
-
-      try {
-        await Http.post({
-          url: apiUrl + "tasks/" + taskId + "/comments",
-          headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-          body: body
-        });
-      } catch (e) {
-        Log.info({ message: "finalize: post comment error: " + e });
-      }
-    }
-  }
-}
-
-// ── 3. Release lock ──
-if (taskId) {
+// ── 3. Release the lock, but only the one this run owns ──
+if (!foreignSkip) {
   try {
     Db.delete({ dbIntegration: DB_ID, documentKey: "lock:" + taskId });
   } catch (e) {
-    Log.info({ message: "finalize: releaseLock error: " + e });
+    Log.warn({ message: "finalize: lock release failed: " + e });
   }
 }
 
-return { success: true, released: true, taskId: taskId };
+return { success: true, taskId: taskId, kind: outcome ? outcome.kind : "none" };

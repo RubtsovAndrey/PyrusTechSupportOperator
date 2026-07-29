@@ -1,15 +1,22 @@
 ---
 id: searchKnowledge
 name: searchKnowledge
-description: "Searches knowledge catalog for matching topic by problem description.\
-  \ Returns topic key, route (solver/subtask/escalate), solverInstruction, componentName."
-response-description: "{ topics: [{ key, description, route, solverKey, solverInstruction,\
-  \ componentName, subtaskFormId }] }"
+description: "Finds the knowledge topic that matches a problem description, ranked\
+  \ by token overlap. Returns found=false when nothing matches (never guesses), with\
+  \ knowledge-base chunks as a hint. Pass topicKey for an exact lookup."
+response-description: "{ found, source, topics: [{ score, key, description, route,\
+  \ solverKey, solverInstruction, componentName }], chunks }"
 parameters:
 - name: query
   type: STRING
   required: true
   description: Problem description to search for
+  properties: null
+  items: null
+- name: topicKey
+  type: STRING
+  required: false
+  description: Exact topic key, when the topic is already known
   properties: null
   items: null
 language: JAVASCRIPT

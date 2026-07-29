@@ -1,9 +1,9 @@
 ---
-id: func_escalate_m9k4j
-name: Outcome - escalate to operator
+id: func_reply
+name: Outcome - reply
 position:
-  x: 4400
-  y: 300
+  x: 4800
+  y: -1000
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:
@@ -14,7 +14,7 @@ parameters:
   parameters:
     outcome:
       type: STRING
-      value: escalated
+      value: reply
       filled-ai: false
     replyText:
       type: STRING

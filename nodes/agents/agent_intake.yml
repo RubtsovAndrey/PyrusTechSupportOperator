@@ -2,16 +2,16 @@
 id: agent_intake
 name: Intake Agent
 position:
-  x: 3054
-  y: -466
+  x: 2000
+  y: -300
 next-step: func_parsejson_intake
-next-error-step: null
+next-error-step: func_escalate_m9k4j
 parameters:
   llm-model-key: 1000299722-yandex_aliceaillmfla-div
   llm-model-settings:
     max-tokens: 512
     temperature: 0.3
-    top-p: 0.0
+    top-p: 1.0
     frequency-penalty: 0.0
     presence-penalty: 0.0
     verbose-mode: false
@@ -33,8 +33,10 @@ parameters:
       Если нужна эскалация — верни action: "escalate".
 
       ШАГ 2 — СБОР ДАННЫХ (если эскалация не нужна):
-      Используй tool matchUnit для поиска юнита в каталоге по названию города и номеру точки.
-      Нужен только город и номер пиццерии/кофейни. Адрес спрашивать НЕ нужно.
+      Уже собранные данные лежат в контексте (dialog): unitFullName, problemSummary, email. Не спрашивай то, что там уже есть.
+      Нужны только две вещи: юнит (город и номер точки) и описание проблемы.
+      Email на этом шаге НЕ спрашивай — его запросят позже и только если он действительно понадобится.
+      Используй tool matchUnit для поиска юнита в каталоге по названию города и номеру точки. Адрес спрашивать НЕ нужно.
 
       ФОРМАТ ИМЕН ЮНИТОВ:
       - «Город-1» — первая пиццерия в городе (сеть одна, например Тамбов-1).
@@ -44,9 +46,10 @@ parameters:
       УТОЧНЕНИЕ ПИЦЦЕРИЯ/КОФЕЙНЯ:
       Спрашивай «это пиццерия или кофейня?» ТОЛЬКО если партнёр не указал явно И в результате matchUnit есть одинаковые имена для разных бизнесов (например, «Москва 1-1» есть и как пиццерия, и как кофейня). Не упоминай бренды и названия бизнесов — просто «пиццерия или кофейня?».
 
-      В поле unitFullName верни ПОЛНОЕ имя юнита из результата matchUnit (поле fullName).
-      Если партнёр назвал email — сохрани его в поле email.
-      Если юнит, проблема и email известны — верни action: "route".
+      В поле unitFullName верни ПОЛНОЕ имя юнита из результата matchUnit (поле fullName), скопировав его символ в символ.
+      Если ты не вызывал matchUnit или ничего не нашлось — оставь unitFullName пустым. Не выдумывай имя сам.
+      Если партнёр сам назвал email — сохрани его в поле email.
+      Если юнит и описание проблемы известны — верни action: "route".
       Если чего-то не хватает — верни action: "clarify" и сформулируй один короткий уточняющий вопрос.
 
       ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
@@ -62,7 +65,7 @@ parameters:
   stay-in-agent: false
   telephony-config: null
   enable-context: true
-  chat-history-limit: 5
+  chat-history-limit: 10
   sequential-tool-calls-limit: 3
   unique-tools-count-limit: 2
   total-response-timeout: null

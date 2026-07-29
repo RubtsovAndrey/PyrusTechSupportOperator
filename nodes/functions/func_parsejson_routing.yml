@@ -2,16 +2,20 @@
 id: func_parsejson_routing
 name: parseRouting
 position:
-  x: 4182
-  y: -804
+  x: 3200
+  y: -650
 next-step: cond_routing_route
-next-error-step: null
+next-error-step: func_escalate_m9k4j
 parameters:
   type: USER
   collection: ID_Tools
-  function: parseLlmJson
+  function: parseAgentJson
   is-tool: false
-  parameters: {}
+  parameters:
+    stage:
+      type: STRING
+      value: routing
+      filled-ai: false
   context-config: null
   hitl-tool-config: null
   custom-headers: null

@@ -1,0 +1,11 @@
+---
+id: cond_stage_reopened
+name: reopened after close?
+position:
+  x: 1200
+  y: 0
+next-step: func_escalate_m9k4j
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).stage === 'reopened'"
+  false-step: cond_stage_confirmation

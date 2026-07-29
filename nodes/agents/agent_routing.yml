@@ -2,16 +2,16 @@
 id: agent_routing
 name: Routing Agent
 position:
-  x: 3862
-  y: -454
+  x: 2800
+  y: -650
 next-step: func_parsejson_routing
-next-error-step: null
+next-error-step: func_escalate_m9k4j
 parameters:
   llm-model-key: 1000299722-yandex_aliceaillmfla-div
   llm-model-settings:
     max-tokens: 256
     temperature: 0.2
-    top-p: 0.0
+    top-p: 1.0
     frequency-penalty: 0.0
     presence-penalty: 0.0
     verbose-mode: false
@@ -26,13 +26,13 @@ parameters:
       - Общайся только на русском языке.
 
       Используй tool searchKnowledge для поиска тематики по описанию проблемы.
-      Если проблема соответствует тематике — верни её key, route и componentName из результата поиска.
-      Если нет уверенности — верни topicKey: null.
+      Выбирай только из тематик, которые вернул tool. Поля key, route и componentName копируй из выбранной тематики без изменений.
+      Если tool вернул found: false, или ни одна тематика не подходит, или у тебя нет уверенности — верни topicKey: null и route: "escalate". Не выдумывай тематику сам.
 
       ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
       Верни JSON: {"topicKey": "ключ|null", "route": "solver|subtask|escalate|null", "componentName": "строка|null", "reason": "кратко"}
-    query-override: Определи тематику проблемы партнёра из контекста (incomingText)
-      и найди её в базе знаний.
+    query-override: "Определи тематику проблемы партнёра. Описание проблемы — в кон\
+      тексте: dialog.problemSummary и dialog.incomingText."
   tools:
   - func_searchknowledge_q3m8x
   handoff-agents:
@@ -41,7 +41,7 @@ parameters:
   stay-in-agent: false
   telephony-config: null
   enable-context: true
-  chat-history-limit: 5
+  chat-history-limit: 10
   sequential-tool-calls-limit: 3
   unique-tools-count-limit: 1
   total-response-timeout: null

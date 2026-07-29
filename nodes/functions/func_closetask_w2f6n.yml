@@ -1,26 +1,22 @@
 ---
 id: func_closetask_w2f6n
-name: closeTask
+name: Outcome - solved
 position:
-  x: 4968
-  y: 326
+  x: 3600
+  y: 300
 next-step: func_finalize_p1x9k
-next-error-step: null
+next-error-step: func_finalize_p1x9k
 parameters:
   type: USER
   collection: ID_Actions
-  function: closeTask
+  function: applyOutcome
   is-tool: false
   parameters:
+    outcome:
+      type: STRING
+      value: solved
+      filled-ai: false
     replyText:
-      type: STRING
-      value: null
-      filled-ai: false
-    unitFullName:
-      type: STRING
-      value: null
-      filled-ai: false
-    componentName:
       type: STRING
       value: null
       filled-ai: false

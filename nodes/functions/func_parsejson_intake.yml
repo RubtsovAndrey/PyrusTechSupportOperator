@@ -2,16 +2,20 @@
 id: func_parsejson_intake
 name: parseIntake
 position:
-  x: 3390
-  y: -520
+  x: 2400
+  y: -300
 next-step: cond_intake_action
-next-error-step: null
+next-error-step: func_escalate_m9k4j
 parameters:
   type: USER
   collection: ID_Tools
-  function: parseLlmJson
+  function: parseAgentJson
   is-tool: false
-  parameters: {}
+  parameters:
+    stage:
+      type: STRING
+      value: intake
+      filled-ai: false
   context-config: null
   hitl-tool-config: null
   custom-headers: null

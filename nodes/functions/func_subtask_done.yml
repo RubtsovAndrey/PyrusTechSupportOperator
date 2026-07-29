@@ -1,9 +1,9 @@
 ---
-id: func_escalate_m9k4j
-name: Outcome - escalate to operator
+id: func_subtask_done
+name: Outcome - subtask created
 position:
-  x: 4400
-  y: 300
+  x: 5200
+  y: -350
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:
@@ -14,7 +14,7 @@ parameters:
   parameters:
     outcome:
       type: STRING
-      value: escalated
+      value: subtask_created
       filled-ai: false
     replyText:
       type: STRING

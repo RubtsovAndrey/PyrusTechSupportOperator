@@ -1,8 +1,9 @@
 ---
 id: finalize
 name: finalize
-description: "Sends bot reply to Pyrus, updates dialog state in DB, releases lock.\
-  \ Single terminal function for all paths."
-response-description: "{ success, released }"
+description: "Terminal node for every path. Applies the pending outcome of the task\
+  \ document: persists the new stage, posts the comment to Pyrus and releases the\
+  \ lock this run owns. Falls back to an operator handover if no outcome was set."
+response-description: "{ success, taskId, kind }"
 parameters: []
 language: JAVASCRIPT

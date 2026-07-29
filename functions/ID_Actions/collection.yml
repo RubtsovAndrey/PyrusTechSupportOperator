@@ -1,4 +1,4 @@
 ---
-description: "Pyrus API action functions — createSubtask, escalateToHuman, closeTask"
+description: "Turn outcome and Pyrus side effects — applyOutcome, createSubtask"
 dependencies: null
 language: JAVASCRIPT

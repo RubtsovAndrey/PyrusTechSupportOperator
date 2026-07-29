@@ -2,11 +2,10 @@
 id: cond_confirmation_more
 name: more_questions?
 position:
-  x: 4500
-  y: 750
+  x: 3200
+  y: 500
 next-step: agent_intake
 next-error-step: null
 parameters:
-  condition: Context.getLastFunctionResult() && Context.getLastFunctionResult().status
-    === 'more_questions'
-  false-step: func_finalize_p1x9k
+  condition: "(Context.getLastFunctionResult() || {}).status === 'more_questions'"
+  false-step: func_escalate_m9k4j

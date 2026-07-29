@@ -1,0 +1,15 @@
+---
+id: parseAgentJson
+name: parseAgentJson
+description: "Parses the JSON answer of an agent, validates the unit against the\
+  \ catalog and persists the collected facts into the task document. Throws when the\
+  \ answer is not parseable, so the node error edge can hand the task to an operator."
+response-description: The parsed agent object, enriched with taskId
+parameters:
+- name: stage
+  type: STRING
+  required: true
+  description: "Which agent produced the answer: intake, routing, solver or confirmation"
+  properties: null
+  items: null
+language: JAVASCRIPT

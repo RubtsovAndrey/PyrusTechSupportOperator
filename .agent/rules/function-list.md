@@ -188,22 +188,18 @@ For detailed info about parameters and response, read the corresponding file.
 
 ## User Functions
 
-- `ID_Pyrus.receiveWebhook` — Parses Pyrus webhook payload, verifies HMAC signature, sets idempotency lock, hydrates AgentContext with dialog history and structured data
+- `ID_Pyrus.receiveWebhook` — Validates the Pyrus webhook payload, takes an owned idempotency lock, stores the request-scoped Pyrus data in the task document, rebuilds the dialog history and resolves the stage to enter.
   Directory: functions/ID_Pyrus/receiveWebhook/
-- `ID_Pyrus.finalize` — Sends bot reply to Pyrus, updates dialog state in DB, releases lock. Single terminal function for all paths.
+- `ID_Pyrus.finalize` — Terminal node for every path: persists the new stage, posts the comment to Pyrus and releases the lock this run owns.
   Directory: functions/ID_Pyrus/finalize/
-- `ID_Actions.closeTask` — Closes task in Pyrus with action=finished, updates unit/component fields.
-  Directory: functions/ID_Actions/closeTask/
-- `ID_Actions.createSubtask` — Creates a subtask in Pyrus with unit, component, and email fields. Posts summary comment to subtask.
+- `ID_Actions.applyOutcome` — Records the decision of the current turn (reply text, Pyrus action, field updates, next stage) into the task document.
+  Directory: functions/ID_Actions/applyOutcome/
+- `ID_Actions.createSubtask` — Creates a Pyrus subtask from the facts stored in the task document and posts a summary comment to it. Idempotent.
   Directory: functions/ID_Actions/createSubtask/
-- `ID_Actions.escalateToHuman` — Escalates task to human operator: approves bot stage in Pyrus, updates unit/component fields if available.
-  Directory: functions/ID_Actions/escalateToHuman/
-- `ID_State.routeStage` — Reads dialog state from DB by taskId and returns the current stage name. Used for graph routing.
-  Directory: functions/ID_State/routeStage/
 - `ID_Tools.matchUnit` — Searches unit catalog by text query. Returns matching units with name, business, fullName. Use when partner mentions their unit (city, point number, or brand).
   Directory: functions/ID_Tools/matchUnit/
-- `ID_Tools.searchKnowledge` — Searches knowledge catalog for matching topic by problem description. Returns topic key, route (solver/subtask/escalate), solverInstruction, componentName.
+- `ID_Tools.searchKnowledge` — Finds the knowledge topic matching a problem description, ranked by token overlap. Returns found=false when nothing matches.
   Directory: functions/ID_Tools/searchKnowledge/
-- `ID_Tools.parseLlmJson` — Strips markdown code blocks from LLM response and parses JSON.
-  Directory: functions/ID_Tools/parseLlmJson/
+- `ID_Tools.parseAgentJson` — Parses an agent JSON answer, validates the unit against the catalog and persists the collected facts. Throws when the answer is not parseable.
+  Directory: functions/ID_Tools/parseAgentJson/
 

@@ -2,16 +2,20 @@
 id: func_parsejson_solver
 name: parseSolver
 position:
-  x: 3856
-  y: -67
-next-step: func_finalize_p1x9k
-next-error-step: null
+  x: 4400
+  y: -1000
+next-step: func_reply
+next-error-step: func_escalate_m9k4j
 parameters:
   type: USER
   collection: ID_Tools
-  function: parseLlmJson
+  function: parseAgentJson
   is-tool: false
-  parameters: {}
+  parameters:
+    stage:
+      type: STRING
+      value: solver
+      filled-ai: false
   context-config: null
   hitl-tool-config: null
   custom-headers: null

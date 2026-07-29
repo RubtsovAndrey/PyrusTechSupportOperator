@@ -1,44 +1,9 @@
 ---
 id: createSubtask
 name: createSubtask
-description: "Creates a subtask in Pyrus with unit, component, and email fields. Posts\
-  \ summary comment to subtask."
-response-description: "{ success, subtaskId }"
-parameters:
-- name: parentTaskId
-  type: STRING
-  required: false
-  description: Parent task ID (defaults to AgentContext taskId)
-  properties: null
-  items: null
-- name: unitFullName
-  type: STRING
-  required: true
-  description: Full unit name from catalog
-  properties: null
-  items: null
-- name: componentName
-  type: STRING
-  required: true
-  description: Component name for subtask
-  properties: null
-  items: null
-- name: email
-  type: STRING
-  required: true
-  description: Partner email
-  properties: null
-  items: null
-- name: problemSummary
-  type: STRING
-  required: false
-  description: Problem description
-  properties: null
-  items: null
-- name: subtaskFormId
-  type: STRING
-  required: false
-  description: Form ID for subtask (defaults to 1096731)
-  properties: null
-  items: null
+description: "Creates a Pyrus subtask from the facts stored in the task document\
+  \ (unit, component, email) and posts a summary comment to it. Idempotent: never\
+  \ creates a second subtask for the same task."
+response-description: "{ success, subtaskId, action, clarifyingQuestion }"
+parameters: []
 language: JAVASCRIPT
