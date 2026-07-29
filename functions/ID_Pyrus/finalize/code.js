@@ -1,6 +1,7 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
 
-const taskId = AgentContext.getValue({ key: "taskId" });
+var _prev = Context.getLastFunctionResult() || {};
+const taskId = _prev.taskId || AgentContext.getValue({ key: "taskId" });
 const apiUrl = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
 const token = AgentContext.getValue({ key: "token" });
 
@@ -128,4 +129,4 @@ if (taskId) {
   }
 }
 
-return { success: true, released: true };
+return { success: true, released: true, taskId: taskId };

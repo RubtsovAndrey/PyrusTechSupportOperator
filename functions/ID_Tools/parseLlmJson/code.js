@@ -12,10 +12,10 @@ try {
         try {
             parsed = JSON.parse(match[0]);
         } catch (e2) {
-            return { action: 'escalate', reason: 'Failed to parse LLM response' };
+            return { action: 'escalate', reason: 'Failed to parse LLM response', taskId: AgentContext.getValue({ key: "taskId" }) };
         }
     } else {
-        return { action: 'escalate', reason: 'No JSON found in LLM response' };
+        return { action: 'escalate', reason: 'No JSON found in LLM response', taskId: AgentContext.getValue({ key: "taskId" }) };
     }
 }
 
@@ -62,5 +62,8 @@ if (parsed.unit || parsed.unitFullName) {
     parsed.unitFullName = resolvedUnit || parsed.unitFullName;
     AgentContext.putValue({ key: "unitFullName", value: parsed.unitFullName });
 }
+
+// Inject taskId from AgentContext so downstream functions get it via Context.getLastFunctionResult()
+parsed.taskId = AgentContext.getValue({ key: "taskId" });
 
 return parsed;

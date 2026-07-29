@@ -1,3 +1,5 @@
+var _prev = Context.getLastFunctionResult() || {};
+var ctxTaskId = _prev.taskId || AgentContext.getValue({ key: "taskId" });
 var ufId = AgentContext.getValue({ key: "unitFieldId" });
 var cfId = AgentContext.getValue({ key: "componentFieldId" });
 
@@ -10,7 +12,7 @@ if (!unitVal || !compVal) {
   AgentContext.putValue({ key: "closeAction", value: "finished" });
   AgentContext.putValue({ key: "closeFieldUpdates", value: null });
   AgentContext.putValue({ key: "newStage", value: "closed" });
-  return { success: true, replyText: closeReply, reason: "closed without unit/component fields" };
+  return { success: true, replyText: closeReply, reason: "closed without unit/component fields", taskId: ctxTaskId };
 }
 
 var fieldUpdates = [];
@@ -22,4 +24,4 @@ AgentContext.putValue({ key: "closeAction", value: "finished" });
 AgentContext.putValue({ key: "closeFieldUpdates", value: fieldUpdates.length ? fieldUpdates : null });
 AgentContext.putValue({ key: "newStage", value: "closed" });
 
-return { success: true, replyText: closeReply };
+return { success: true, replyText: closeReply, taskId: ctxTaskId };

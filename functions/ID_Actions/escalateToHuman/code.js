@@ -1,4 +1,5 @@
-var ctxTaskId = AgentContext.getValue({ key: "taskId" });
+var _prev = Context.getLastFunctionResult() || {};
+var ctxTaskId = _prev.taskId || AgentContext.getValue({ key: "taskId" });
 var ufId = AgentContext.getValue({ key: "unitFieldId" });
 var cfId = AgentContext.getValue({ key: "componentFieldId" });
 
@@ -20,4 +21,4 @@ AgentContext.putValue({ key: "escalateApproval", value: true });
 AgentContext.putValue({ key: "closeFieldUpdates", value: fieldUpdates.length ? fieldUpdates : null });
 AgentContext.putValue({ key: "newStage", value: "escalated" });
 
-return { success: true, replyText: escalationReply };
+return { success: true, replyText: escalationReply, taskId: ctxTaskId };

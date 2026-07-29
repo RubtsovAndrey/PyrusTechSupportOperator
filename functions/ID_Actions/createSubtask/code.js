@@ -1,6 +1,7 @@
 var API_URL = AgentContext.getValue({ key: "apiUrl" }) || "https://api.pyrus.com/v4/";
 var TOKEN = AgentContext.getValue({ key: "token" });
-var ctxTaskId = AgentContext.getValue({ key: "taskId" });
+var _prev = Context.getLastFunctionResult() || {};
+var ctxTaskId = _prev.taskId || AgentContext.getValue({ key: "taskId" });
 var parentUnitFieldId = AgentContext.getValue({ key: "unitFieldId" });
 var parentComponentFieldId = AgentContext.getValue({ key: "componentFieldId" });
 var DB_ID = "1000299722-pyrus_bot_database-hul";
@@ -17,7 +18,7 @@ try {
   var existingState = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + effectiveParentId });
   if (existingState && existingState.value && existingState.value.subtaskId) {
     Log.info({ message: "createSubtask: subtask already exists (" + existingState.value.subtaskId + "), skipping" });
-    return { success: true, subtaskId: existingState.value.subtaskId, duplicate: true };
+    return { success: true, subtaskId: existingState.value.subtaskId, duplicate: true, taskId: ctxTaskId };
   }
 } catch (e) {
   Log.info({ message: "createSubtask: idempotency check error: " + e });
@@ -32,10 +33,11 @@ if (!effectiveParentId || !resolvedUnitFullName || !resolvedComponentName || !re
   if (missing.length && resolvedUnitFullName && resolvedComponentName && effectiveParentId) {
     return {
       action: "clarify",
-      clarifyingQuestion: "Укажите, пожалуйста, ваш email для создания обращения."
+      clarifyingQuestion: "Укажите, пожалуйста, ваш email для создания обращения.",
+      taskId: ctxTaskId
     };
   }
-  return { success: false, reason: "missing required fields: " + missing.join(", ") };
+  return { success: false, reason: "missing required fields: " + missing.join(", "), taskId: ctxTaskId };
 }
 
 const UNIT_FIELD_ID = 97, COMPONENT_FIELD_ID = 36, EMAIL_FIELD_ID = 5;
@@ -96,8 +98,8 @@ try {
     Log.info({ message: "parent task field update error: " + e });
   }
 
-  return { success: true, subtaskId: Number(subtaskId) };
+  return { success: true, subtaskId: Number(subtaskId), taskId: ctxTaskId };
 } catch (e) {
   Log.warn({ message: "createSubtask error: " + e });
-  return { success: false, reason: String(e) };
+  return { success: false, reason: String(e), taskId: ctxTaskId };
 }
