@@ -4,14 +4,30 @@ const DB_ID = "1000299722-pyrus_bot_database-hul";
 const PERSISTED = ["unitFullName", "componentName", "problemSummary", "email", "topicKey"];
 
 function normalize(s) {
-  return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+  return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[.,«»'"()\[\]]/g, " ").replace(/[\s-]+/g, " ").trim();
 }
 
-// The agent is told to copy fullName from matchUnit, but a wrong unit written into
-// Pyrus is worse than no unit: accept the value only if the catalog really has it.
+// "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)" -> "Тамбов-1".
+function nameOf(entry) {
+  let s = String(entry || "").trim();
+  const op = s.lastIndexOf("(");
+  if (op >= 0) s = s.slice(0, op).trim();
+  if (s.charAt(0) === "[") {
+    const bc = s.indexOf("]");
+    if (bc > 1) s = s.slice(bc + 1).trim();
+  }
+  return s;
+}
+
+// A wrong unit written into Pyrus is worse than no unit, so the value is accepted
+// only if the catalog really has it. Matching used to demand the whole entry
+// character for character; the agent routinely drops the business prefix or the
+// address, and the value was then discarded without a trace, leaving the unit empty
+// for the rest of the dialog. The unit name alone is enough as long as it is unique.
 function validateUnit(candidate) {
   if (!candidate) return null;
-  const wanted = normalize(candidate);
+  const wantedFull = normalize(candidate);
+  const wantedName = normalize(nameOf(candidate));
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: "unitCatalog" });
     const raw = doc && doc.value ? (Array.isArray(doc.value) ? doc.value : doc.value.items) : null;
@@ -19,7 +35,16 @@ function validateUnit(candidate) {
       Log.warn({ message: "parseAgentJson: unitCatalog missing, cannot validate unit" });
       return null;
     }
-    const hit = raw.find(item => normalize(item) === wanted);
+    let hit = raw.find(item => normalize(item) === wantedFull);
+    if (!hit && wantedName) {
+      const byName = raw.filter(item => normalize(nameOf(item)) === wantedName);
+      if (byName.length === 1) hit = byName[0];
+      else if (byName.length > 1) {
+        Log.warn({ message: "parseAgentJson: unit \"" + candidate + "\" matches " + byName.length + " catalog entries, not persisting" });
+        return null;
+      }
+    }
+    if (!hit) Log.warn({ message: "parseAgentJson: unit \"" + candidate + "\" is not in unitCatalog, not persisting" });
     return hit ? String(hit).trim() : null;
   } catch (e) {
     Log.warn({ message: "parseAgentJson: unitCatalog read failed: " + e });

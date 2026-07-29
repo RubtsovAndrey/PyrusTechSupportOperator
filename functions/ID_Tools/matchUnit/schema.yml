@@ -4,8 +4,9 @@ name: matchUnit
 description: "Searches unit catalog by text query. Returns matching units with name,\
   \ business, fullName. Use when partner mentions their unit (city, point number,\
   \ or brand)."
-response-description: "{ matches: [{ name, business, fullName, normalized }], count\
-  \ }"
+response-description: "{ resolvedFullName: exact catalog string when the unit is unambiguous,\
+  \ else null; needsBusinessClarification: true only when one name exists for two businesses;\
+  \ matches: [{ name, business, fullName }]; count }"
 parameters:
 - name: query
   type: STRING

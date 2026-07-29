@@ -79,7 +79,18 @@ if (spec.withFieldUpdates) {
   if (updates.length) fieldUpdates = updates;
 }
 
-const text = replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply;
+let text = replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply;
+
+// The model is told to greet only in its first reply and ignores that regularly, so
+// a repeated greeting is cut here. runtime.isFirstBotReply is computed from the real
+// Pyrus thread, which makes this decision independent of the model.
+if (runtime.isFirstBotReply === false) {
+  const stripped = String(text).replace(/^\s*(добрый день|добрый вечер|доброе утро|доброго дня|здравствуйте|здравствуй|приветствую|привет)[\s!,.—–-]*/i, "");
+  if (stripped && stripped !== text) {
+    text = stripped.charAt(0).toUpperCase() + stripped.slice(1);
+    Log.info({ message: "applyOutcome: stripped repeated greeting on task " + taskId });
+  }
+}
 
 const pendingOutcome = {
   kind: String(outcome || "escalated"),

@@ -1,6 +1,8 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
 const LOCK_TTL_MS = 5 * 60 * 1000;
-const HISTORY_LIMIT = 10;
+// Ten lines used to cut the opening message, which is where the partner names the
+// unit — by the end of a dialog the model no longer saw where the unit came from.
+const HISTORY_LIMIT = 20;
 // Only these hosts may be sent the Pyrus access_token. The webhook body is
 // unauthenticated (the platform exposes no HMAC primitive, so X-Pyrus-Sig cannot
 // be verified here) — this allowlist is what stops a forged api_url from
@@ -64,6 +66,11 @@ history.slice(-HISTORY_LIMIT).forEach(line => AgentContext.addNote({ text: line 
 
 const lastComment = comments[comments.length - 1];
 const incomingText = lastComment ? (lastComment.text || lastComment.formatted_text || "") : "";
+
+// Whether the bot has spoken in this thread yet. Decided here, not by the model,
+// which got the greeting wrong in both directions during testing. It goes into
+// runtime as well, so applyOutcome can strip a greeting the model adds anyway.
+const isFirstBotReply = !comments.some(c => c.author && c.author.type === "bot");
 
 const lastInbound = comments.slice().reverse().find(c => c.channel && c.channel.direction === "inbound");
 const lastInboundCommentId = lastInbound ? lastInbound.id : null;
@@ -147,7 +154,8 @@ try {
         lastInboundCommentId: lastInboundCommentId,
         formId: task.form_id ? String(task.form_id) : null,
         unitFieldId: unitFieldId,
-        componentFieldId: componentFieldId
+        componentFieldId: componentFieldId,
+        isFirstBotReply: isFirstBotReply
       }
     })
   });
@@ -160,10 +168,7 @@ try {
 // both notes and putValue keys are visible to the model. Notes are used for anything
 // the agents must reason about, because a labelled line is far easier for a small
 // model to follow than a nested JSON field.
-// "First bot reply" and the list of missing fields are computed here instead of being
-// left to the model, which got the greeting wrong in both directions during testing.
-const isFirstBotReply = !comments.some(c => c.author && c.author.type === "bot");
-
+// The list of missing fields is computed here instead of being left to the model.
 const missing = [];
 if (!data.unitFullName) missing.push("юнит (город и номер точки)");
 if (!data.problemSummary) missing.push("описание проблемы");
