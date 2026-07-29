@@ -2,8 +2,8 @@
 id: agent_intake
 name: Intake Agent
 position:
-  x: 1920
-  y: -444
+  x: 2118
+  y: -436
 next-step: func_parsejson_intake
 next-error-step: func_escalate_m9k4j
 parameters:
@@ -64,7 +64,7 @@ parameters:
     allowed-agent-node-ids: []
   stay-in-agent: false
   telephony-config: null
-  enable-context: true
+  enable-context: false
   chat-history-limit: 10
   sequential-tool-calls-limit: 3
   unique-tools-count-limit: 2
