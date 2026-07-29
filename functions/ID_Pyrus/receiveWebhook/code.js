@@ -20,7 +20,6 @@ function result(id, stage, skip, lockToken, reason) {
 function reject(reason) {
   Log.warn({ message: "receiveWebhook rejected: " + reason });
   AgentContext.putValue({ key: "dialog", value: null });
-  AgentContext.putValue({ key: "outcome", value: null });
   return result(null, null, true, null, reason);
 }
 
@@ -38,10 +37,6 @@ if (!token) return reject("payload has no access_token");
 const task = raw.task || {};
 const comments = task.comments || [];
 
-// The turn outcome is a single object, reset on every webhook. Nothing can leak
-// from a previous turn or from a different task through leftover keys.
-AgentContext.putValue({ key: "outcome", value: null });
-
 if (raw.event !== "comment") return result(taskId, null, true, null, "event is not a comment");
 
 // ── Dialog history ──
@@ -49,13 +44,18 @@ if (raw.event !== "comment") return result(taskId, null, true, null, "event is n
 // scratch instead of appended — that keeps them in sync with the real thread.
 AgentContext.deleteNotes({});
 
+// Pyrus emits the opening message both as the task body and as the first comment,
+// which used to show the partner's greeting twice and made the model think it was
+// repeated. Collapse identical neighbours.
+const history = [];
 comments
   .filter(c => c.text || c.formatted_text)
-  .slice(-HISTORY_LIMIT)
   .forEach(c => {
-    const isBot = c.author && c.author.type === "bot";
-    AgentContext.addNote({ text: (isBot ? "Ассистент: " : "Партнёр: ") + (c.text || c.formatted_text) });
+    const line = (c.author && c.author.type === "bot" ? "Ассистент: " : "Партнёр: ") + (c.text || c.formatted_text);
+    if (history[history.length - 1] !== line) history.push(line);
   });
+
+history.slice(-HISTORY_LIMIT).forEach(line => AgentContext.addNote({ text: line }));
 
 const lastComment = comments[comments.length - 1];
 const incomingText = lastComment ? (lastComment.text || lastComment.formatted_text || "") : "";
@@ -150,7 +150,30 @@ try {
   Log.warn({ message: "receiveWebhook: state write failed: " + e });
 }
 
-// AgentContext carries only what the LLM must see, fully rewritten every turn.
+// ── What the model actually sees ──
+// AgentContext.putValue is a code-to-code store: its values never appear in the
+// prompt. Anything the agents must know has to be an explicit note, so the current
+// message and the known facts are spelled out here.
+// "First bot reply" is derived from the thread instead of being left to the model,
+// which got it wrong in both directions during testing.
+const isFirstBotReply = !comments.some(c => c.author && c.author.type === "bot");
+
+AgentContext.addNote({
+  text: [
+    "Известные данные по обращению:",
+    "- Юнит: " + (data.unitFullName || "не определён"),
+    "- Проблема: " + (data.problemSummary || "не описана"),
+    "- Email: " + (data.email || "не указан"),
+    "- Тематика: " + (data.topicKey || "не определена"),
+    "- Это первый ответ бота в диалоге: " + (isFirstBotReply ? "да" : "нет")
+  ].join("\n")
+});
+
+if (incomingText) {
+  AgentContext.addNote({ text: "Текущее сообщение партнёра (отвечать нужно на него): " + incomingText });
+}
+
+// Code-side snapshot: taskId lookup for the functions further down the graph.
 AgentContext.putValue({
   key: "dialog",
   value: {

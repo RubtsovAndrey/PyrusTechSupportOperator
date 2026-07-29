@@ -45,10 +45,26 @@ try {
   }
 }
 
-// Failing loudly routes the node through its error edge to the operator handover,
-// which is safer than inventing a decision the agent never made.
+// Models drop the JSON wrapper from time to time and answer in plain prose. Whether
+// that is recoverable depends on what the stage produces:
+//   intake / solver     -> the payload IS text for the partner, so the prose is usable
+//                          and sending it beats escalating a healthy dialog.
+//   routing / confirmation -> the payload is a control decision (route, status) that
+//                          prose cannot supply; guessing it would send the dialog down
+//                          an arbitrary branch, so fail and let a human take over.
+const PROSE_FALLBACK = {
+  intake: text => ({ action: "clarify", clarifyingQuestion: text }),
+  solver: text => ({ replyText: text })
+};
+
 if (!parsed || typeof parsed !== "object") {
-  throw new Error("parseAgentJson(" + stage + "): agent answer is not JSON: " + cleaned.slice(0, 300));
+  const recover = PROSE_FALLBACK[String(stage || "")];
+  if (recover && cleaned) {
+    Log.warn({ message: "parseAgentJson(" + stage + "): answer was not JSON, using it as plain text" });
+    parsed = recover(cleaned);
+  } else {
+    throw new Error("parseAgentJson(" + stage + "): agent answer is not JSON: " + cleaned.slice(0, 300));
+  }
 }
 
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
@@ -69,8 +85,19 @@ if (taskId) {
       documentKey: "state:" + taskId,
       value: Object.assign({}, state, { data: data, updatedAt: Date.now() })
     });
-    // Keep the LLM-visible snapshot consistent with what was just stored.
+    // putValue is a code-to-code store and never reaches the prompt, so the facts
+    // this stage just resolved are republished as a note. Without it the agents that
+    // run later in the same pass (routing, solver) cannot see the unit or the topic.
     AgentContext.putValue({ key: "dialog", value: Object.assign({}, dialog, data) });
+    AgentContext.addNote({
+      text: [
+        "Уточнённые данные по обращению:",
+        "- Юнит: " + (data.unitFullName || "не определён"),
+        "- Проблема: " + (data.problemSummary || "не описана"),
+        "- Email: " + (data.email || "не указан"),
+        "- Тематика: " + (data.topicKey || "не определена")
+      ].join("\n")
+    });
   } catch (e) {
     Log.warn({ message: "parseAgentJson: state write failed: " + e });
   }
