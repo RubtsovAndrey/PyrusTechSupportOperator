@@ -2,8 +2,8 @@
 id: agent_routing
 name: Routing Agent
 position:
-  x: 2800
-  y: -650
+  x: 2690
+  y: -882
 next-step: func_parsejson_routing
 next-error-step: func_escalate_m9k4j
 parameters:

@@ -2,8 +2,8 @@
 id: cond_confirmation_more
 name: more_questions?
 position:
-  x: 3200
-  y: 500
+  x: 3088
+  y: 600
 next-step: agent_intake
 next-error-step: null
 parameters:

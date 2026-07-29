@@ -2,8 +2,8 @@
 id: agent_confirmation
 name: Confirmation Agent
 position:
-  x: 2000
-  y: 500
+  x: 1888
+  y: 262
 next-step: func_parsejson_confirmation
 next-error-step: func_escalate_m9k4j
 parameters:

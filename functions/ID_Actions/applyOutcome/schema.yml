@@ -2,8 +2,8 @@
 id: applyOutcome
 name: applyOutcome
 description: "Records the decision of the current turn (reply text, Pyrus action,\
-  \ field updates, next stage) into the task document. Single place where dialog\
-  \ transitions are defined; finalize only performs the I/O."
+  \ field updates, next stage) into the task document. Single place where dialog transitions\
+  \ are defined; finalize only performs the I/O."
 response-description: "{ success, taskId, kind, nextStage }"
 parameters:
 - name: outcome
@@ -15,7 +15,7 @@ parameters:
 - name: replyText
   type: STRING
   required: false
-  description: Explicit reply text; falls back to the agent result, then to a default
+  description: "Explicit reply text; falls back to the agent result, then to a default"
   properties: null
   items: null
 language: JAVASCRIPT

@@ -2,8 +2,8 @@
 id: cond_stage_reopened
 name: reopened after close?
 position:
-  x: 1200
-  y: 0
+  x: 1196
+  y: -154
 next-step: func_escalate_m9k4j
 next-error-step: null
 parameters:
