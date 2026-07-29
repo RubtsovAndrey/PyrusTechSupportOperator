@@ -4,8 +4,10 @@ name: searchKnowledge
 description: "Finds the knowledge topic that matches a problem description, ranked\
   \ by token overlap. Returns found=false when nothing matches (never guesses), with\
   \ knowledge-base chunks as a hint. Pass topicKey for an exact lookup."
-response-description: "{ found, source, topics: [{ score, key, description, route,\
-  \ solverKey, solverInstruction, componentName }], chunks }"
+response-description: "With query: { found, source, topics: [{ score, key, description,\
+  \ route, componentName }], chunks }. With topicKey: one solution step to deliver now\
+  \ — { found, key, componentName, preQuestions, onFail, solverInstruction, followUpQuestion,\
+  \ stepNumber, stepCount, isLastStep, stepsExhausted }"
 parameters:
 - name: query
   type: STRING

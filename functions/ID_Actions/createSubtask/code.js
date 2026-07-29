@@ -98,6 +98,11 @@ try {
   Log.error({ message: "createSubtask: could not persist subtaskId " + subtaskId + ": " + e });
 }
 
+// One comment does both jobs: it leaves the summary in the internal correspondence
+// (no `channel`, so nothing reaches the partner) and completes the current workflow
+// step with `action: "finished"`, which is what moves the subtask on to the people
+// who have to work it.
+const attempts = Array.isArray(data.attempts) ? data.attempts : [];
 try {
   await Http.post({
     url: apiUrl + "tasks/" + subtaskId + "/comments",
@@ -109,9 +114,14 @@ try {
         "Юнит: " + data.unitFullName,
         "Компонент: " + data.componentName,
         data.problemSummary ? "Проблема: " + data.problemSummary : null,
+        data.topicKey ? "Тематика БЗ: " + data.topicKey : null,
+        attempts.length
+          ? "Уже пробовали:\n" + attempts.map((a, i) => "  " + (i + 1) + ") " + (a.advice || "—")).join("\n")
+          : null,
         "Email партнёра: " + data.email,
         "Родительская задача: №" + taskId
-      ].filter(Boolean).join("\n")
+      ].filter(Boolean).join("\n"),
+      action: "finished"
     }
   });
 } catch (e) {

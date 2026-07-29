@@ -1,0 +1,10 @@
+---
+id: nextSolutionStep
+name: nextSolutionStep
+description: "Decides what to do after the partner reports that a solution did not
+  help: offer the next step of the knowledge article, or leave the topic through its
+  onFail route. Not a tool — called by the graph after the confirmation stage."
+response-description: "{ next: 'solver' | 'subtask' | 'escalate', taskId, topicKey,\
+  \ attemptsMade, stepCount, reason }"
+parameters: []
+language: JAVASCRIPT

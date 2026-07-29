@@ -81,6 +81,21 @@ if (outcome && token && (outcome.replyText || outcome.action || outcome.approval
       ? { type: currentLastInbound.channel.type, direction: "outbound", to: currentLastInbound.channel.from }
       : null);
 
+    // A comment without `channel` stays in the internal correspondence: the partner
+    // is never sent it. It goes first so the operator reads the summary above the
+    // handover itself.
+    if (outcome.internalNote) {
+      try {
+        await Http.post({
+          url: apiUrl + "tasks/" + taskId + "/comments",
+          headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+          body: { text: outcome.internalNote }
+        });
+      } catch (e) {
+        Log.warn({ message: "finalize: internal summary failed for task " + taskId + ": " + e });
+      }
+    }
+
     const body = {};
     if (outcome.replyText) {
       body.text = outcome.replyText;

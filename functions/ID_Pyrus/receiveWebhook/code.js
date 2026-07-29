@@ -78,6 +78,12 @@ const outboundChannel = lastInbound
   ? { type: lastInbound.channel.type, direction: "outbound", to: lastInbound.channel.from }
   : null;
 
+// Who the operator will be talking to. Taken from the thread rather than asked for,
+// and kept out of the prompt: it is only used in the internal summary.
+const partnerName = lastInbound
+  ? ((lastInbound.author && lastInbound.author.name) || lastInbound.channel.from || null)
+  : null;
+
 // ── Pyrus field parsing ──
 function flattenFields(fields, out = []) {
   if (!Array.isArray(fields)) return out;
@@ -155,7 +161,8 @@ try {
         formId: task.form_id ? String(task.form_id) : null,
         unitFieldId: unitFieldId,
         componentFieldId: componentFieldId,
-        isFirstBotReply: isFirstBotReply
+        isFirstBotReply: isFirstBotReply,
+        partnerName: partnerName
       }
     })
   });
@@ -173,6 +180,8 @@ const missing = [];
 if (!data.unitFullName) missing.push("юнит (город и номер точки)");
 if (!data.problemSummary) missing.push("описание проблемы");
 
+const attemptsMade = Array.isArray(data.attempts) ? data.attempts.length : 0;
+
 AgentContext.addNote({
   text: [
     "Известные данные по обращению:",
@@ -180,6 +189,7 @@ AgentContext.addNote({
     "- Проблема: " + (data.problemSummary || "не описана"),
     "- Email: " + (data.email || "не указан"),
     "- Тематика: " + (data.topicKey || "не определена"),
+    "- Уже предложено решений: " + attemptsMade,
     "- Это первый ответ бота в диалоге: " + (isFirstBotReply ? "да" : "нет"),
     "- Не хватает для продолжения: " + (missing.length ? missing.join(", ") : "ничего, данных достаточно")
   ].join("\n")

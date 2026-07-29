@@ -24,8 +24,10 @@ function keyOf(s) {
   return normUnit(s).replace(/[\s-]+/g, " ").trim();
 }
 
+// Numeric collation, or "first point of the network" would be Тамбов-10 rather than
+// Тамбов-1 as soon as a city grows past nine points.
 function byName(a, b) {
-  return a.name.localeCompare(b.name);
+  return a.name.localeCompare(b.name, "ru", { numeric: true });
 }
 
 function loadUnitCatalog() {
@@ -101,13 +103,30 @@ for (let i = 0; i < matches.length; i++) {
 
 // The agent used to assemble the answer from a raw list and kept losing the exact
 // string, so the unambiguous case is decided here and handed over ready to use.
-const resolvedFullName = matches.length === 1 ? matches[0].fullName : null;
+let resolvedFullName = matches.length === 1 ? matches[0].fullName : null;
 
-Log.info({ message: "matchUnit: query=\"" + String(query || "") + "\" count=" + matches.length + " resolved=" + (resolvedFullName || "-") + " needsBusiness=" + needsBusinessClarification });
+// Requests that come from a network rather than from a point ("бухгалтер сети Москва 1")
+// have no point number to give, and demanding one stalls the dialog over a detail that
+// changes nothing: Pyrus only needs some unit of that network in the field. So the
+// first point is taken, and the only thing still worth asking is the business, because
+// a city can hold both pizzerias and coffee shops.
+let networkPick = false;
+if (String(scope || "").toLowerCase() === "network" && !resolvedFullName && matches.length > 1) {
+  const businesses = {};
+  matches.forEach(u => { businesses[u.business] = true; });
+  if (Object.keys(businesses).length > 1) needsBusinessClarification = true;
+  else {
+    resolvedFullName = matches[0].fullName;
+    networkPick = true;
+  }
+}
+
+Log.info({ message: "matchUnit: query=\"" + String(query || "") + "\" scope=" + (scope || "unit") + " count=" + matches.length + " resolved=" + (resolvedFullName || "-") + (networkPick ? " (first of network)" : "") + " needsBusiness=" + needsBusinessClarification });
 
 return {
   matches: matches.slice(0, 10).map(u => ({ name: u.name, business: u.business, fullName: u.fullName })),
   count: matches.length,
   resolvedFullName: resolvedFullName,
+  networkPick: networkPick,
   needsBusinessClarification: needsBusinessClarification
 };

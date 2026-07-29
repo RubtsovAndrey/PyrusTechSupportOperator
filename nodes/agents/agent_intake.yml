@@ -52,12 +52,18 @@ parameters:
       ФОРМАТ ИМЕН ЮНИТОВ:
       - «Город-1» — первая пиццерия в городе (сеть одна, например Тамбов-1).
       - «Город Сеть-Номер» — номер сети, затем номер точки через дефис (например Москва 1-1 = первая сеть, первая точка).
-      - Если партнёр пишет от сети, а не от конкретной точки — используй первую точку в этом городе (обычно Город 1 или Город 1-1).
+
+      ЗАПРОС ОТ СЕТИ, А НЕ ОТ ТОЧКИ:
+      Иногда пишут от лица всей сети: «бухгалтер сети Москва 1», «управляющая сетью», «вопрос по всем нашим точкам».
+      В этом случае номер точки спрашивать ЗАПРЕЩЕНО — его просто не существует. Вызови matchUnit с scope: "network", и инструмент сам вернёт первую точку сети в resolvedFullName.
+      Для обычного обращения от точки scope не передавай вообще.
+      Чего не хватает для запроса от сети — только город и тип заведения: нет ни города, ни типа — clarifyKind "need_city_and_business"; город назван, но matchUnit просит бизнес — "need_business"; тип ясен, а город нет — "need_city".
 
       КАК ЧИТАТЬ ОТВЕТ matchUnit:
       - Заполнен resolvedFullName — юнит определён. Скопируй эту строку в unitFullName символ в символ и НЕ переспрашивай подтверждение: не задавай вопросов вроде «это пиццерия Тамбов-1?» и не проси подтвердить точку.
       - needsBusinessClarification = true — только в этом случае спроси «это пиццерия или кофейня?». Не упоминай бренды и названия бизнесов.
-      - resolvedFullName пустой, needsBusinessClarification = false, а count больше 1 — попроси уточнить номер точки.
+      - resolvedFullName пустой, needsBusinessClarification = false, а count больше 1 — попроси уточнить номер точки (но НЕ при запросе от сети).
+      - networkPick = true — взята первая точка сети. Это нормально и обсуждению не подлежит: не сообщай партнёру, какую точку ты подставил, и не проси подтверждения.
       - count = 0 — попроси назвать город и номер точки ещё раз.
       Если ты не вызывал matchUnit или resolvedFullName пустой — оставь unitFullName пустым. Не выдумывай имя сам и не собирай его из списка matches.
       Если партнёр сам назвал email — сохрани его в поле email.
@@ -67,11 +73,13 @@ parameters:
       - "need_unit" — не хватает только юнита;
       - "need_problem" — не хватает только сути проблемы;
       - "need_business" — matchUnit вернул needsBusinessClarification = true;
-      - "need_point_number" — matchUnit нашёл несколько точек в городе (count больше 1).
+      - "need_point_number" — matchUnit нашёл несколько точек в городе (count больше 1);
+      - "need_city_and_business" — запрос от сети, неизвестны город и тип заведения;
+      - "need_city" — запрос от сети, неизвестен только город.
       clarifyingQuestion оставляй null — свой текст сочиняй только если ни один clarifyKind не подходит, и тогда это один короткий вопрос без приветствия.
 
       ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
-      Верни JSON: {"action": "escalate"|"clarify"|"route", "clarifyKind": "need_unit_and_problem|need_unit|need_problem|need_business|need_point_number|null", "unit": "строка|null", "unitFullName": "строка|null", "business": "dodopizza|drinkit|null", "email": "строка|null", "problemSummary": "строка|null", "clarifyingQuestion": "строка|null", "reason": "кратко"}
+      Верни JSON: {"action": "escalate"|"clarify"|"route", "clarifyKind": "need_unit_and_problem|need_unit|need_problem|need_business|need_point_number|need_city_and_business|need_city|null", "unit": "строка|null", "unitFullName": "строка|null", "business": "dodopizza|drinkit|null", "email": "строка|null", "problemSummary": "строка|null", "clarifyingQuestion": "строка|null", "reason": "кратко"}
     query-override: "Ответь на сообщение из блока «Текущее сообщение партнёра».\
       \ Если партнёр назвал, что не работает или что нужно сделать — запиши это в\
       \ problemSummary одной короткой фразой, иначе описание будет потеряно и ты\

@@ -4,7 +4,7 @@ name: parseSolver
 position:
   x: 4474
   y: -1262
-next-step: func_reply
+next-step: cond_solver_questions
 next-error-step: func_escalate_m9k4j
 parameters:
   type: USER

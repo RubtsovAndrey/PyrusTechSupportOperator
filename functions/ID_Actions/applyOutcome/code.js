@@ -37,6 +37,17 @@ const OUTCOMES = {
     approvalChoice: null,
     withFieldUpdates: true,
     defaultReply: "Обращение создано и передано специалистам. Мы вернёмся с ответом на ваш email."
+  },
+  // A chat the partner reopened after it was closed goes to the operator without a
+  // word to the partner: the bot has nothing to add, and an automatic "we will get
+  // back to you" on top of a finished conversation only reads as noise.
+  handover_silent: {
+    nextStage: "escalated",
+    action: null,
+    approvalChoice: "approved",
+    withFieldUpdates: true,
+    defaultReply: null,
+    silent: true
   }
 };
 
@@ -79,7 +90,7 @@ if (spec.withFieldUpdates) {
   if (updates.length) fieldUpdates = updates;
 }
 
-let text = replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply;
+let text = spec.silent ? null : (replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply);
 
 // Left to itself the intake agent asked the partner to confirm a unit he had already
 // named, offered "пиццерия или кофейня" in a city with no coffee shops, and wanted to
@@ -91,7 +102,11 @@ const CLARIFY_TEXT = {
   need_unit: "Подскажите, о какой точке идёт речь — город и номер?",
   need_problem: "Подскажите, что именно сейчас не работает или что произошло?",
   need_business: "Подскажите, это пиццерия или кофейня?",
-  need_point_number: "Подскажите, пожалуйста, номер точки."
+  need_point_number: "Подскажите, пожалуйста, номер точки.",
+  // Asked when the partner writes on behalf of a whole network: the point number is
+  // deliberately not requested, any point of that network will do.
+  need_city_and_business: "Подскажите, о каком городе идёт речь и это пиццерии или кофейни?",
+  need_city: "Подскажите, о каком городе идёт речь?"
 };
 
 if (String(outcome || "") === "clarify") {
@@ -112,7 +127,9 @@ if (String(outcome || "") === "clarify") {
 // Greeting is decided by the real Pyrus thread, not by the model, which got it wrong
 // in both directions: it skipped the greeting on the first reply and repeated it later.
 const GREETED = /^\s*(добрый|доброе|доброго|здравствуй|приветствую|привет)/i;
-if (runtime.isFirstBotReply === true) {
+if (!text) {
+  // Nothing to say: leave it that way.
+} else if (runtime.isFirstBotReply === true) {
   if (!GREETED.test(String(text))) text = "Добрый день! " + text;
 } else if (runtime.isFirstBotReply === false) {
   const stripped = String(text).replace(/^\s*(добрый день|добрый вечер|доброе утро|доброго дня|здравствуйте|здравствуй|приветствую|привет)[\s!,.—–-]*/i, "");
@@ -122,9 +139,32 @@ if (runtime.isFirstBotReply === true) {
   }
 }
 
+// An operator picking up the thread should not have to read the whole chat. The
+// summary goes to the internal correspondence, so the partner never sees it.
+let internalNote = null;
+if (spec.nextStage === "escalated") {
+  const attempts = Array.isArray(data.attempts) ? data.attempts : [];
+  const tried = attempts.length
+    ? attempts.map((a, i) => "  " + (i + 1) + ") " + (a.advice || "—")).join("\n")
+    : "  ничего не предлагалось";
+  const who = [runtime.partnerName, data.unitFullName ? "юнит " + data.unitFullName : null, data.email]
+    .filter(Boolean).join(", ");
+  internalNote = [
+    "[Внутренняя переписка]",
+    "Бот передаёт обращение оператору.",
+    "Кто обращается: " + (who || "не определено"),
+    "Суть проблемы: " + (data.problemSummary || "не описана"),
+    "Тематика БЗ: " + (data.topicKey || "не определена"),
+    "Уже пробовали:",
+    tried,
+    "Причина передачи: " + (spec.silent ? "партнёр написал в закрытый чат" : (prev.reason || "не указана"))
+  ].join("\n");
+}
+
 const pendingOutcome = {
   kind: String(outcome || "escalated"),
   replyText: text,
+  internalNote: internalNote,
   action: spec.action,
   approvalChoice: spec.approvalChoice,
   fieldUpdates: fieldUpdates,

@@ -105,6 +105,21 @@ if (taskId) {
     PERSISTED.forEach(key => {
       if (parsed[key]) data[key] = parsed[key];
     });
+
+    // Every solution handed to the partner is logged: searchKnowledge reads this to
+    // pick the next step of the article instead of repeating the first one, and the
+    // escalation summary reads it to tell the operator what has been tried already.
+    if (String(stage || "") === "solver" && parsed.replyText && String(parsed.kind || "solution") !== "questions") {
+      const attempts = Array.isArray(data.attempts) ? data.attempts.slice() : [];
+      const topicKey = data.topicKey || null;
+      attempts.push({
+        topicKey: topicKey,
+        step: attempts.filter(a => a && String(a.topicKey || "") === String(topicKey)).length + 1,
+        at: Date.now(),
+        advice: String(parsed.replyText).replace(/\s+/g, " ").trim().slice(0, 200)
+      });
+      data.attempts = attempts;
+    }
     Db.put({
       dbIntegration: DB_ID,
       documentKey: "state:" + taskId,
@@ -114,7 +129,11 @@ if (taskId) {
     // run later in the same pass (routing, solver) can see the unit and the topic.
     // A labelled note is followed far more reliably by a small model than the nested
     // JSON the platform builds out of the putValue keys.
-    AgentContext.putValue({ key: "dialog", value: Object.assign({}, dialog, data) });
+    // The attempts log is for the code, not for the prompt: the platform serialises
+    // every key of the dialog value into the system message.
+    const published = Object.assign({}, dialog, data);
+    delete published.attempts;
+    AgentContext.putValue({ key: "dialog", value: published });
     AgentContext.addNote({
       text: [
         "Уточнённые данные по обращению:",

@@ -1,0 +1,11 @@
+---
+id: cond_next_solver
+name: try next step?
+position:
+  x: 3860
+  y: 812
+next-step: agent_solver
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).next === 'solver'"
+  false-step: cond_next_subtask

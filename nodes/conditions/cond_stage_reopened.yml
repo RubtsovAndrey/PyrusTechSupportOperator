@@ -4,7 +4,7 @@ name: reopened after close?
 position:
   x: 1196
   y: -154
-next-step: func_escalate_m9k4j
+next-step: func_handover_silent
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).stage === 'reopened'"
