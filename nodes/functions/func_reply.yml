@@ -2,8 +2,8 @@
 id: func_reply
 name: Outcome - reply
 position:
-  x: 5040
-  y: -1254
+  x: 5138
+  y: -1280
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:

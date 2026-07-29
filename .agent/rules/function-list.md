@@ -202,4 +202,6 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Tools/searchKnowledge/
 - `ID_Tools.parseAgentJson` — Parses the JSON answer of an agent, validates the unit against the catalog and persists the collected facts into the task document. Throws when the answer is not parseable, so the node error edge can hand the task to an operator.
   Directory: functions/ID_Tools/parseAgentJson/
+- `ID_Tools.nextSolutionStep` — Decides what to do after the partner reports that a solution did not help: offer the next step of the knowledge article, or leave the topic through its onFail route. Not a tool — called by the graph after the confirmation stage.
+  Directory: functions/ID_Tools/nextSolutionStep/
 

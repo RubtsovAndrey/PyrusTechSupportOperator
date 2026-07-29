@@ -5,9 +5,9 @@ description: "Searches unit catalog by text query. Returns matching units with n
   \ business, fullName. Use when partner mentions their unit (city, point number,\
   \ or brand)."
 response-description: "{ resolvedFullName: exact catalog string when the unit is unambiguous,\
-  \ else null; needsBusinessClarification: true only when one name exists for two businesses;\
-  \ networkPick: true when the first point of a network was taken; matches: [{ name,\
-  \ business, fullName }]; count }"
+  \ else null; needsBusinessClarification: true only when one name exists for two\
+  \ businesses; networkPick: true when the first point of a network was taken; matches:\
+  \ [{ name, business, fullName }]; count }"
 parameters:
 - name: query
   type: STRING
@@ -19,8 +19,8 @@ parameters:
 - name: scope
   type: STRING
   required: false
-  description: "\"unit\" (default) for a request about one point, \"network\" when the\
-    \ partner writes on behalf of a whole network and no point number can be expected\
+  description: "\"unit\" (default) for a request about one point, \"network\" when\
+    \ the partner writes on behalf of a whole network and no point number can be expected\
     \ — then the first point of that network is returned"
   properties: null
   items: null
