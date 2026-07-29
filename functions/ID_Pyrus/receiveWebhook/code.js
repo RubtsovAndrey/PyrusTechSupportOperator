@@ -14,6 +14,20 @@ AgentContext.putValue({ key: "escalateApproval", value: null });
 AgentContext.putValue({ key: "closeFieldUpdates", value: null });
 AgentContext.putValue({ key: "newStage", value: null });
 
+// ── Detect task change: clear all data from previous task to prevent cross-chat leakage ──
+const prevTaskId = AgentContext.getValue({ key: "taskId" });
+if (prevTaskId && String(prevTaskId) !== String(taskId)) {
+  AgentContext.putValue({ key: "unitFullName", value: null });
+  AgentContext.putValue({ key: "unit", value: null });
+  AgentContext.putValue({ key: "business", value: null });
+  AgentContext.putValue({ key: "componentName", value: null });
+  AgentContext.putValue({ key: "problemSummary", value: null });
+  AgentContext.putValue({ key: "email", value: null });
+  AgentContext.putValue({ key: "topicKey", value: null });
+  AgentContext.putValue({ key: "unitFieldId", value: null });
+  AgentContext.putValue({ key: "componentFieldId", value: null });
+}
+
 if (raw.event !== "comment") {
   AgentContext.putValue({ key: "skipProcessing", value: true });
   return { taskId, skipProcessing: true };
