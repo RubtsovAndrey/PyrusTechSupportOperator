@@ -19,9 +19,16 @@ function result(id, stage, skip, lockToken, reason) {
 
 function reject(reason) {
   Log.warn({ message: "receiveWebhook rejected: " + reason });
-  AgentContext.putValue({ key: "dialog", value: null });
   return result(null, null, true, null, reason);
 }
+
+// Wipe the session context before anything else. It is scoped to the session, not to
+// the task, so it outlives both the turn and the task — and with enable-context on,
+// the platform serialises every key of it into the LLM prompt. A pre-refactor build
+// had left apiUrl, chatHistory and the Pyrus access_token in there, which meant the
+// token was shipped to the model on every single call. Everything the agents need is
+// rewritten below from the webhook payload and the task document.
+AgentContext.clearContext({});
 
 const raw = (Context.getMessageContent() || {}).payload || {};
 
@@ -42,8 +49,6 @@ if (raw.event !== "comment") return result(taskId, null, true, null, "event is n
 // ── Dialog history ──
 // Pyrus resends the whole thread on every webhook, so notes are rebuilt from
 // scratch instead of appended — that keeps them in sync with the real thread.
-AgentContext.deleteNotes({});
-
 // Pyrus emits the opening message both as the task body and as the first comment,
 // which used to show the partner's greeting twice and made the model think it was
 // repeated. Collapse identical neighbours.
@@ -151,12 +156,17 @@ try {
 }
 
 // ── What the model actually sees ──
-// AgentContext.putValue is a code-to-code store: its values never appear in the
-// prompt. Anything the agents must know has to be an explicit note, so the current
-// message and the known facts are spelled out here.
-// "First bot reply" is derived from the thread instead of being left to the model,
-// which got it wrong in both directions during testing.
+// The context is serialised into the prompt as {"notes": [...], "data": {...}}, so
+// both notes and putValue keys are visible to the model. Notes are used for anything
+// the agents must reason about, because a labelled line is far easier for a small
+// model to follow than a nested JSON field.
+// "First bot reply" and the list of missing fields are computed here instead of being
+// left to the model, which got the greeting wrong in both directions during testing.
 const isFirstBotReply = !comments.some(c => c.author && c.author.type === "bot");
+
+const missing = [];
+if (!data.unitFullName) missing.push("юнит (город и номер точки)");
+if (!data.problemSummary) missing.push("описание проблемы");
 
 AgentContext.addNote({
   text: [
@@ -165,7 +175,8 @@ AgentContext.addNote({
     "- Проблема: " + (data.problemSummary || "не описана"),
     "- Email: " + (data.email || "не указан"),
     "- Тематика: " + (data.topicKey || "не определена"),
-    "- Это первый ответ бота в диалоге: " + (isFirstBotReply ? "да" : "нет")
+    "- Это первый ответ бота в диалоге: " + (isFirstBotReply ? "да" : "нет"),
+    "- Не хватает для продолжения: " + (missing.length ? missing.join(", ") : "ничего, данных достаточно")
   ].join("\n")
 });
 
@@ -173,7 +184,8 @@ if (incomingText) {
   AgentContext.addNote({ text: "Текущее сообщение партнёра (отвечать нужно на него): " + incomingText });
 }
 
-// Code-side snapshot: taskId lookup for the functions further down the graph.
+// Snapshot for the functions further down the graph (taskId lookup). Keep it free of
+// secrets: the platform copies these keys into the prompt.
 AgentContext.putValue({
   key: "dialog",
   value: {

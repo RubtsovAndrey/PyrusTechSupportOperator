@@ -85,9 +85,10 @@ if (taskId) {
       documentKey: "state:" + taskId,
       value: Object.assign({}, state, { data: data, updatedAt: Date.now() })
     });
-    // putValue is a code-to-code store and never reaches the prompt, so the facts
-    // this stage just resolved are republished as a note. Without it the agents that
-    // run later in the same pass (routing, solver) cannot see the unit or the topic.
+    // The facts this stage just resolved are republished as a note so the agents that
+    // run later in the same pass (routing, solver) can see the unit and the topic.
+    // A labelled note is followed far more reliably by a small model than the nested
+    // JSON the platform builds out of the putValue keys.
     AgentContext.putValue({ key: "dialog", value: Object.assign({}, dialog, data) });
     AgentContext.addNote({
       text: [
