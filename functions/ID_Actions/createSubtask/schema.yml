@@ -1,9 +1,9 @@
 ---
 id: createSubtask
 name: createSubtask
-description: "Creates a Pyrus subtask from the facts stored in the task document\
-  \ (unit, component, email) and posts a summary comment to it. Idempotent: never\
-  \ creates a second subtask for the same task."
+description: "Creates a Pyrus subtask from the facts stored in the task document (unit,\
+  \ component, email) and posts a summary comment to it. Idempotent: never creates\
+  \ a second subtask for the same task."
 response-description: "{ success, subtaskId, action, clarifyingQuestion }"
 parameters: []
 language: JAVASCRIPT

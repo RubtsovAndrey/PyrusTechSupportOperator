@@ -16,7 +16,7 @@ parameters:
 - name: topicKey
   type: STRING
   required: false
-  description: Exact topic key, when the topic is already known
+  description: "Exact topic key, when the topic is already known"
   properties: null
   items: null
 language: JAVASCRIPT

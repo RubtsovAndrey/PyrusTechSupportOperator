@@ -36,8 +36,8 @@ parameters:
 
       ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
       Верни JSON: {"replyText": "твой ответ партнёру"}
-    query-override: "Найди в базе знаний инструкцию по тематике dialog.topicKey\
-      \ и напиши ответ на проблему dialog.problemSummary."
+    query-override: Найди в базе знаний инструкцию по тематике dialog.topicKey и напиши
+      ответ на проблему dialog.problemSummary.
   tools:
   - func_searchknowledge_q3m8x
   handoff-agents:
