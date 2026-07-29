@@ -81,10 +81,40 @@ if (spec.withFieldUpdates) {
 
 let text = replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply;
 
-// The model is told to greet only in its first reply and ignores that regularly, so
-// a repeated greeting is cut here. runtime.isFirstBotReply is computed from the real
-// Pyrus thread, which makes this decision independent of the model.
-if (runtime.isFirstBotReply === false) {
+// Left to itself the intake agent asked the partner to confirm a unit he had already
+// named, offered "пиццерия или кофейня" in a city with no coffee shops, and wanted to
+// know at which moment the error appears — then repeated all of it verbatim on the
+// next turn. Only the unit and the essence of the problem are needed, so the wording
+// of every routine question is fixed here instead of being generated.
+const CLARIFY_TEXT = {
+  need_unit_and_problem: "Подскажите, о какой точке идёт речь (город и номер) и что именно сейчас не работает?",
+  need_unit: "Подскажите, о какой точке идёт речь — город и номер?",
+  need_problem: "Подскажите, что именно сейчас не работает или что произошло?",
+  need_business: "Подскажите, это пиццерия или кофейня?",
+  need_point_number: "Подскажите, пожалуйста, номер точки."
+};
+
+if (String(outcome || "") === "clarify") {
+  const kind = String(prev.clarifyKind || "");
+  if (CLARIFY_TEXT[kind]) {
+    text = CLARIFY_TEXT[kind];
+  } else if (String(prev.agentStage || "") === "intake") {
+    // No usable kind from the agent: fall back to the facts the task document is
+    // still missing. parseAgentJson has already stored this turn's findings.
+    const needUnit = !data.unitFullName;
+    const needProblem = !data.problemSummary;
+    if (needUnit && needProblem) text = CLARIFY_TEXT.need_unit_and_problem;
+    else if (needUnit) text = CLARIFY_TEXT.need_unit;
+    else if (needProblem) text = CLARIFY_TEXT.need_problem;
+  }
+}
+
+// Greeting is decided by the real Pyrus thread, not by the model, which got it wrong
+// in both directions: it skipped the greeting on the first reply and repeated it later.
+const GREETED = /^\s*(добрый|доброе|доброго|здравствуй|приветствую|привет)/i;
+if (runtime.isFirstBotReply === true) {
+  if (!GREETED.test(String(text))) text = "Добрый день! " + text;
+} else if (runtime.isFirstBotReply === false) {
   const stripped = String(text).replace(/^\s*(добрый день|добрый вечер|доброе утро|доброго дня|здравствуйте|здравствуй|приветствую|привет)[\s!,.—–-]*/i, "");
   if (stripped && stripped !== text) {
     text = stripped.charAt(0).toUpperCase() + stripped.slice(1);
