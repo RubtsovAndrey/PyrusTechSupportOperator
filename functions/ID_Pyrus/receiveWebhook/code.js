@@ -7,6 +7,13 @@ const token = raw.access_token;
 const task = raw.task || {};
 const comments = task.comments || [];
 
+// ── Clear stale per-request values from previous webhook in same session ──
+AgentContext.putValue({ key: "replyText", value: null });
+AgentContext.putValue({ key: "closeAction", value: null });
+AgentContext.putValue({ key: "escalateApproval", value: null });
+AgentContext.putValue({ key: "closeFieldUpdates", value: null });
+AgentContext.putValue({ key: "newStage", value: null });
+
 if (raw.event !== "comment") {
   AgentContext.putValue({ key: "skipProcessing", value: true });
   return { taskId, skipProcessing: true };
@@ -92,13 +99,6 @@ try {
 } catch (e) {
   Log.info({ message: "receiveWebhook: lock failed for task " + taskId + ": " + e });
 }
-
-// ── Clear stale per-request values from previous webhook in same session ──
-AgentContext.putValue({ key: "replyText", value: null });
-AgentContext.putValue({ key: "closeAction", value: null });
-AgentContext.putValue({ key: "escalateApproval", value: null });
-AgentContext.putValue({ key: "closeFieldUpdates", value: null });
-AgentContext.putValue({ key: "newStage", value: null });
 
 // ── Restore persisted fields from DB state ──
 try {
