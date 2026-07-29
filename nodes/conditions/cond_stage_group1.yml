@@ -2,8 +2,8 @@
 id: cond_stage_group1
 name: intake/routing/solving?
 position:
-  x: 2134
-  y: -6
+  x: 2168
+  y: -115
 next-step: cond_stage_intake
 next-error-step: null
 parameters:

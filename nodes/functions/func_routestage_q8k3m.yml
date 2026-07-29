@@ -2,8 +2,8 @@
 id: func_routestage_q8k3m
 name: routeStage
 position:
-  x: 1810
-  y: -106
+  x: 1816
+  y: -182
 next-step: cond_stage_group1
 next-error-step: null
 parameters:

@@ -2,8 +2,8 @@
 id: agent_routing
 name: Routing Agent
 position:
-  x: 3952
-  y: -476
+  x: 3862
+  y: -454
 next-step: func_parsejson_routing
 next-error-step: null
 parameters:
@@ -18,7 +18,7 @@ parameters:
     structured-output-enabled: false
     structured-output-schema: null
   system-promts:
-    role: Ты — маршрутизатор в поддержке партнёров пиццерий.
+    role: Ты — маршрутизатор в поддержке партнёров пиццерий и кофеен.
     goal: "Определи по описанию проблемы, к какой тематике из каталога знаний она\
       \ относится."
     instructions: |
@@ -27,7 +27,7 @@ parameters:
 
       Используй tool searchKnowledge для поиска тематики по описанию проблемы.
       Если проблема соответствует тематике — верни её key, route и componentName из результата поиска.
-      Если нет уверенно — верни topicKey: null.
+      Если нет уверенности — верни topicKey: null.
 
       ВАЖНО: верни ТОЛЬКО JSON без markdown-обёртки (без ```json и ```).
       Верни JSON: {"topicKey": "ключ|null", "route": "solver|subtask|escalate|null", "componentName": "строка|null", "reason": "кратко"}

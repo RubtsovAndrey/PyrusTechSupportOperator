@@ -18,7 +18,7 @@ parameters:
     structured-output-enabled: false
     structured-output-schema: null
   system-promts:
-    role: Ты — аналитик поддержки.
+    role: Ты — аналитик поддержки партнёров пиццерий и кофеен.
     goal: Проанализируй ответ партнёра и определи статус решения.
     instructions: |
       ОБЩИЕ ПРАВИЛА:

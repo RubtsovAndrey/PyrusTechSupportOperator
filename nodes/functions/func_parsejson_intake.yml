@@ -2,8 +2,8 @@
 id: func_parsejson_intake
 name: parseIntake
 position:
-  x: 3400
-  y: -466
+  x: 3390
+  y: -520
 next-step: cond_intake_action
 next-error-step: null
 parameters:

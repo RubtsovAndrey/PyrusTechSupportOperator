@@ -2,8 +2,8 @@
 id: func_parsejson_solver
 name: parseSolver
 position:
-  x: 3700
-  y: 51
+  x: 3856
+  y: -67
 next-step: func_finalize_p1x9k
 next-error-step: null
 parameters:

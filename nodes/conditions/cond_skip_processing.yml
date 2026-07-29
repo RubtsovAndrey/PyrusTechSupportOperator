@@ -2,8 +2,8 @@
 id: cond_skip_processing
 name: skipProcessing?
 position:
-  x: 1460
-  y: -4
+  x: 1502
+  y: 8
 next-step: func_finalize_p1x9k
 next-error-step: null
 parameters:
