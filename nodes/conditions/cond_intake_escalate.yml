@@ -2,8 +2,8 @@
 id: cond_intake_escalate
 name: intake escalate?
 position:
-  x: 2954
-  y: -456
+  x: 2854
+  y: -448
 next-step: func_escalate_m9k4j
 next-error-step: null
 parameters:

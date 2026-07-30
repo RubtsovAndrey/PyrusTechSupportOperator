@@ -2,8 +2,8 @@
 id: cond_subtask_needs_email
 name: subtask needs email?
 position:
-  x: 5560
-  y: -564
+  x: 5628
+  y: -566
 next-step: func_clarify_email
 next-error-step: null
 parameters:

@@ -2,8 +2,8 @@
 id: cond_stage_email
 name: waiting for email?
 position:
-  x: 1376
-  y: -300
+  x: 1333
+  y: -307
 next-step: func_createsubtask_v5r8k
 next-error-step: null
 parameters:

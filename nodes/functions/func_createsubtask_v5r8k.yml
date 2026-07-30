@@ -2,8 +2,8 @@
 id: func_createsubtask_v5r8k
 name: createSubtask
 position:
-  x: 4964
-  y: -1008
+  x: 5102
+  y: -972
 next-step: cond_subtask_created
 next-error-step: func_escalate_m9k4j
 parameters:
