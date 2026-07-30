@@ -25,8 +25,8 @@ function loadFunction(relPath, paramNames) {
 
 const clone = v => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 
-// "value.data.email" -> walks into the document and assigns. Mirrors the dotted-path
-// form the platform requires: the payload lives under the root key `value`.
+// "data.email" -> walks into the payload and assigns. Mirrors the dotted-path form the
+// platform requires: paths are relative to `value`, so they carry no `value.` prefix.
 function setPath(root, dotted, value) {
   const parts = String(dotted).split(".");
   let node = root;
@@ -95,18 +95,29 @@ function makeEnv(options) {
       // every point write kept missing. Modelled here so a test cannot pass on addressing
       // the platform does not support.
       findByFilters: a => matching(a.filters).map(k => ({ key: k, value: clone(db[k]) })),
-      // Only $set with dotted paths is modelled, which is all the code uses. Two platform
-      // properties are reproduced deliberately: there is no upsert, and the result reports
-      // how many documents matched, so a filter that hits nothing is detectable.
+      // Only $set with dotted paths is modelled, which is all the code uses. Three platform
+      // properties are reproduced deliberately: there is no upsert; the result reports how
+      // many documents matched, so a filter that hits nothing is detectable; and the paths
+      // are relative to `value`, exactly like the filters. The last one was measured on the
+      // live platform: `$set: { plain: 1 }` landed in `value.plain`, while
+      // `$set: { "value.prefixed": 1 }` built a nested `value.value.prefixed`.
       updateByFilters: a => {
         updates.push(a);
+        const $set = (a.operator && a.operator.$set) || {};
+        // An array as a $set value makes the live adapter answer 500 while converting it
+        // into a BSON document. Thrown here so no test can rely on a write the platform
+        // refuses to perform.
+        Object.keys($set).forEach(p => {
+          if (Array.isArray($set[p])) {
+            throw new Error("db 500: cannot convert ArrayNode to org.bson.Document for " + p);
+          }
+        });
         const keys = matching(a.filters);
         if (!keys.length) return { count: 0 };
-        const $set = (a.operator && a.operator.$set) || {};
         keys.forEach(k => {
-          const doc = { key: k, value: clone(db[k]) };
-          Object.keys($set).forEach(p => setPath(doc, p, clone($set[p])));
-          db[k] = doc.value;
+          const value = clone(db[k]);
+          Object.keys($set).forEach(p => setPath(value, p, clone($set[p])));
+          db[k] = value;
         });
         return { count: keys.length };
       }

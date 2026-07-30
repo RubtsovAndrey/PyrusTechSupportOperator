@@ -66,12 +66,14 @@ function loadData() {
   }
 }
 
-// A point write filters on the stored key field, which is `key`. `documentKey` is only the
-// argument name of Db.get/Db.put; as a filter it matched nothing, threw nothing and
-// returned count 0, so a whole turn of writes vanished without a trace. The count is
-// returned, so a miss is visible — and must never pass quietly again.
+// ── How a point write addresses its document ──
+// `filters` match fields **inside `value`**, and so do the paths in `operator`. Both were
+// settled by experiment, and both had been wrong: a filter on `documentKey` or on `key`
+// matched nothing — silently, with `count: 0` — so a whole turn of writes vanished, while
+// a `value.`-prefixed `$set` path landed in a nested `value.value` subtree instead of the
+// field. Hence: filter on `taskId`, and no prefix in the paths below.
 function setPath(target, dotted, value) {
-  const parts = String(dotted).replace(/^value\./, "").split(".");
+  const parts = String(dotted).split(".");
   let node = target;
   for (let i = 0; i < parts.length - 1; i++) {
     if (!node[parts[i]] || typeof node[parts[i]] !== "object") node[parts[i]] = {};
@@ -80,18 +82,35 @@ function setPath(target, dotted, value) {
   node[parts[parts.length - 1]] = value;
 }
 
-function writeState(key, paths, who) {
-  try {
-    const res = Db.updateByFilters({ dbIntegration: DB_ID, filters: { key: key }, operator: { $set: paths } });
-    if (res && Number(res.count) > 0) return true;
-    Log.warn({ message: who + ": point write matched no document " + key + ", falling back to a whole-document write" });
-  } catch (e) {
-    Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+// An array cannot be the value of a $set: the adapter converts every value into a BSON
+// document and answers 500 — «Failed to convert from ArrayNode to org.bson.Document».
+// Such a patch skips the point write and goes whole-document, where arrays are fine.
+function hasArrayValue(paths) {
+  return Object.keys(paths).some(p => Array.isArray(paths[p]));
+}
+
+function writeState(taskId, paths, who) {
+  const key = "state:" + taskId;
+  if (!hasArrayValue(paths)) {
+    try {
+      const res = Db.updateByFilters({
+        dbIntegration: DB_ID,
+        filters: { taskId: Number(taskId) },
+        operator: { $set: paths }
+      });
+      if (res && Number(res.count) > 0) return true;
+      Log.warn({ message: who + ": point write matched no document " + key + ", falling back to a whole-document write" });
+    } catch (e) {
+      Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+    }
   }
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: key });
     const value = (doc && doc.value) || {};
     Object.keys(paths).forEach(p => setPath(value, p, paths[p]));
+    // The handle every later point write aims at. Written on every rescue, so a document
+    // that predates this convention becomes addressable after one turn.
+    value.taskId = Number(taskId);
     Db.put({ dbIntegration: DB_ID, documentKey: key, value: value });
     return true;
   } catch (e) {
@@ -107,9 +126,9 @@ function writeState(key, paths, who) {
 // collected since it read the document.
 function patchData(patch) {
   if (!taskId) return;
-  const paths = { "value.updatedAt": Date.now() };
-  Object.keys(patch).forEach(k => { paths["value.data." + k] = patch[k]; });
-  writeState("state:" + taskId, paths, "searchKnowledge");
+  const paths = { "updatedAt": Date.now() };
+  Object.keys(patch).forEach(k => { paths["data." + k] = patch[k]; });
+  writeState(taskId, paths, "searchKnowledge");
 }
 
 // The highest step of this article the partner has already been given. Counting the

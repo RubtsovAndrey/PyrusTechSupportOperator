@@ -24,7 +24,10 @@ function payload(comments, overrides) {
 async function run(comments, db, overrides) {
   const env = makeEnv({ payload: payload(comments, overrides), db: db });
   const result = await receiveWebhook(env);
-  return { result, state: env.db[KEY], notes: env.notes, values: env.values, updates: env.updates };
+  return {
+    result, state: env.db[KEY], notes: env.notes, values: env.values,
+    updates: env.updates, puts: env.puts
+  };
 }
 
 const setPaths = update => Object.keys((update && update.operator && update.operator.$set) || {}).sort();
@@ -88,23 +91,26 @@ async function main() {
   // A full rewrite resurrected everything the run had not seen: the answered-comment
   // marker a concurrent finalize had just written, and facts collected by another turn.
   r = await run([{ id: 6, author: PARTNER, text: "дальше", channel: CHAN }], {
+    // `taskId` inside the payload is the handle the point write aims at: the platform
+    // matches filters against the contents of `value`, never against the document key.
     [KEY]: {
+      taskId: 11613,
       stage: null,
       lastProcessedCommentId: "5",
       subtaskId: 777,
       data: { unitFullName: "[dodopizza.ru] Тамбов-1", problemSummary: "не печатает чек" }
     }
   });
-  // The temporary filter diagnostics write to a throwaway document of their own, so the
-  // state write is picked out by its target rather than by being the only one.
-  const stateWrites = r.updates.filter(u => u.filters && u.filters.key === KEY);
-  t.check("existing document is patched, not rewritten", stateWrites.length === 1, r.updates);
+  t.check("existing document is patched, not rewritten", r.updates.length === 1, r.updates);
+  // The document is addressed by a field inside its payload: the key is not filterable.
+  t.check("the write is aimed at this task, not at the document key",
+    r.updates[0].filters.taskId === 11613 && r.updates[0].filters.key === undefined,
+    r.updates[0].filters);
   t.check("only own paths are written",
-    setPaths(stateWrites[0]).join(",") === "value.botHasReplied,value.runtime,value.taskId,value.updatedAt",
-    setPaths(stateWrites[0]));
-  t.check("the diagnostics never touch the state document",
-    r.updates.every(u => u.filters.probeId === undefined || u.filters.key === undefined),
-    r.updates.map(u => u.filters));
+    setPaths(r.updates[0]).join(",") === "botHasReplied,runtime,taskId,updatedAt",
+    setPaths(r.updates[0]));
+  t.check("a point write that finds its document needs no whole-document rescue",
+    r.puts.length === 0, r.puts);
   t.check("answered-comment marker survives", r.state.lastProcessedCommentId === "5", r.state);
   t.check("facts of the current turn survive",
     r.state.data.problemSummary === "не печатает чек", r.state.data);
@@ -134,10 +140,10 @@ async function main() {
 
   // Harvesting the email writes that one field, not the whole subtree.
   r = await run([{ id: 31, author: PARTNER, text: "мой адрес ivan@shop.ru", channel: CHAN }],
-    { [KEY]: { stage: "awaiting_email", data: { unitFullName: "[dodopizza.ru] Тамбов-1" } } });
+    { [KEY]: { taskId: 11613, stage: "awaiting_email", data: { unitFullName: "[dodopizza.ru] Тамбов-1" } } });
   t.check("email is written as a single path",
-    setPaths(r.updates[0]).indexOf("value.data.email") >= 0 &&
-    setPaths(r.updates[0]).indexOf("value.data") < 0, setPaths(r.updates[0]));
+    setPaths(r.updates[0]).indexOf("data.email") >= 0 &&
+    setPaths(r.updates[0]).indexOf("data") < 0, setPaths(r.updates[0]));
   t.check("unit is untouched by the email write",
     r.state.data.unitFullName === "[dodopizza.ru] Тамбов-1", r.state.data);
 

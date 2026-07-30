@@ -33,7 +33,10 @@ async function run(stage, answer, state, dialog) {
     contextValues: { dialog: Object.assign({ taskId: "11613" }, dialog || {}) }
   });
   const result = await parseAgentJson(env, [stage]);
-  return { result, state: env.db[KEY], values: env.values, notes: env.notes };
+  return {
+    result, state: env.db[KEY], values: env.values, notes: env.notes,
+    updates: env.updates, puts: env.puts
+  };
 }
 
 const json = o => JSON.stringify(o);
@@ -182,6 +185,14 @@ async function main() {
   });
   t.check("delivered step is logged with the number searchKnowledge handed out",
     r.state.data.attempts.length === 1 && r.state.data.attempts[0].step === 1, r.state.data.attempts);
+  // The log is an array, and an array cannot be the value of a $set: the adapter converts
+  // every value into a BSON document and answers 500 on an ArrayNode. Sending it anyway
+  // cost this write on every single solver reply, so the patch goes whole-document.
+  t.check("an array is never sent as a $set value",
+    r.updates.every(u => Object.keys(u.operator.$set).every(p => !Array.isArray(u.operator.$set[p]))),
+    r.updates.map(u => Object.keys(u.operator.$set)));
+  t.check("and the attempts log is persisted whole-document instead",
+    r.puts.length === 1, r.puts.length);
 
   r = await run("solver", json({ replyText: "Проверьте кабель снова", kind: "solution" }), {
     data: {
@@ -226,7 +237,7 @@ async function main() {
   });
   await parseAgentJson(env, ["intake"]);
   const paths = Object.keys(env.updates[0].operator.$set).sort().join(",");
-  t.check("only the collected fact is written", paths === "value.data.problemSummary,value.updatedAt", paths);
+  t.check("only the collected fact is written", paths === "data.problemSummary,updatedAt", paths);
   t.check("unit written by matchUnit survives",
     env.db[KEY].data.unitFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", env.db[KEY].data);
   t.check("document root is left alone", env.db[KEY].lastProcessedCommentId === "5", env.db[KEY]);
@@ -239,7 +250,7 @@ async function main() {
   });
   await parseAgentJson(empty, ["intake"]);
   t.check("a turn that collected nothing writes no facts",
-    Object.keys(empty.updates[0].operator.$set).join(",") === "value.updatedAt",
+    Object.keys(empty.updates[0].operator.$set).join(",") === "updatedAt",
     Object.keys(empty.updates[0].operator.$set));
 
   // ── No task document: the answer must still be usable ──

@@ -65,12 +65,14 @@ function validateUnit(candidate, business) {
   }
 }
 
-// A point write filters on the stored key field, which is `key`. `documentKey` is only the
-// argument name of Db.get/Db.put; as a filter it matched nothing, threw nothing and
-// returned count 0, so a whole turn of writes vanished without a trace. The count is
-// returned, so a miss is visible — and must never pass quietly again.
+// ── How a point write addresses its document ──
+// `filters` match fields **inside `value`**, and so do the paths in `operator`. Both were
+// settled by experiment, and both had been wrong: a filter on `documentKey` or on `key`
+// matched nothing — silently, with `count: 0` — so a whole turn of writes vanished, while
+// a `value.`-prefixed `$set` path landed in a nested `value.value` subtree instead of the
+// field. Hence: filter on `taskId`, and no prefix in the paths below.
 function setPath(target, dotted, value) {
-  const parts = String(dotted).replace(/^value\./, "").split(".");
+  const parts = String(dotted).split(".");
   let node = target;
   for (let i = 0; i < parts.length - 1; i++) {
     if (!node[parts[i]] || typeof node[parts[i]] !== "object") node[parts[i]] = {};
@@ -79,18 +81,35 @@ function setPath(target, dotted, value) {
   node[parts[parts.length - 1]] = value;
 }
 
-function writeState(key, paths, who) {
-  try {
-    const res = Db.updateByFilters({ dbIntegration: DB_ID, filters: { key: key }, operator: { $set: paths } });
-    if (res && Number(res.count) > 0) return true;
-    Log.warn({ message: who + ": point write matched no document " + key + ", falling back to a whole-document write" });
-  } catch (e) {
-    Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+// An array cannot be the value of a $set: the adapter converts every value into a BSON
+// document and answers 500 — «Failed to convert from ArrayNode to org.bson.Document».
+// Such a patch skips the point write and goes whole-document, where arrays are fine.
+function hasArrayValue(paths) {
+  return Object.keys(paths).some(p => Array.isArray(paths[p]));
+}
+
+function writeState(taskId, paths, who) {
+  const key = "state:" + taskId;
+  if (!hasArrayValue(paths)) {
+    try {
+      const res = Db.updateByFilters({
+        dbIntegration: DB_ID,
+        filters: { taskId: Number(taskId) },
+        operator: { $set: paths }
+      });
+      if (res && Number(res.count) > 0) return true;
+      Log.warn({ message: who + ": point write matched no document " + key + ", falling back to a whole-document write" });
+    } catch (e) {
+      Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+    }
   }
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: key });
     const value = (doc && doc.value) || {};
     Object.keys(paths).forEach(p => setPath(value, p, paths[p]));
+    // The handle every later point write aims at. Written on every rescue, so a document
+    // that predates this convention becomes addressable after one turn.
+    value.taskId = Number(taskId);
     Db.put({ dbIntegration: DB_ID, documentKey: key, value: value });
     return true;
   } catch (e) {
@@ -214,11 +233,11 @@ if (taskId) {
     // Paths this call is going to write. Rewriting the whole document instead meant the
     // agents of a concurrent turn lost every fact they had collected since this run read
     // it — the defect this replaces.
-    const patch = { "value.updatedAt": Date.now() };
+    const patch = { "updatedAt": Date.now() };
     PERSISTED.forEach(key => {
       if (parsed[key]) {
         data[key] = parsed[key];
-        patch["value.data." + key] = parsed[key];
+        patch["data." + key] = parsed[key];
       }
     });
 
@@ -230,7 +249,7 @@ if (taskId) {
       const route = String(parsed.route || "");
       if (route === "solver" || route === "subtask" || route === "escalate") {
         data.topicRoute = route;
-        patch["value.data.topicRoute"] = route;
+        patch["data.topicRoute"] = route;
       }
     }
 
@@ -244,7 +263,7 @@ if (taskId) {
       ["problemSummary", "topicKey", "componentName", "topicRoute",
        "attempts", "offeredStep", "preQuestionsAsked"].forEach(k => {
         delete data[k];
-        patch["value.data." + k] = null;
+        patch["data." + k] = null;
       });
       Log.info({ message: "parseAgentJson: task " + taskId + " moved on to a new question, previous problem facts cleared" });
     }
@@ -275,23 +294,23 @@ if (taskId) {
           advice: String(parsed.replyText).replace(/\s+/g, " ").trim().slice(0, 200)
         });
         data.attempts = attempts;
-        patch["value.data.attempts"] = attempts;
+        patch["data.attempts"] = attempts;
       }
     }
     // `subtaskId` guards against creating the subtask twice for ONE problem. A new
     // question in the same task is a different problem and may need its own subtask,
     // and the streak counter must not carry a stale score into it either.
     if (moreQuestions) {
-      patch["value.subtaskId"] = null;
-      patch["value.clarifyStreak"] = 0;
+      patch["subtaskId"] = null;
+      patch["clarifyStreak"] = 0;
     }
 
     // No document means receiveWebhook could not create one; writeState notices that the
     // point write matched nothing and creates it, so the facts are not lost either way.
     // A document being created gets the whole facts subtree, so every reader can rely on
     // it being there even when this turn collected nothing.
-    if (!documentExists) patch["value.data"] = data;
-    writeState("state:" + taskId, patch, "parseAgentJson");
+    if (!documentExists) patch["data"] = data;
+    writeState(taskId, patch, "parseAgentJson");
     // The facts this stage just resolved are republished as a note so the agents that
     // run later in the same pass (routing, solver) can see the unit and the topic.
     // A labelled note is followed far more reliably by a small model than the nested

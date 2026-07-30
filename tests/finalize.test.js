@@ -26,8 +26,10 @@ const runtime = {
 const threadWith = comments => () => ({ body: { task: { id: 11613, comments: comments } } });
 const UNCHANGED = threadWith([{ id: 42, author: PARTNER, text: "Не печатает чек", channel: CHAN }]);
 
+// `taskId` lives inside the payload because that is the only thing a point write can
+// filter on: the platform matches filters against the contents of `value`, not the key.
 function state(extra) {
-  return Object.assign({ stage: "awaiting_confirmation", runtime: runtime }, extra || {});
+  return Object.assign({ taskId: 11613, stage: "awaiting_confirmation", runtime: runtime }, extra || {});
 }
 
 const clarify = {
@@ -207,18 +209,19 @@ async function main() {
   });
   // Filtering on `documentKey` matched nothing, reported count 0 and threw nothing, so the
   // whole turn was written into the void: the partner's answer was prepared, lost, and the
-  // chat handed to an operator as if the bot had decided nothing. `key` — the field Db.get
-  // shows at the root — misses just as silently: the platform matches filters against the
-  // contents of `value`. So this point write still misses, and what has to hold is that a
-  // miss costs nothing.
-  t.check("the write is not filtered on documentKey, which is not a stored field at all",
-    r.updates[0].filters.documentKey === undefined, r.updates[0].filters);
-  t.check("a missed point write is rescued by a whole-document write, not lost",
-    r.state.pendingOutcome === null && r.puts.length === 1, [r.state.pendingOutcome, r.puts.length]);
+  // chat handed to an operator as if the bot had decided nothing. `key` misses just as
+  // silently — the platform matches filters against the contents of `value`, and the
+  // document key is not part of it.
+  t.check("the write is aimed at a field inside the document, not at its key",
+    r.updates[0].filters.taskId === 11613 &&
+    r.updates[0].filters.key === undefined && r.updates[0].filters.documentKey === undefined,
+    r.updates[0].filters);
+  t.check("a point write that finds its document needs no whole-document rescue",
+    r.state.pendingOutcome === null && r.puts.length === 0, [r.state.pendingOutcome, r.puts.length]);
 
   const paths = Object.keys(r.updates[0].operator.$set).sort().join(",");
   t.check("only own paths are written",
-    paths === "value.botHasReplied,value.lastProcessedCommentId,value.pendingOutcome,value.stage,value.updatedAt",
+    paths === "botHasReplied,lastProcessedCommentId,pendingOutcome,stage,updatedAt",
     paths);
   t.check("facts collected during the turn survive the stage write",
     r.state.data.problemSummary === "не печатает чек" &&
@@ -237,8 +240,8 @@ async function main() {
   t.check("the decision reaches the document",
     !!decided.db[KEY].pendingOutcome && decided.db[KEY].pendingOutcome.kind === "clarify",
     decided.db[KEY]);
-  t.check("and it gets there through the rescue, since the point write cannot match",
-    decided.puts.length === 1, decided.puts);
+  t.check("and it gets there through the point write, with no rescue needed",
+    decided.puts.length === 0, decided.puts);
 
   r = await run({ db: decided.db });
   t.check("the partner is asked what the bot decided to ask",

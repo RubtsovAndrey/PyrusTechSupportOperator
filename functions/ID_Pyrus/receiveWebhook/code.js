@@ -28,12 +28,14 @@ function isBot(author) {
   return /^bot@/i.test(String(author.email || ""));
 }
 
-// A point write filters on the stored key field, which is `key`. `documentKey` is only the
-// argument name of Db.get/Db.put; as a filter it matched nothing, threw nothing and
-// returned count 0, so a whole turn of writes vanished without a trace. The count is
-// returned, so a miss is visible — and must never pass quietly again.
+// ── How a point write addresses its document ──
+// `filters` match fields **inside `value`**, and so do the paths in `operator`. Both were
+// settled by experiment, and both had been wrong: a filter on `documentKey` or on `key`
+// matched nothing — silently, with `count: 0` — so a whole turn of writes vanished, while
+// a `value.`-prefixed `$set` path landed in a nested `value.value` subtree instead of the
+// field. Hence: filter on `taskId`, and no prefix in the paths below.
 function setPath(target, dotted, value) {
-  const parts = String(dotted).replace(/^value\./, "").split(".");
+  const parts = String(dotted).split(".");
   let node = target;
   for (let i = 0; i < parts.length - 1; i++) {
     if (!node[parts[i]] || typeof node[parts[i]] !== "object") node[parts[i]] = {};
@@ -42,18 +44,36 @@ function setPath(target, dotted, value) {
   node[parts[parts.length - 1]] = value;
 }
 
-function writeState(key, paths, who) {
-  try {
-    const res = Db.updateByFilters({ dbIntegration: DB_ID, filters: { key: key }, operator: { $set: paths } });
-    if (res && Number(res.count) > 0) return true;
-    Log.info({ message: who + ": no document " + key + " yet, writing it whole" });
-  } catch (e) {
-    Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+// An array cannot be the value of a $set: the adapter converts every value into a BSON
+// document and answers 500 — «Failed to convert from ArrayNode to org.bson.Document».
+// Such a patch skips the point write and goes whole-document, where arrays are fine.
+function hasArrayValue(paths) {
+  return Object.keys(paths).some(p => Array.isArray(paths[p]));
+}
+
+function writeState(taskId, paths, who) {
+  const key = "state:" + taskId;
+  if (!hasArrayValue(paths)) {
+    try {
+      const res = Db.updateByFilters({
+        dbIntegration: DB_ID,
+        filters: { taskId: Number(taskId) },
+        operator: { $set: paths }
+      });
+      if (res && Number(res.count) > 0) return true;
+      // Not an anomaly here: the very first turn of a chat has no document yet.
+      Log.info({ message: who + ": no document " + key + " yet, writing it whole" });
+    } catch (e) {
+      Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+    }
   }
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: key });
     const value = (doc && doc.value) || {};
     Object.keys(paths).forEach(p => setPath(value, p, paths[p]));
+    // The handle every later point write aims at. Written on every rescue, so a document
+    // that predates this convention becomes addressable after one turn.
+    value.taskId = Number(taskId);
     Db.put({ dbIntegration: DB_ID, documentKey: key, value: value });
     return true;
   } catch (e) {
@@ -303,60 +323,27 @@ const runtimeValue = {
 // fields inside `value`, and the key is not one of them, so this is the only handle a
 // point write can aim at.
 const patch = {
-  "value.taskId": Number(taskId),
-  "value.updatedAt": now,
-  "value.botHasReplied": !isFirstBotReply,
-  "value.runtime": runtimeValue
+  "taskId": Number(taskId),
+  "updatedAt": now,
+  "botHasReplied": !isFirstBotReply,
+  "runtime": runtimeValue
 };
 if (newRequest || !documentExists) {
   // The leftovers of the finished обращение must go, so here the whole subtree is
   // replaced by the carried-over facts on purpose. A document being created needs the
   // subtree too, or the facts of the very first turn would have nowhere to land.
-  patch["value.data"] = data;
-  patch["value.stage"] = null;
-  patch["value.clarifyStreak"] = 0;
-  patch["value.subtaskId"] = null;
-  patch["value.pendingOutcome"] = null;
+  patch["data"] = data;
+  patch["stage"] = null;
+  patch["clarifyStreak"] = 0;
+  patch["subtaskId"] = null;
+  patch["pendingOutcome"] = null;
 } else if (emailHarvested) {
-  patch["value.data.email"] = data.email;
+  patch["data.email"] = data.email;
 }
 
 // A missing document is handled by writeState itself: the point write matches nothing,
 // which it reports as count 0, and the fallback creates the document from the same patch.
-writeState(STATE_KEY, patch, "receiveWebhook");
-
-// ── Temporary diagnostics: which paths does `operator` take? ──
-// The read-only probes settled the first half of the question. `{ key: … }` and
-// `{ "value.botHasReplied": … }` find nothing at all, while `{ botHasReplied: true }`
-// found four documents: **`filters` address fields inside `value`**, and the document key
-// is not among them — which is exactly why every point write has been missing.
-// What is still unknown is whether `operator` paths are relative in the same way. If they
-// are, the `value.`-prefixed paths every function sends would quietly build a nested
-// `value.value` subtree instead of writing the field. That is settled here, on a throwaway
-// document, before a single real write is allowed to depend on it. Delete once known.
-function probeOperator() {
-  const key = "probe:filters";
-  const id = Date.now();
-  try {
-    Db.put({ dbIntegration: DB_ID, documentKey: key, value: { probeId: id, plain: 0 } });
-    const plain = Db.updateByFilters({
-      dbIntegration: DB_ID, filters: { probeId: id }, operator: { $set: { plain: 1 } }
-    });
-    const prefixed = Db.updateByFilters({
-      dbIntegration: DB_ID, filters: { probeId: id }, operator: { $set: { "value.prefixed": 1 } }
-    });
-    const after = Db.get({ dbIntegration: DB_ID, documentKey: key });
-    Log.info({
-      message: "operator probe: plain=" + JSON.stringify(plain) +
-        " prefixed=" + JSON.stringify(prefixed) +
-        " document=" + JSON.stringify(after && after.value)
-    });
-  } catch (e) {
-    Log.warn({ message: "operator probe failed: " + e });
-  }
-}
-
-probeOperator();
+writeState(taskId, patch, "receiveWebhook");
 
 // ── What the model actually sees ──
 // The context is serialised into the prompt as {"notes": [...], "data": {...}}, so
