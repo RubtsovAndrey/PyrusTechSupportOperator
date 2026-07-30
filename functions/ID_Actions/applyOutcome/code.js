@@ -1,5 +1,39 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
 
+// A point write filters on the stored key field, which is `key`. `documentKey` is only the
+// argument name of Db.get/Db.put; as a filter it matched nothing, threw nothing and
+// returned count 0, so a whole turn of writes vanished without a trace. The count is
+// returned, so a miss is visible — and must never pass quietly again.
+function setPath(target, dotted, value) {
+  const parts = String(dotted).replace(/^value\./, "").split(".");
+  let node = target;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!node[parts[i]] || typeof node[parts[i]] !== "object") node[parts[i]] = {};
+    node = node[parts[i]];
+  }
+  node[parts[parts.length - 1]] = value;
+}
+
+function writeState(key, paths, who) {
+  try {
+    const res = Db.updateByFilters({ dbIntegration: DB_ID, filters: { key: key }, operator: { $set: paths } });
+    if (res && Number(res.count) > 0) return true;
+    Log.warn({ message: who + ": point write matched no document " + key + ", falling back to a whole-document write" });
+  } catch (e) {
+    Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+  }
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: key });
+    const value = (doc && doc.value) || {};
+    Object.keys(paths).forEach(p => setPath(value, p, paths[p]));
+    Db.put({ dbIntegration: DB_ID, documentKey: key, value: value });
+    return true;
+  } catch (e) {
+    Log.error({ message: who + ": state write lost for " + key + ": " + e });
+    return false;
+  }
+}
+
 // The whole state machine in one table. Adding a scenario means adding a row here
 // plus one node in the graph, and nothing else changes.
 const OUTCOMES = {
@@ -217,21 +251,14 @@ const pendingOutcome = {
 // Only the two paths this function owns. Writing the whole document put back the facts
 // as they were when this run read it, undoing anything the agents of a concurrent turn
 // had collected in between.
-try {
-  Db.updateByFilters({
-    dbIntegration: DB_ID,
-    filters: { documentKey: "state:" + taskId },
-    operator: {
-      $set: {
-        "value.pendingOutcome": pendingOutcome,
-        "value.clarifyStreak": clarifyStreak,
-        "value.updatedAt": Date.now()
-      }
-    }
-  });
-} catch (e) {
-  Log.error({ message: "applyOutcome: state write failed for task " + taskId + ": " + e });
-  return { success: false, reason: String(e), taskId: taskId };
+// This write is the one the partner depends on: without pendingOutcome finalize has
+// nothing to say and hands the chat to an operator.
+if (!writeState("state:" + taskId, {
+  "value.pendingOutcome": pendingOutcome,
+  "value.clarifyStreak": clarifyStreak,
+  "value.updatedAt": Date.now()
+}, "applyOutcome")) {
+  return { success: false, reason: "state write lost", taskId: taskId };
 }
 
 return { success: true, taskId: taskId, kind: pendingOutcome.kind, nextStage: spec.nextStage };

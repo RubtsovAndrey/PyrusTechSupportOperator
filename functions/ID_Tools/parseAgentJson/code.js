@@ -52,6 +52,40 @@ function validateUnit(candidate) {
   }
 }
 
+// A point write filters on the stored key field, which is `key`. `documentKey` is only the
+// argument name of Db.get/Db.put; as a filter it matched nothing, threw nothing and
+// returned count 0, so a whole turn of writes vanished without a trace. The count is
+// returned, so a miss is visible — and must never pass quietly again.
+function setPath(target, dotted, value) {
+  const parts = String(dotted).replace(/^value\./, "").split(".");
+  let node = target;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!node[parts[i]] || typeof node[parts[i]] !== "object") node[parts[i]] = {};
+    node = node[parts[i]];
+  }
+  node[parts[parts.length - 1]] = value;
+}
+
+function writeState(key, paths, who) {
+  try {
+    const res = Db.updateByFilters({ dbIntegration: DB_ID, filters: { key: key }, operator: { $set: paths } });
+    if (res && Number(res.count) > 0) return true;
+    Log.warn({ message: who + ": point write matched no document " + key + ", falling back to a whole-document write" });
+  } catch (e) {
+    Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+  }
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: key });
+    const value = (doc && doc.value) || {};
+    Object.keys(paths).forEach(p => setPath(value, p, paths[p]));
+    Db.put({ dbIntegration: DB_ID, documentKey: key, value: value });
+    return true;
+  } catch (e) {
+    Log.error({ message: who + ": state write lost for " + key + ": " + e });
+    return false;
+  }
+}
+
 // The topic and the component are catalog values, not free text. An invented topicKey
 // makes searchKnowledge fall back to a blind text search, and an invented component is
 // written straight into the Pyrus field Компонент — the same argument that already
@@ -232,21 +266,12 @@ if (taskId) {
       patch["value.clarifyStreak"] = 0;
     }
 
-    if (documentExists) {
-      Db.updateByFilters({
-        dbIntegration: DB_ID,
-        filters: { documentKey: "state:" + taskId },
-        operator: { $set: patch }
-      });
-    } else {
-      // No document yet means receiveWebhook could not create one; the facts still must
-      // not be lost, so it is created here instead of silently patching nothing.
-      Db.put({
-        dbIntegration: DB_ID,
-        documentKey: "state:" + taskId,
-        value: { data: data, updatedAt: Date.now() }
-      });
-    }
+    // No document means receiveWebhook could not create one; writeState notices that the
+    // point write matched nothing and creates it, so the facts are not lost either way.
+    // A document being created gets the whole facts subtree, so every reader can rely on
+    // it being there even when this turn collected nothing.
+    if (!documentExists) patch["value.data"] = data;
+    writeState("state:" + taskId, patch, "parseAgentJson");
     // The facts this stage just resolved are republished as a note so the agents that
     // run later in the same pass (routing, solver) can see the unit and the topic.
     // A labelled note is followed far more reliably by a small model than the nested

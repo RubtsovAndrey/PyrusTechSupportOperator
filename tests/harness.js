@@ -46,9 +46,12 @@ function makeEnv(options) {
   const posts = [];
   const gets = [];
   const updates = [];
+  // Whole-document writes are recorded separately: they are the fallback path, and a test
+  // must be able to tell a point write that worked from one that missed and was rescued.
+  const puts = [];
 
   const env = {
-    db, notes, values, posts, gets, updates,
+    db, notes, values, posts, gets, updates, puts,
     prev: clone(o.prev) || {},
     Context: {
       getMessageContent: () => ({ payload: o.payload }),
@@ -63,22 +66,27 @@ function makeEnv(options) {
     // Db.get returns a copy: a function must not be able to mutate stored state by
     // reference, or a test would pass while production corrupts the document.
     Db: {
-      get: a => (db[a.documentKey] === undefined ? null : { value: clone(db[a.documentKey]) }),
-      put: a => { db[a.documentKey] = clone(a.value); },
+      // The stored document is { key, value } — `documentKey` is only the name of the
+      // argument. Filters address the stored fields, so they must say `key`; this stub
+      // used to accept `documentKey` in a filter, which is exactly why the tests were
+      // green while every write in production silently matched nothing.
+      get: a => (db[a.documentKey] === undefined
+        ? null
+        : { key: a.documentKey, value: clone(db[a.documentKey]) }),
+      put: a => { puts.push(a); db[a.documentKey] = clone(a.value); },
       delete: a => { delete db[a.documentKey]; },
-      // Only $set with dotted paths is modelled, which is all the code uses. Two
-      // platform properties are reproduced deliberately, because the code has to cope
-      // with both: there is no upsert (a missing document is simply not found), and
-      // the result says nothing about how many documents matched.
+      // Only $set with dotted paths is modelled, which is all the code uses. Two platform
+      // properties are reproduced deliberately: there is no upsert, and the result reports
+      // how many documents matched, so a filter that hits nothing is detectable.
       updateByFilters: a => {
         updates.push(a);
-        const key = a.filters && a.filters.documentKey;
-        if (key === undefined || db[key] === undefined) return {};
-        const doc = { documentKey: key, value: clone(db[key]) };
+        const key = a.filters && a.filters.key;
+        if (key === undefined || db[key] === undefined) return { count: 0 };
+        const doc = { key: key, value: clone(db[key]) };
         const $set = (a.operator && a.operator.$set) || {};
         Object.keys($set).forEach(p => setPath(doc, p, clone($set[p])));
         db[key] = doc.value;
-        return {};
+        return { count: 1 };
       }
     },
     Log: { info() {}, warn() {}, error() {}, debug() {}, trace() {} },

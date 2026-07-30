@@ -11,6 +11,40 @@ const DEFAULTS = {
   parentLinkFieldId: null
 };
 
+// A point write filters on the stored key field, which is `key`. `documentKey` is only the
+// argument name of Db.get/Db.put; as a filter it matched nothing, threw nothing and
+// returned count 0, so a whole turn of writes vanished without a trace. The count is
+// returned, so a miss is visible — and must never pass quietly again.
+function setPath(target, dotted, value) {
+  const parts = String(dotted).replace(/^value\./, "").split(".");
+  let node = target;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!node[parts[i]] || typeof node[parts[i]] !== "object") node[parts[i]] = {};
+    node = node[parts[i]];
+  }
+  node[parts[parts.length - 1]] = value;
+}
+
+function writeState(key, paths, who) {
+  try {
+    const res = Db.updateByFilters({ dbIntegration: DB_ID, filters: { key: key }, operator: { $set: paths } });
+    if (res && Number(res.count) > 0) return true;
+    Log.warn({ message: who + ": point write matched no document " + key + ", falling back to a whole-document write" });
+  } catch (e) {
+    Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+  }
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: key });
+    const value = (doc && doc.value) || {};
+    Object.keys(paths).forEach(p => setPath(value, p, paths[p]));
+    Db.put({ dbIntegration: DB_ID, documentKey: key, value: value });
+    return true;
+  } catch (e) {
+    Log.error({ message: who + ": state write lost for " + key + ": " + e });
+    return false;
+  }
+}
+
 function loadConfig() {
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: "config" });
@@ -100,15 +134,7 @@ async function findExistingSubtask() {
 const existing = await findExistingSubtask();
 if (existing) {
   Log.info({ message: "createSubtask: Pyrus register already has subtask " + existing + " for task " + taskId + ", not creating a second one" });
-  try {
-    Db.updateByFilters({
-      dbIntegration: DB_ID,
-      filters: { documentKey: "state:" + taskId },
-      operator: { $set: { "value.subtaskId": existing, "value.updatedAt": Date.now() } }
-    });
-  } catch (e) {
-    Log.warn({ message: "createSubtask: could not adopt subtask " + existing + ": " + e });
-  }
+  writeState("state:" + taskId, { "value.subtaskId": existing, "value.updatedAt": Date.now() }, "createSubtask");
   return { success: true, subtaskId: existing, duplicate: true, taskId: taskId };
 }
 
@@ -138,15 +164,7 @@ try {
 // Remember it before anything else can fail, so a retry cannot duplicate the subtask.
 // Only the subtaskId path: the facts in this document may have moved on since the read
 // above, and a full rewrite would put the stale ones back.
-try {
-  Db.updateByFilters({
-    dbIntegration: DB_ID,
-    filters: { documentKey: "state:" + taskId },
-    operator: { $set: { "value.subtaskId": Number(subtaskId), "value.updatedAt": Date.now() } }
-  });
-} catch (e) {
-  Log.error({ message: "createSubtask: could not persist subtaskId " + subtaskId + ": " + e });
-}
+writeState("state:" + taskId, { "value.subtaskId": Number(subtaskId), "value.updatedAt": Date.now() }, "createSubtask");
 
 // Two requests where there used to be one. A single comment carrying both the summary
 // and `action: "finished"` failed as a whole — Pyrus answered 400 — and the subtask was

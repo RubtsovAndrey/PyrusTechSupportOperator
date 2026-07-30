@@ -66,6 +66,40 @@ function loadData() {
   }
 }
 
+// A point write filters on the stored key field, which is `key`. `documentKey` is only the
+// argument name of Db.get/Db.put; as a filter it matched nothing, threw nothing and
+// returned count 0, so a whole turn of writes vanished without a trace. The count is
+// returned, so a miss is visible — and must never pass quietly again.
+function setPath(target, dotted, value) {
+  const parts = String(dotted).replace(/^value\./, "").split(".");
+  let node = target;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!node[parts[i]] || typeof node[parts[i]] !== "object") node[parts[i]] = {};
+    node = node[parts[i]];
+  }
+  node[parts[parts.length - 1]] = value;
+}
+
+function writeState(key, paths, who) {
+  try {
+    const res = Db.updateByFilters({ dbIntegration: DB_ID, filters: { key: key }, operator: { $set: paths } });
+    if (res && Number(res.count) > 0) return true;
+    Log.warn({ message: who + ": point write matched no document " + key + ", falling back to a whole-document write" });
+  } catch (e) {
+    Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+  }
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: key });
+    const value = (doc && doc.value) || {};
+    Object.keys(paths).forEach(p => setPath(value, p, paths[p]));
+    Db.put({ dbIntegration: DB_ID, documentKey: key, value: value });
+    return true;
+  } catch (e) {
+    Log.error({ message: who + ": state write lost for " + key + ": " + e });
+    return false;
+  }
+}
+
 // Written straight into the task document rather than returned to the agent: what the
 // article has already spent on this task must not depend on the model repeating it.
 // Only the keys of the patch are written. Rewriting the whole document meant this tool,
@@ -75,15 +109,7 @@ function patchData(patch) {
   if (!taskId) return;
   const paths = { "value.updatedAt": Date.now() };
   Object.keys(patch).forEach(k => { paths["value.data." + k] = patch[k]; });
-  try {
-    Db.updateByFilters({
-      dbIntegration: DB_ID,
-      filters: { documentKey: "state:" + taskId },
-      operator: { $set: paths }
-    });
-  } catch (e) {
-    Log.warn({ message: "searchKnowledge: state write failed: " + e });
-  }
+  writeState("state:" + taskId, paths, "searchKnowledge");
 }
 
 // The highest step of this article the partner has already been given. Counting the

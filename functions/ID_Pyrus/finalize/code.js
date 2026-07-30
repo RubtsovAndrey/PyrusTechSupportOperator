@@ -9,6 +9,43 @@ function isBot(author) {
   return /^bot@/i.test(String(author.email || ""));
 }
 
+// The document field holding the key is `key`, not `documentKey` — that name is only the
+// argument of Db.get/Db.put. Filtering on `documentKey` matched nothing, threw nothing and
+// reported count 0, so every write of a turn was silently dropped: the partner's answer
+// was prepared, lost, and the chat handed to an operator as if nothing had been decided.
+// updateByFilters does return a count, so a miss can be seen — and must never pass quietly.
+function setPath(target, dotted, value) {
+  const parts = String(dotted).replace(/^value\./, "").split(".");
+  let node = target;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!node[parts[i]] || typeof node[parts[i]] !== "object") node[parts[i]] = {};
+    node = node[parts[i]];
+  }
+  node[parts[parts.length - 1]] = value;
+}
+
+function writeState(key, paths, who) {
+  try {
+    const res = Db.updateByFilters({ dbIntegration: DB_ID, filters: { key: key }, operator: { $set: paths } });
+    if (res && Number(res.count) > 0) return true;
+    Log.warn({ message: who + ": point write matched no document " + key + ", falling back to a whole-document write" });
+  } catch (e) {
+    Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+  }
+  // Either the document is not there (the platform has no upsert) or the filter is wrong
+  // again. Both would lose the write, and a lost stage costs the partner an answer.
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: key });
+    const value = (doc && doc.value) || {};
+    Object.keys(paths).forEach(p => setPath(value, p, paths[p]));
+    Db.put({ dbIntegration: DB_ID, documentKey: key, value: value });
+    return true;
+  } catch (e) {
+    Log.error({ message: who + ": state write lost for " + key + ": " + e });
+    return false;
+  }
+}
+
 const prev = Context.getLastFunctionResult() || {};
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = prev.taskId || dialog.taskId || null;
@@ -162,25 +199,15 @@ if (outcome.nextStage) {
   // Only the paths this function owns: writing the whole document would resurrect the
   // facts as they looked when this run started and undo whatever the agents of a
   // concurrent turn have collected since.
-  try {
-    Db.updateByFilters({
-      dbIntegration: DB_ID,
-      filters: { documentKey: "state:" + taskId },
-      operator: {
-        $set: {
-          "value.stage": outcome.nextStage,
-          "value.pendingOutcome": null,
-          // One comment is answered once: a redelivered webhook for it is dropped by
-          // receiveWebhook instead of producing a second reply.
-          "value.lastProcessedCommentId": processedId || state.lastProcessedCommentId || null,
-          "value.botHasReplied": state.botHasReplied === true || !!outcome.replyText,
-          "value.updatedAt": Date.now()
-        }
-      }
-    });
-  } catch (e) {
-    Log.warn({ message: "finalize: state write failed: " + e });
-  }
+  writeState("state:" + taskId, {
+    "value.stage": outcome.nextStage,
+    "value.pendingOutcome": null,
+    // One comment is answered once: a redelivered webhook for it is dropped by
+    // receiveWebhook instead of producing a second reply.
+    "value.lastProcessedCommentId": processedId || state.lastProcessedCommentId || null,
+    "value.botHasReplied": state.botHasReplied === true || !!outcome.replyText,
+    "value.updatedAt": Date.now()
+  }, "finalize");
 }
 
 return { success: true, taskId: taskId, kind: outcome.kind };

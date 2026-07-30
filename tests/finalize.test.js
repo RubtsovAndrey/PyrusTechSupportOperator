@@ -5,6 +5,9 @@
 const { loadFunction, makeEnv, suite } = require("./harness");
 
 const finalize = loadFunction("functions/ID_Pyrus/finalize/code.js");
+// The decision and its delivery are two functions and two documents apart, so the
+// handover of state between them is tested end to end.
+const applyOutcome = loadFunction("functions/ID_Actions/applyOutcome/code.js", ["outcome", "replyText"]);
 
 const BOT = { id: 1314929, name: "Бот" };
 const PARTNER = { id: 555, name: "Партнёр" };
@@ -48,7 +51,7 @@ function ownPayload(commentId) {
 async function run(options) {
   const env = makeEnv(Object.assign({ prev: { taskId: "11613" }, onGet: UNCHANGED }, options));
   const result = await finalize(env);
-  return { result, state: env.db[KEY], posts: env.posts, updates: env.updates, env };
+  return { result, state: env.db[KEY], posts: env.posts, updates: env.updates, puts: env.puts, env };
 }
 
 async function main() {
@@ -202,6 +205,16 @@ async function main() {
       })
     }
   });
+  // The document field holding the key is `key`; `documentKey` is only the argument name
+  // of Db.get/Db.put. Filtering on it matched nothing, reported count 0 and threw nothing,
+  // so the whole turn was written into the void: the partner's answer was prepared, lost,
+  // and the chat handed to an operator as if the bot had decided nothing.
+  t.check("the filter addresses the stored key field",
+    r.updates[0].filters.key === KEY && r.updates[0].filters.documentKey === undefined,
+    r.updates[0].filters);
+  t.check("a point write that hits its document needs no whole-document rescue",
+    r.puts.length === 0, r.puts);
+
   const paths = Object.keys(r.updates[0].operator.$set).sort().join(",");
   t.check("only own paths are written",
     paths === "value.botHasReplied,value.lastProcessedCommentId,value.pendingOutcome,value.stage,value.updatedAt",
@@ -209,6 +222,28 @@ async function main() {
   t.check("facts collected during the turn survive the stage write",
     r.state.data.problemSummary === "не печатает чек" &&
     r.state.data.unitFullName === "[dodopizza.ru] Тамбов-1", r.state.data);
+
+  // ── The chain that once broke in production ──
+  // applyOutcome decided a clarifying question, the write silently matched no document,
+  // and finalize found no outcome: the partner was greeted with «мы вернёмся с ответом»
+  // and the chat went to a human. Both halves passed their own tests.
+  const decided = makeEnv({
+    prev: { taskId: "11613" },
+    db: { [KEY]: state({ stage: "intake", pendingOutcome: null }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(decided, ["clarify", "Подскажите, о какой точке идёт речь?"]);
+  t.check("the decision reaches the document",
+    !!decided.db[KEY].pendingOutcome && decided.db[KEY].pendingOutcome.kind === "clarify",
+    decided.db[KEY]);
+  t.check("the decision is stored without a whole-document rescue", decided.puts.length === 0, decided.puts);
+
+  r = await run({ db: decided.db });
+  t.check("the partner is asked what the bot decided to ask",
+    /о какой точке/i.test(r.posts[0].body.text), r.posts[0].body);
+  t.check("and the chat is not handed to a human",
+    r.posts[0].body.approval_choice !== "approved", r.posts[0].body);
+  t.check("the stage follows the decision", r.state.stage === "gathering", r.state);
 
   // ── Nothing decided: the partner must never be left unanswered ──
   r = await run({ db: { [KEY]: state({ stage: "intake", pendingOutcome: null }) } });

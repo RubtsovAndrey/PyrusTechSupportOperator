@@ -104,8 +104,12 @@ async function main() {
     r.state.data.problemSummary === "не печатает чек", r.state.data);
   t.check("subtaskId survives", r.state.subtaskId === 777, r.state);
 
+  // A point write cannot create a document — there is no upsert — and it reports the miss
+  // as count 0 instead of failing. The fallback is what makes the first turn persist.
   r = await run([{ id: 1, author: PARTNER, text: "первое обращение", channel: CHAN }], {});
-  t.check("missing document is created outright", r.updates.length === 0 && !!r.state, r.state);
+  t.check("missing document is created after the point write misses", !!r.state, r.state);
+  t.check("the created document carries the facts subtree", !!r.state.data, r.state);
+  t.check("and the runtime of this request", !!r.state.runtime.token, r.state.runtime);
 
   // Harvesting the email writes that one field, not the whole subtree.
   r = await run([{ id: 31, author: PARTNER, text: "мой адрес ivan@shop.ru", channel: CHAN }],

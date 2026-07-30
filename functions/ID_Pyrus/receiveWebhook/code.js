@@ -28,6 +28,40 @@ function isBot(author) {
   return /^bot@/i.test(String(author.email || ""));
 }
 
+// A point write filters on the stored key field, which is `key`. `documentKey` is only the
+// argument name of Db.get/Db.put; as a filter it matched nothing, threw nothing and
+// returned count 0, so a whole turn of writes vanished without a trace. The count is
+// returned, so a miss is visible — and must never pass quietly again.
+function setPath(target, dotted, value) {
+  const parts = String(dotted).replace(/^value\./, "").split(".");
+  let node = target;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!node[parts[i]] || typeof node[parts[i]] !== "object") node[parts[i]] = {};
+    node = node[parts[i]];
+  }
+  node[parts[parts.length - 1]] = value;
+}
+
+function writeState(key, paths, who) {
+  try {
+    const res = Db.updateByFilters({ dbIntegration: DB_ID, filters: { key: key }, operator: { $set: paths } });
+    if (res && Number(res.count) > 0) return true;
+    Log.info({ message: who + ": no document " + key + " yet, writing it whole" });
+  } catch (e) {
+    Log.warn({ message: who + ": point write failed on " + key + ": " + e });
+  }
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: key });
+    const value = (doc && doc.value) || {};
+    Object.keys(paths).forEach(p => setPath(value, p, paths[p]));
+    Db.put({ dbIntegration: DB_ID, documentKey: key, value: value });
+    return true;
+  } catch (e) {
+    Log.error({ message: who + ": state write lost for " + key + ": " + e });
+    return false;
+  }
+}
+
 // Every exit returns the same shape, so downstream conditions never read undefined.
 function result(id, stage, skip, reason) {
   return { taskId: id, stage: stage, skip: skip, reason: reason || null };
@@ -260,9 +294,10 @@ const patch = {
   "value.botHasReplied": !isFirstBotReply,
   "value.runtime": runtimeValue
 };
-if (newRequest) {
+if (newRequest || !documentExists) {
   // The leftovers of the finished обращение must go, so here the whole subtree is
-  // replaced by the carried-over facts on purpose.
+  // replaced by the carried-over facts on purpose. A document being created needs the
+  // subtree too, or the facts of the very first turn would have nowhere to land.
   patch["value.data"] = data;
   patch["value.stage"] = null;
   patch["value.clarifyStreak"] = 0;
@@ -272,23 +307,9 @@ if (newRequest) {
   patch["value.data.email"] = data.email;
 }
 
-try {
-  if (documentExists) {
-    Db.updateByFilters({
-      dbIntegration: DB_ID,
-      filters: { documentKey: STATE_KEY },
-      operator: { $set: patch }
-    });
-  } else {
-    Db.put({
-      dbIntegration: DB_ID,
-      documentKey: STATE_KEY,
-      value: { updatedAt: now, data: data, botHasReplied: !isFirstBotReply, runtime: runtimeValue }
-    });
-  }
-} catch (e) {
-  Log.warn({ message: "receiveWebhook: state write failed: " + e });
-}
+// A missing document is handled by writeState itself: the point write matches nothing,
+// which it reports as count 0, and the fallback creates the document from the same patch.
+writeState(STATE_KEY, patch, "receiveWebhook");
 
 // ── What the model actually sees ──
 // The context is serialised into the prompt as {"notes": [...], "data": {...}}, so
