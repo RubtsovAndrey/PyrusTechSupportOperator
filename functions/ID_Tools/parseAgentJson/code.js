@@ -19,12 +19,17 @@ function nameOf(entry) {
   return s;
 }
 
+function businessOf(full) {
+  const m = String(full || "").match(/^\[([^\]]+)\]/);
+  return m ? m[1].split(".")[0] : "";
+}
+
 // A wrong unit written into Pyrus is worse than no unit, so the value is accepted
 // only if the catalog really has it. Matching used to demand the whole entry
 // character for character; the agent routinely drops the business prefix or the
 // address, and the value was then discarded without a trace, leaving the unit empty
 // for the rest of the dialog. The unit name alone is enough as long as it is unique.
-function validateUnit(candidate) {
+function validateUnit(candidate, business) {
   if (!candidate) return null;
   const wantedFull = normalize(candidate);
   const wantedName = normalize(nameOf(candidate));
@@ -36,8 +41,16 @@ function validateUnit(candidate) {
       return null;
     }
     let hit = raw.find(item => normalize(item) === wantedFull);
-    if (!hit && wantedName) {
-      const byName = raw.filter(item => normalize(nameOf(item)) === wantedName);
+    if (!hit) {
+      let byName = raw.filter(item => normalize(nameOf(item)) === wantedName);
+      // The same point name exists in more than one business, and the agent reports which
+      // one it heard. Without that hint an ambiguous name is still refused: a point of the
+      // wrong network in the Pyrus field is worse than an empty field.
+      if (byName.length > 1 && business) {
+        const wantedBiz = normalize(business);
+        const inBiz = byName.filter(item => normalize(businessOf(item)) === wantedBiz);
+        if (inBiz.length === 1) byName = inBiz;
+      }
       if (byName.length === 1) hit = byName[0];
       else if (byName.length > 1) {
         Log.warn({ message: "parseAgentJson: unit \"" + candidate + "\" matches " + byName.length + " catalog entries, not persisting" });
@@ -170,7 +183,14 @@ if (!parsed || typeof parsed !== "object") {
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = dialog.taskId || null;
 
-if (parsed.unitFullName) parsed.unitFullName = validateUnit(parsed.unitFullName);
+// The unit must not depend on the model choosing to call a tool. The agent reports what
+// it heard in `unit` and the catalog value in `unitFullName`, and it is told to leave the
+// latter empty unless matchUnit filled it — which a flash model skips most turns. The
+// partner was then asked for the point three times, answered three times, and the dialog
+// escalated with nothing collected. The catalog stays the only arbiter: a name it does
+// not contain resolves to nothing and is not persisted.
+const unitCandidate = parsed.unitFullName || parsed.unit || null;
+if (unitCandidate) parsed.unitFullName = validateUnit(unitCandidate, parsed.business);
 if (parsed.topicKey) parsed.topicKey = validateTopicKey(parsed.topicKey);
 if (parsed.componentName) parsed.componentName = validateComponent(parsed.componentName);
 

@@ -104,6 +104,21 @@ async function main() {
     r.state.data.problemSummary === "не печатает чек", r.state.data);
   t.check("subtaskId survives", r.state.subtaskId === 777, r.state);
 
+  // The web widget reports the sender as an object, not a string. Concatenated into the
+  // operator's summary it read «Кто обращается: [object Object]».
+  r = await run([{
+    id: 1,
+    author: { id: 555, first_name: "", last_name: "" },
+    text: "здравствуйте",
+    channel: { type: "web_widget", direction: "inbound", from: { name: "Anonymous user" } }
+  }], {});
+  t.check("a channel address that is an object still yields a name",
+    r.state.runtime.partnerName === "Anonymous user", r.state.runtime.partnerName);
+
+  r = await run([{ id: 1, author: PARTNER, text: "здравствуйте", channel: CHAN }], {});
+  t.check("a named author still wins over the channel address",
+    r.state.runtime.partnerName === "Партнёр", r.state.runtime.partnerName);
+
   // A point write cannot create a document — there is no upsert — and it reports the miss
   // as count 0 instead of failing. The fallback is what makes the first turn persist.
   r = await run([{ id: 1, author: PARTNER, text: "первое обращение", channel: CHAN }], {});

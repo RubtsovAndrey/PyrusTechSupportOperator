@@ -71,6 +71,31 @@ async function main() {
   t.check("unit is completed from the catalog by its bare name",
     r.state.data.unitFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", r.state.data);
 
+  // What the live model actually returns: it names the point in `unit`, leaves
+  // `unitFullName` null because it never called matchUnit, and explains in `reason` that
+  // the unit «нужно подтвердить через поиск в каталоге». The unit was dropped, the partner
+  // was asked for the point three times, answered three times, and the dialog escalated
+  // with nothing collected. The catalog resolves it in code instead.
+  r = await run("intake", json({
+    action: "clarify", clarifyKind: "need_unit", unit: "Тамбов-1",
+    unitFullName: null, business: "dodopizza", problemSummary: "не печатает чек"
+  }));
+  t.check("the unit is taken from what the agent heard, without a tool call",
+    r.state.data.unitFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", r.state.data);
+
+  // The bare name alone is ambiguous across businesses; the one the agent reports decides.
+  r = await run("intake", json({ action: "route", unit: "Москва-12", business: "drinkit" }));
+  t.check("the business the agent reports resolves an ambiguous name",
+    r.state.data.unitFullName === "[drinkit.ru] Москва-12 (Тверская, 1)", r.state.data);
+
+  r = await run("intake", json({ action: "route", unit: "Москва-12" }));
+  t.check("an ambiguous name without a business is still refused",
+    !r.state.data.unitFullName, r.state.data);
+
+  r = await run("intake", json({ action: "route", unit: "Тамбов-5", business: "dodopizza" }));
+  t.check("a unit the catalog does not have is refused even when the agent insists",
+    !r.state.data.unitFullName, r.state.data);
+
   r = await run("intake", json({ action: "route", unitFullName: "Тамбов-5" }));
   t.check("invented unit is not persisted", !r.state.data.unitFullName, r.state.data);
 

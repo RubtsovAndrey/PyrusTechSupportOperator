@@ -154,8 +154,18 @@ const outboundChannel = lastInbound
 
 // Who the operator will be talking to. Taken from the thread rather than asked for,
 // and kept out of the prompt: it is only used in the internal summary.
+// The address of a channel is a string for email but an object for the web widget
+// ({ name: "Anonymous user" }), and the object went into the operator's summary as
+// «Кто обращается: [object Object]». A name is a string or it is nothing.
+function personName(v) {
+  if (!v) return null;
+  if (typeof v === "string") return v.trim() || null;
+  const named = String(v.name || [v.first_name, v.last_name].filter(Boolean).join(" ")).trim();
+  return named || (typeof v.email === "string" ? v.email : null) || null;
+}
+
 const partnerName = lastInbound
-  ? ((lastInbound.author && lastInbound.author.name) || lastInbound.channel.from || null)
+  ? (personName(lastInbound.author) || personName(lastInbound.channel.from))
   : null;
 
 // ── Pyrus field parsing ──
@@ -310,6 +320,33 @@ if (newRequest || !documentExists) {
 // A missing document is handled by writeState itself: the point write matches nothing,
 // which it reports as count 0, and the fallback creates the document from the same patch.
 writeState(STATE_KEY, patch, "receiveWebhook");
+
+// ── Temporary diagnostics: how does `filters` address a document? ──
+// `Db.get` returns the document as { key, value, createdAt, updatedAt }, yet a filter on
+// `key` matches nothing and reports count 0, exactly like the earlier filter on
+// `documentKey`. So every write currently lands through the whole-document fallback and
+// the $set concurrency guard is NOT in force. The platform documents no filter syntax, so
+// the candidates are probed once per turn with read-only calls and the answer is read off
+// the log. Delete this block the moment the winner is known.
+function probeFilter(label, filters) {
+  try {
+    const res = Db.findByFilters({ dbIntegration: DB_ID, filters: filters });
+    const list = Array.isArray(res) ? res : (res && (res.documents || res.items || res.result)) || [];
+    const found = Array.isArray(list) ? list.length : "?";
+    const keys = Array.isArray(list) ? list.slice(0, 3).map(d => (d && d.key) || "?").join(", ") : "";
+    Log.info({ message: "filter probe [" + label + "] " + JSON.stringify(filters) + " -> found " + found + " [" + keys + "] raw=" + JSON.stringify(res).slice(0, 200) });
+  } catch (e) {
+    Log.warn({ message: "filter probe [" + label + "] failed: " + e });
+  }
+}
+
+// Root field, as Db.get reports it. Known to fail for updateByFilters; checked here to
+// see whether reads disagree with writes.
+probeFilter("root key", { key: STATE_KEY });
+// Whole-document addressing, the same as the $set paths use.
+probeFilter("value-prefixed", { "value.botHasReplied": !isFirstBotReply });
+// Filters relative to the payload, without the prefix.
+probeFilter("payload-relative", { botHasReplied: !isFirstBotReply });
 
 // ── What the model actually sees ──
 // The context is serialised into the prompt as {"notes": [...], "data": {...}}, so

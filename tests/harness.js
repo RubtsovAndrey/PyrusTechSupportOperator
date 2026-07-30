@@ -66,15 +66,25 @@ function makeEnv(options) {
     // Db.get returns a copy: a function must not be able to mutate stored state by
     // reference, or a test would pass while production corrupts the document.
     Db: {
-      // The stored document is { key, value } — `documentKey` is only the name of the
-      // argument. Filters address the stored fields, so they must say `key`; this stub
-      // used to accept `documentKey` in a filter, which is exactly why the tests were
-      // green while every write in production silently matched nothing.
+      // The stored document is { key, value, createdAt, updatedAt } — `documentKey` is only
+      // the name of the argument. This stub used to accept `documentKey` in a filter, which
+      // is exactly why the tests were green while every write in production matched nothing.
+      // On the live platform a filter on `key` misses too, so what the tests really pin
+      // down is that a missed point write must never lose the data.
       get: a => (db[a.documentKey] === undefined
         ? null
         : { key: a.documentKey, value: clone(db[a.documentKey]) }),
       put: a => { puts.push(a); db[a.documentKey] = clone(a.value); },
       delete: a => { delete db[a.documentKey]; },
+      // Which field a filter addresses is not known: on the live platform both `key` and
+      // `documentKey` match nothing. The stub models the only addressing it can verify —
+      // by `key` — and the diagnostics in receiveWebhook exist to settle the question.
+      findByFilters: a => {
+        const key = a.filters && a.filters.key;
+        return key !== undefined && db[key] !== undefined
+          ? [{ key: key, value: clone(db[key]) }]
+          : [];
+      },
       // Only $set with dotted paths is modelled, which is all the code uses. Two platform
       // properties are reproduced deliberately: there is no upsert, and the result reports
       // how many documents matched, so a filter that hits nothing is detectable.
