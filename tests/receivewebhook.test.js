@@ -95,10 +95,16 @@ async function main() {
       data: { unitFullName: "[dodopizza.ru] Тамбов-1", problemSummary: "не печатает чек" }
     }
   });
-  t.check("existing document is patched, not rewritten", r.updates.length === 1, r.updates);
+  // The temporary filter diagnostics write to a throwaway document of their own, so the
+  // state write is picked out by its target rather than by being the only one.
+  const stateWrites = r.updates.filter(u => u.filters && u.filters.key === KEY);
+  t.check("existing document is patched, not rewritten", stateWrites.length === 1, r.updates);
   t.check("only own paths are written",
-    setPaths(r.updates[0]).join(",") === "value.botHasReplied,value.runtime,value.updatedAt",
-    setPaths(r.updates[0]));
+    setPaths(stateWrites[0]).join(",") === "value.botHasReplied,value.runtime,value.taskId,value.updatedAt",
+    setPaths(stateWrites[0]));
+  t.check("the diagnostics never touch the state document",
+    r.updates.every(u => u.filters.probeId === undefined || u.filters.key === undefined),
+    r.updates.map(u => u.filters));
   t.check("answered-comment marker survives", r.state.lastProcessedCommentId === "5", r.state);
   t.check("facts of the current turn survive",
     r.state.data.problemSummary === "не печатает чек", r.state.data);

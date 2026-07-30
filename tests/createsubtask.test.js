@@ -104,24 +104,45 @@ async function main() {
   t.check("rejected link shape is retried with the other one",
     fieldUpdates(r.posts).length === 2 &&
     fieldUpdates(r.posts)[1].body.field_updates[0].value === 11613, r.posts);
-  t.check("a subtask that could not be linked is still finished properly",
-    r.result.success === true &&
-    r.posts.some(p => p.body && p.body.action === "finished"), r.result);
+  t.check("a subtask that could not be linked is still a success",
+    r.result.success === true, r.result);
 
-  // ── The subtask must arrive usable: summary plus a completed first step ──
+  // ── The request itself goes into the form, not into correspondence ──
+  // A comment is correspondence; the first line reads «Входные данные».
   r = await run({});
-  const summary = r.posts.find(p => p.body && p.body.text);
-  t.check("summary comment is internal", !summary.body.channel, summary.body);
-  t.check("summary names the parent task", /№11613/.test(summary.body.text), summary.body.text);
-  t.check("summary carries unit, component and email",
-    /Тамбов-1/.test(summary.body.text) && /Доступы/.test(summary.body.text) && /p@x\.ru/.test(summary.body.text),
-    summary.body.text);
-  t.check("first step is completed", r.posts.some(p => p.body && p.body.action === "finished"), r.posts);
+  const field = id => (created(r.posts)[0].body.fields.find(f => Number(f.id) === id) || {}).value;
+  t.check("the summary is a field of the created task", typeof field(2) === "string", created(r.posts)[0].body.fields);
+  t.check("the summary names the parent task", /№11613/.test(field(2)), field(2));
+  t.check("the summary carries unit, component and email",
+    /Тамбов-1/.test(field(2)) && /Доступы/.test(field(2)) && /p@x\.ru/.test(field(2)), field(2));
+  t.check("the subject line says what the problem is", /отчёт/.test(field(1)), field(1));
+  t.check("and no summary comment is posted at all",
+    !r.posts.some(p => p.body && p.body.text), r.posts.map(p => p.body));
 
-  // A failed summary must not leave the subtask standing on its first step.
-  r = await run({ failPostWhen: a => !!(a.body && a.body.text) });
-  t.check("step is advanced even when the summary fails",
-    r.posts.some(p => p.body && p.body.action === "finished"), r.posts);
+  // The bot is only the author of the subtask: step 1 belongs to another approver, and
+  // Pyrus answered 400 to every attempt to finish it. Nothing needs finishing — the form's
+  // route already carries the subtask to the people who work it.
+  t.check("the bot does not try to complete a step that is not its own",
+    !r.posts.some(p => p.body && p.body.action), r.posts.map(p => p.body));
+
+  // A rejected optional field must cost the description, never the ticket.
+  r = await run({
+    failPostWhen: a => /\/tasks$/.test(a.url) && a.body.fields.some(f => Number(f.id) === 2)
+  });
+  t.check("creation is retried without the input-data fields", created(r.posts).length === 2, r.posts);
+  t.check("the retry keeps unit, component and email",
+    created(r.posts)[1].body.fields.map(f => Number(f.id)).sort((a, b) => a - b).join(",") === "5,36,97",
+    created(r.posts)[1].body.fields);
+  t.check("the subtask still exists", r.result.success === true && r.result.subtaskId === 90001, r.result);
+  const rescued = r.posts.find(p => p.body && p.body.text);
+  t.check("and the summary falls back to an internal comment",
+    !!rescued && !rescued.body.channel && /№11613/.test(rescued.body.text), rescued && rescued.body);
+
+  // Nothing to fall back to when the fields are not configured either.
+  r = await run({ config: { subtaskFormId: 1096731, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5, subjectFieldId: null, messageFieldId: null } });
+  const commented = r.posts.find(p => p.body && p.body.text);
+  t.check("no message field configured: the summary goes into a comment",
+    !!commented && /Доступы/.test(commented.body.text), commented && commented.body);
 
   // ── Missing facts ──
   r = await run({ state: { data: { unitFullName: facts.unitFullName, componentName: facts.componentName } } });

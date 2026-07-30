@@ -299,7 +299,11 @@ const runtimeValue = {
 // that finalize had just recorded — which would let an answered comment be answered
 // again. `upsert` is not supported, so a document that does not exist yet is created
 // outright; from then on every other function only patches it.
+// `taskId` duplicates what the document key already says, and it has to: filters address
+// fields inside `value`, and the key is not one of them, so this is the only handle a
+// point write can aim at.
 const patch = {
+  "value.taskId": Number(taskId),
   "value.updatedAt": now,
   "value.botHasReplied": !isFirstBotReply,
   "value.runtime": runtimeValue
@@ -321,32 +325,38 @@ if (newRequest || !documentExists) {
 // which it reports as count 0, and the fallback creates the document from the same patch.
 writeState(STATE_KEY, patch, "receiveWebhook");
 
-// ── Temporary diagnostics: how does `filters` address a document? ──
-// `Db.get` returns the document as { key, value, createdAt, updatedAt }, yet a filter on
-// `key` matches nothing and reports count 0, exactly like the earlier filter on
-// `documentKey`. So every write currently lands through the whole-document fallback and
-// the $set concurrency guard is NOT in force. The platform documents no filter syntax, so
-// the candidates are probed once per turn with read-only calls and the answer is read off
-// the log. Delete this block the moment the winner is known.
-function probeFilter(label, filters) {
+// ── Temporary diagnostics: which paths does `operator` take? ──
+// The read-only probes settled the first half of the question. `{ key: … }` and
+// `{ "value.botHasReplied": … }` find nothing at all, while `{ botHasReplied: true }`
+// found four documents: **`filters` address fields inside `value`**, and the document key
+// is not among them — which is exactly why every point write has been missing.
+// What is still unknown is whether `operator` paths are relative in the same way. If they
+// are, the `value.`-prefixed paths every function sends would quietly build a nested
+// `value.value` subtree instead of writing the field. That is settled here, on a throwaway
+// document, before a single real write is allowed to depend on it. Delete once known.
+function probeOperator() {
+  const key = "probe:filters";
+  const id = Date.now();
   try {
-    const res = Db.findByFilters({ dbIntegration: DB_ID, filters: filters });
-    const list = Array.isArray(res) ? res : (res && (res.documents || res.items || res.result)) || [];
-    const found = Array.isArray(list) ? list.length : "?";
-    const keys = Array.isArray(list) ? list.slice(0, 3).map(d => (d && d.key) || "?").join(", ") : "";
-    Log.info({ message: "filter probe [" + label + "] " + JSON.stringify(filters) + " -> found " + found + " [" + keys + "] raw=" + JSON.stringify(res).slice(0, 200) });
+    Db.put({ dbIntegration: DB_ID, documentKey: key, value: { probeId: id, plain: 0 } });
+    const plain = Db.updateByFilters({
+      dbIntegration: DB_ID, filters: { probeId: id }, operator: { $set: { plain: 1 } }
+    });
+    const prefixed = Db.updateByFilters({
+      dbIntegration: DB_ID, filters: { probeId: id }, operator: { $set: { "value.prefixed": 1 } }
+    });
+    const after = Db.get({ dbIntegration: DB_ID, documentKey: key });
+    Log.info({
+      message: "operator probe: plain=" + JSON.stringify(plain) +
+        " prefixed=" + JSON.stringify(prefixed) +
+        " document=" + JSON.stringify(after && after.value)
+    });
   } catch (e) {
-    Log.warn({ message: "filter probe [" + label + "] failed: " + e });
+    Log.warn({ message: "operator probe failed: " + e });
   }
 }
 
-// Root field, as Db.get reports it. Known to fail for updateByFilters; checked here to
-// see whether reads disagree with writes.
-probeFilter("root key", { key: STATE_KEY });
-// Whole-document addressing, the same as the $set paths use.
-probeFilter("value-prefixed", { "value.botHasReplied": !isFirstBotReply });
-// Filters relative to the payload, without the prefix.
-probeFilter("payload-relative", { botHasReplied: !isFirstBotReply });
+probeOperator();
 
 // ── What the model actually sees ──
 // The context is serialised into the prompt as {"notes": [...], "data": {...}}, so

@@ -37,10 +37,25 @@ function setPath(root, dotted, value) {
   node[parts[parts.length - 1]] = value;
 }
 
+function getPath(root, dotted) {
+  return String(dotted).split(".").reduce((n, p) => (n == null ? n : n[p]), root);
+}
+
 // options: { payload, prev, db, contextValues, onGet, failPost, failInternalPost }
 function makeEnv(options) {
   const o = options || {};
   const db = clone(o.db) || {};
+
+  // Every stored key whose payload satisfies the filter. Filters are matched against the
+  // contents of `value`, which is what the platform does — so a filter naming `key` or
+  // prefixing `value.` matches nothing here either.
+  const matching = filters => {
+    const f = filters || {};
+    const names = Object.keys(f);
+    if (!names.length) return [];
+    return Object.keys(db).filter(k =>
+      names.every(n => JSON.stringify(getPath(db[k], n)) === JSON.stringify(f[n])));
+  };
   const notes = [];
   const values = clone(o.contextValues) || {};
   const posts = [];
@@ -69,34 +84,31 @@ function makeEnv(options) {
       // The stored document is { key, value, createdAt, updatedAt } — `documentKey` is only
       // the name of the argument. This stub used to accept `documentKey` in a filter, which
       // is exactly why the tests were green while every write in production matched nothing.
-      // On the live platform a filter on `key` misses too, so what the tests really pin
-      // down is that a missed point write must never lose the data.
       get: a => (db[a.documentKey] === undefined
         ? null
         : { key: a.documentKey, value: clone(db[a.documentKey]) }),
       put: a => { puts.push(a); db[a.documentKey] = clone(a.value); },
       delete: a => { delete db[a.documentKey]; },
-      // Which field a filter addresses is not known: on the live platform both `key` and
-      // `documentKey` match nothing. The stub models the only addressing it can verify —
-      // by `key` — and the diagnostics in receiveWebhook exist to settle the question.
-      findByFilters: a => {
-        const key = a.filters && a.filters.key;
-        return key !== undefined && db[key] !== undefined
-          ? [{ key: key, value: clone(db[key]) }]
-          : [];
-      },
+      // Filters address fields **inside `value`**, proven on the live platform: a filter on
+      // `key` or on `value.<field>` finds nothing, while `{ botHasReplied: true }` returned
+      // four documents. The document key is therefore not filterable at all, which is why
+      // every point write kept missing. Modelled here so a test cannot pass on addressing
+      // the platform does not support.
+      findByFilters: a => matching(a.filters).map(k => ({ key: k, value: clone(db[k]) })),
       // Only $set with dotted paths is modelled, which is all the code uses. Two platform
       // properties are reproduced deliberately: there is no upsert, and the result reports
       // how many documents matched, so a filter that hits nothing is detectable.
       updateByFilters: a => {
         updates.push(a);
-        const key = a.filters && a.filters.key;
-        if (key === undefined || db[key] === undefined) return { count: 0 };
-        const doc = { key: key, value: clone(db[key]) };
+        const keys = matching(a.filters);
+        if (!keys.length) return { count: 0 };
         const $set = (a.operator && a.operator.$set) || {};
-        Object.keys($set).forEach(p => setPath(doc, p, clone($set[p])));
-        db[key] = doc.value;
-        return { count: 1 };
+        keys.forEach(k => {
+          const doc = { key: k, value: clone(db[k]) };
+          Object.keys($set).forEach(p => setPath(doc, p, clone($set[p])));
+          db[k] = doc.value;
+        });
+        return { count: keys.length };
       }
     },
     Log: { info() {}, warn() {}, error() {}, debug() {}, trace() {} },

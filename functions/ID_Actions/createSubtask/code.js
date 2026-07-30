@@ -2,13 +2,15 @@ const DB_ID = "1000299722-pyrus_bot_database-hul";
 
 // Pyrus form and field ids live in the `config` document so they can be changed
 // without touching code. The defaults keep the bot working on an empty database.
-// `parentLinkFieldId` is the form_link field of the subtask form that holds the number of
-// the parent chat. It is what makes the duplicate check below possible, and it is left
-// unset by default: without it the form has no such field, and filling a field that does
-// not exist fails the whole creation.
+// `parentLinkFieldId` is the field of the subtask form that holds the number of the parent
+// chat — any field the register can filter on, a number field included. It is what makes
+// the duplicate check below possible, and it is left unset by default: filling a field
+// that the form does not have fails the whole creation.
+// `subjectFieldId` and `messageFieldId` are the «Тема» and «Сообщение» fields of the section
+// «Входные данные»: that is where the first line looks for the request itself.
 const DEFAULTS = {
   subtaskFormId: 1096731, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5,
-  parentLinkFieldId: null
+  subjectFieldId: 1, messageFieldId: 2, parentLinkFieldId: null
 };
 
 // A point write filters on the stored key field, which is `key`. `documentKey` is only the
@@ -105,13 +107,15 @@ if (!token) {
 
 const headers = { "Authorization": "Bearer " + token, "Content-Type": "application/json" };
 const linkFieldId = Number(cfg.parentLinkFieldId || 0) || null;
+const subjectFieldId = Number(cfg.subjectFieldId || 0) || null;
+const messageFieldId = Number(cfg.messageFieldId || 0) || null;
 
 // ── Ask Pyrus, not the database ──
 // `state.subtaskId` above only catches a retry that runs after the first one finished.
 // Two concurrent webhooks both read it as empty and both create a subtask, and the
-// database cannot arbitrate: it has no atomic operation, and updateByFilters reports
-// neither matchedCount nor modifiedCount, so a claim cannot be told from a no-op.
-// The register is the only shared source that already knows whether the subtask exists.
+// database cannot arbitrate: it has no atomic operation at all — no putIfAbsent, no TTL,
+// no upsert. The register is the only shared source that already knows whether the
+// subtask exists.
 // `eq.` forces exact matching instead of a loose contains.
 async function findExistingSubtask() {
   if (!linkFieldId) return null;
@@ -138,42 +142,79 @@ if (existing) {
   return { success: true, subtaskId: existing, duplicate: true, taskId: taskId };
 }
 
-let subtaskId;
-try {
+function describe(e) {
+  const body = e && (e.body || (e.response && e.response.body));
+  return String(e) + (body ? " | Pyrus: " + (typeof body === "string" ? body : JSON.stringify(body)).slice(0, 500) : "");
+}
+
+// Everything the person who picks this up has to know. Written into the form rather than
+// into a comment: a comment is correspondence, and the request itself belongs in
+// «Входные данные», where the first line reads it.
+const attempts = Array.isArray(data.attempts) ? data.attempts : [];
+const summaryText = [
+  "Обращение передано ботом техподдержки.",
+  data.problemSummary ? "Проблема: " + data.problemSummary : null,
+  "Юнит: " + data.unitFullName,
+  "Компонент: " + data.componentName,
+  data.topicKey ? "Тематика БЗ: " + data.topicKey : null,
+  attempts.length
+    ? "Уже пробовали:\n" + attempts.map(a => "  " + (a.step || "?") + ") " + (a.advice || "—")).join("\n")
+    : "Советы из БЗ не предлагались.",
+  "Email партнёра: " + data.email,
+  "Родительская задача: №" + taskId
+].filter(Boolean).join("\n");
+
+const requiredFields = [
+  { id: Number(cfg.unitFieldId), value: { item_name: String(data.unitFullName) } },
+  { id: Number(cfg.componentFieldId), value: { item_name: String(data.componentName) } },
+  { id: Number(cfg.emailFieldId), value: String(data.email) }
+];
+const inputFields = [];
+if (subjectFieldId) inputFields.push({ id: subjectFieldId, value: String(data.problemSummary || data.componentName) });
+if (messageFieldId) inputFields.push({ id: messageFieldId, value: summaryText });
+
+async function create(fields) {
   const resp = await Http.post({
     url: apiUrl + "tasks",
     headers: headers,
     body: {
       form_id: Number(cfg.subtaskFormId),
       parent_task_id: Number(taskId),
-      fields: [
-        { id: Number(cfg.unitFieldId), value: { item_name: String(data.unitFullName) } },
-        { id: Number(cfg.componentFieldId), value: { item_name: String(data.componentName) } },
-        { id: Number(cfg.emailFieldId), value: String(data.email) }
-      ]
+      fields: fields
     }
   });
   const created = (resp && resp.body) || resp;
-  subtaskId = created && created.task ? created.task.id : null;
-  if (!subtaskId) throw new Error("no task.id in Pyrus response");
+  const id = created && created.task ? created.task.id : null;
+  if (!id) throw new Error("no task.id in Pyrus response");
+  return id;
+}
+
+// A rejected optional field must not cost the subtask: the branch has no other way
+// forward, and a ticket without its description still beats no ticket at all. The
+// summary then falls back to a comment, which is where it used to live.
+let subtaskId = null;
+let summaryInForm = inputFields.length > 0;
+try {
+  subtaskId = await create(requiredFields.concat(inputFields));
 } catch (e) {
-  Log.error({ message: "createSubtask failed for task " + taskId + ": " + e });
-  return { success: false, reason: String(e), taskId: taskId };
+  if (!inputFields.length) {
+    Log.error({ message: "createSubtask failed for task " + taskId + ": " + describe(e) });
+    return { success: false, reason: String(e), taskId: taskId };
+  }
+  Log.warn({ message: "createSubtask: creation with the «Входные данные» fields was rejected for task " + taskId + ", retrying without them: " + describe(e) });
+  summaryInForm = false;
+  try {
+    subtaskId = await create(requiredFields);
+  } catch (e2) {
+    Log.error({ message: "createSubtask failed for task " + taskId + ": " + describe(e2) });
+    return { success: false, reason: String(e2), taskId: taskId };
+  }
 }
 
 // Remember it before anything else can fail, so a retry cannot duplicate the subtask.
 // Only the subtaskId path: the facts in this document may have moved on since the read
 // above, and a full rewrite would put the stale ones back.
 writeState("state:" + taskId, { "value.subtaskId": Number(subtaskId), "value.updatedAt": Date.now() }, "createSubtask");
-
-// Two requests where there used to be one. A single comment carrying both the summary
-// and `action: "finished"` failed as a whole — Pyrus answered 400 — and the subtask was
-// left without the summary AND standing on its first step, so nobody picked it up.
-// Split, one failure can no longer cost both.
-function describe(e) {
-  const body = e && (e.body || (e.response && e.response.body));
-  return String(e) + (body ? " | Pyrus: " + (typeof body === "string" ? body : JSON.stringify(body)).slice(0, 500) : "");
-}
 
 async function comment(body, what) {
   try {
@@ -211,28 +252,17 @@ async function linkToParent() {
 
 await linkToParent();
 
-// The summary goes into the internal correspondence: no `channel`, so nothing of it
-// reaches the partner.
-const attempts = Array.isArray(data.attempts) ? data.attempts : [];
-await comment({
-  text: [
-    "[Внутренняя переписка]",
-    "Подзадача создана ботом техподдержки.",
-    "Юнит: " + data.unitFullName,
-    "Компонент: " + data.componentName,
-    data.problemSummary ? "Проблема: " + data.problemSummary : null,
-    data.topicKey ? "Тематика БЗ: " + data.topicKey : null,
-    attempts.length
-      ? "Уже пробовали:\n" + attempts.map(a => "  " + (a.step || "?") + ") " + (a.advice || "—")).join("\n")
-      : null,
-    "Email партнёра: " + data.email,
-    "Родительская задача: №" + taskId
-  ].filter(Boolean).join("\n")
-}, "summary comment");
+// Only when the form could not carry it. No `channel`, so nothing reaches the partner.
+if (!summaryInForm) {
+  await comment({ text: "[Внутренняя переписка]\n" + summaryText }, "summary comment");
+}
 
-// Completing the current workflow step is what moves the subtask on to the people who
-// have to work it, so it is worth its own request even if the summary did not go in.
-await comment({ action: "finished" }, "step advance");
+// The bot does NOT complete the first workflow step. It used to post `action: "finished"`
+// on the fresh subtask and Pyrus answered 400 every time: the created task stands on
+// step 1, whose approver is another account («бот Approver», then the role
+// «[support] Первая линия»), while our bot is merely the author. The step is not ours
+// to finish, and nothing needs finishing: the route already carries the subtask to the
+// people who work it.
 
 // Parent task fields are updated by finalize together with the closing comment,
 // so no extra request is made here.

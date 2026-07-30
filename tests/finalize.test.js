@@ -205,15 +205,16 @@ async function main() {
       })
     }
   });
-  // The document field holding the key is `key`; `documentKey` is only the argument name
-  // of Db.get/Db.put. Filtering on it matched nothing, reported count 0 and threw nothing,
-  // so the whole turn was written into the void: the partner's answer was prepared, lost,
-  // and the chat handed to an operator as if the bot had decided nothing.
-  t.check("the filter addresses the stored key field",
-    r.updates[0].filters.key === KEY && r.updates[0].filters.documentKey === undefined,
-    r.updates[0].filters);
-  t.check("a point write that hits its document needs no whole-document rescue",
-    r.puts.length === 0, r.puts);
+  // Filtering on `documentKey` matched nothing, reported count 0 and threw nothing, so the
+  // whole turn was written into the void: the partner's answer was prepared, lost, and the
+  // chat handed to an operator as if the bot had decided nothing. `key` — the field Db.get
+  // shows at the root — misses just as silently: the platform matches filters against the
+  // contents of `value`. So this point write still misses, and what has to hold is that a
+  // miss costs nothing.
+  t.check("the write is not filtered on documentKey, which is not a stored field at all",
+    r.updates[0].filters.documentKey === undefined, r.updates[0].filters);
+  t.check("a missed point write is rescued by a whole-document write, not lost",
+    r.state.pendingOutcome === null && r.puts.length === 1, [r.state.pendingOutcome, r.puts.length]);
 
   const paths = Object.keys(r.updates[0].operator.$set).sort().join(",");
   t.check("only own paths are written",
@@ -236,7 +237,8 @@ async function main() {
   t.check("the decision reaches the document",
     !!decided.db[KEY].pendingOutcome && decided.db[KEY].pendingOutcome.kind === "clarify",
     decided.db[KEY]);
-  t.check("the decision is stored without a whole-document rescue", decided.puts.length === 0, decided.puts);
+  t.check("and it gets there through the rescue, since the point write cannot match",
+    decided.puts.length === 1, decided.puts);
 
   r = await run({ db: decided.db });
   t.check("the partner is asked what the bot decided to ask",
