@@ -18,7 +18,8 @@ parameters:
       filled-ai: false
     replyText:
       type: STRING
-      value: "Получено вложение. Передаю обращение специалисту — он посмотрит и ответит вам здесь же."
+      value: Получено вложение. Передаю обращение специалисту — он посмотрит и ответит
+        вам здесь же.
       filled-ai: false
   context-config: null
   hitl-tool-config: null
