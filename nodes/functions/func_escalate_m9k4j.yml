@@ -2,8 +2,8 @@
 id: func_escalate_m9k4j
 name: Outcome - escalate to operator
 position:
-  x: 5286
-  y: 286
+  x: 5688
+  y: 364
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:

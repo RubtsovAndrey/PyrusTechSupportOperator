@@ -2,8 +2,8 @@
 id: func_closetask_w2f6n
 name: Outcome - solved
 position:
-  x: 3458
-  y: 246
+  x: 3482
+  y: 396
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:
