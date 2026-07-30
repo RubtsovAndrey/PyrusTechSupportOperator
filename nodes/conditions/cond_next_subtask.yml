@@ -2,8 +2,8 @@
 id: cond_next_subtask
 name: hand over to subtask?
 position:
-  x: 4380
-  y: 850
+  x: 4760
+  y: 636
 next-step: func_createsubtask_v5r8k
 next-error-step: null
 parameters:
