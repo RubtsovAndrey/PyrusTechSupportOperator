@@ -2,7 +2,14 @@ const DB_ID = "1000299722-pyrus_bot_database-hul";
 
 // Pyrus form and field ids live in the `config` document so they can be changed
 // without touching code. The defaults keep the bot working on an empty database.
-const DEFAULTS = { subtaskFormId: 1096731, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5 };
+// `parentLinkFieldId` is the form_link field of the subtask form that holds the number of
+// the parent chat. It is what makes the duplicate check below possible, and it is left
+// unset by default: without it the form has no such field, and filling a field that does
+// not exist fails the whole creation.
+const DEFAULTS = {
+  subtaskFormId: 1096731, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5,
+  parentLinkFieldId: null
+};
 
 function loadConfig() {
   try {
@@ -63,6 +70,47 @@ if (!token) {
 }
 
 const headers = { "Authorization": "Bearer " + token, "Content-Type": "application/json" };
+const linkFieldId = Number(cfg.parentLinkFieldId || 0) || null;
+
+// ── Ask Pyrus, not the database ──
+// `state.subtaskId` above only catches a retry that runs after the first one finished.
+// Two concurrent webhooks both read it as empty and both create a subtask, and the
+// database cannot arbitrate: it has no atomic operation, and updateByFilters reports
+// neither matchedCount nor modifiedCount, so a claim cannot be told from a no-op.
+// The register is the only shared source that already knows whether the subtask exists.
+// `eq.` forces exact matching instead of a loose contains.
+async function findExistingSubtask() {
+  if (!linkFieldId) return null;
+  try {
+    const url = apiUrl + "forms/" + Number(cfg.subtaskFormId) + "/register" +
+      "?fld" + linkFieldId + "=eq." + Number(taskId);
+    const resp = await Http.get({ url: url, headers: headers });
+    const body = (resp && resp.body) || resp || {};
+    const tasks = Array.isArray(body.tasks) ? body.tasks : [];
+    const found = tasks.find(t => t && t.id);
+    return found ? Number(found.id) : null;
+  } catch (e) {
+    // A failed lookup must not block the branch: at worst we are back to the old
+    // behaviour and may create a second subtask.
+    Log.warn({ message: "createSubtask: register lookup failed for task " + taskId + ", creating anyway: " + e });
+    return null;
+  }
+}
+
+const existing = await findExistingSubtask();
+if (existing) {
+  Log.info({ message: "createSubtask: Pyrus register already has subtask " + existing + " for task " + taskId + ", not creating a second one" });
+  try {
+    Db.updateByFilters({
+      dbIntegration: DB_ID,
+      filters: { documentKey: "state:" + taskId },
+      operator: { $set: { "value.subtaskId": existing, "value.updatedAt": Date.now() } }
+    });
+  } catch (e) {
+    Log.warn({ message: "createSubtask: could not adopt subtask " + existing + ": " + e });
+  }
+  return { success: true, subtaskId: existing, duplicate: true, taskId: taskId };
+}
 
 let subtaskId;
 try {
@@ -88,11 +136,13 @@ try {
 }
 
 // Remember it before anything else can fail, so a retry cannot duplicate the subtask.
+// Only the subtaskId path: the facts in this document may have moved on since the read
+// above, and a full rewrite would put the stale ones back.
 try {
-  Db.put({
+  Db.updateByFilters({
     dbIntegration: DB_ID,
-    documentKey: "state:" + taskId,
-    value: Object.assign({}, state, { subtaskId: Number(subtaskId), updatedAt: Date.now() })
+    filters: { documentKey: "state:" + taskId },
+    operator: { $set: { "value.subtaskId": Number(subtaskId), "value.updatedAt": Date.now() } }
   });
 } catch (e) {
   Log.error({ message: "createSubtask: could not persist subtaskId " + subtaskId + ": " + e });
@@ -116,6 +166,32 @@ async function comment(body, what) {
     return false;
   }
 }
+
+// The link back to the parent chat is written as its own request, after the subtask
+// exists. Sent inside the creation body, a wrong value shape would fail the creation
+// itself; here the worst case is that the next run cannot find this subtask in the
+// register — which is exactly where we were before. The shape of a form_link value is
+// not documented among what we have, so both plausible forms are tried once.
+async function linkToParent() {
+  if (!linkFieldId) return;
+  const shapes = [{ task_id: Number(taskId) }, Number(taskId)];
+  for (let i = 0; i < shapes.length; i++) {
+    try {
+      await Http.post({
+        url: apiUrl + "tasks/" + subtaskId + "/comments",
+        headers: headers,
+        body: { field_updates: [{ id: linkFieldId, value: shapes[i] }] }
+      });
+      Log.info({ message: "createSubtask: linked subtask " + subtaskId + " to parent " + taskId + " (field " + linkFieldId + ")" });
+      return;
+    } catch (e) {
+      Log.warn({ message: "createSubtask: link shape " + (i + 1) + " rejected for field " + linkFieldId + ": " + describe(e) });
+    }
+  }
+  Log.error({ message: "createSubtask: subtask " + subtaskId + " left unlinked to parent " + taskId + "; the duplicate check cannot see it" });
+}
+
+await linkToParent();
 
 // The summary goes into the internal correspondence: no `channel`, so nothing of it
 // reaches the partner.

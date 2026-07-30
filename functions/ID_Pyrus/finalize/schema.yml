@@ -2,8 +2,9 @@
 id: finalize
 name: finalize
 description: "Terminal node for every path. Applies the pending outcome of the task\
-  \ document: persists the new stage, posts the comment to Pyrus and releases the\
-  \ lock this run owns. Falls back to an operator handover if no outcome was set."
+  \ document: aborts if a newer message has arrived, posts the comment to Pyrus and\
+  \ only then persists the new stage. Falls back to an operator handover if no outcome\
+  \ was set."
 response-description: "{ success, taskId, kind }"
 parameters: []
 language: JAVASCRIPT

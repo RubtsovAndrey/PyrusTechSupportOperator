@@ -68,15 +68,18 @@ function loadData() {
 
 // Written straight into the task document rather than returned to the agent: what the
 // article has already spent on this task must not depend on the model repeating it.
+// Only the keys of the patch are written. Rewriting the whole document meant this tool,
+// which runs in the middle of an agent's turn, undid every fact a concurrent turn had
+// collected since it read the document.
 function patchData(patch) {
   if (!taskId) return;
+  const paths = { "value.updatedAt": Date.now() };
+  Object.keys(patch).forEach(k => { paths["value.data." + k] = patch[k]; });
   try {
-    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
-    const state = (doc && doc.value) || {};
-    Db.put({
+    Db.updateByFilters({
       dbIntegration: DB_ID,
-      documentKey: "state:" + taskId,
-      value: Object.assign({}, state, { data: Object.assign({}, state.data, patch), updatedAt: Date.now() })
+      filters: { documentKey: "state:" + taskId },
+      operator: { $set: paths }
     });
   } catch (e) {
     Log.warn({ message: "searchKnowledge: state write failed: " + e });

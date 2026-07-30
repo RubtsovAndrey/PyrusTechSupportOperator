@@ -189,7 +189,13 @@ if (spec.nextStage === "escalated") {
     "Бот передаёт обращение оператору.",
     "Кто обращается: " + (who || "не определено"),
     "Суть проблемы: " + (data.problemSummary || "не описана"),
-    "Тематика БЗ: " + (data.topicKey || "не определена"),
+    // For the bot both cases end in a handover, for the operator they are different
+    // jobs: an article that routes to a human is a known procedure, no article at all
+    // means nobody has written one yet.
+    (data.topicKey
+      ? "Тематика БЗ: " + data.topicKey +
+        (data.topicRoute === "escalate" ? " (статья предписывает передать обращение человеку)" : "")
+      : "Тематика БЗ: не определена — подходящей статьи в базе нет"),
     "Уже пробовали:",
     tried,
     "Причина передачи: " + (loopBroken
@@ -208,11 +214,20 @@ const pendingOutcome = {
   nextStage: spec.nextStage
 };
 
+// Only the two paths this function owns. Writing the whole document put back the facts
+// as they were when this run read it, undoing anything the agents of a concurrent turn
+// had collected in between.
 try {
-  Db.put({
+  Db.updateByFilters({
     dbIntegration: DB_ID,
-    documentKey: "state:" + taskId,
-    value: Object.assign({}, state, { pendingOutcome: pendingOutcome, clarifyStreak: clarifyStreak, updatedAt: Date.now() })
+    filters: { documentKey: "state:" + taskId },
+    operator: {
+      $set: {
+        "value.pendingOutcome": pendingOutcome,
+        "value.clarifyStreak": clarifyStreak,
+        "value.updatedAt": Date.now()
+      }
+    }
   });
 } catch (e) {
   Log.error({ message: "applyOutcome: state write failed for task " + taskId + ": " + e });

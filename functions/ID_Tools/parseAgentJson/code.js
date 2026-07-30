@@ -52,6 +52,47 @@ function validateUnit(candidate) {
   }
 }
 
+// The topic and the component are catalog values, not free text. An invented topicKey
+// makes searchKnowledge fall back to a blind text search, and an invented component is
+// written straight into the Pyrus field Компонент — the same argument that already
+// guards the unit: a wrong value in a catalog field is worse than an empty one.
+function loadTopics() {
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "knowledge_catalog" });
+    const list = doc && doc.value && Array.isArray(doc.value.topics) ? doc.value.topics : null;
+    if (!list) Log.warn({ message: "parseAgentJson: knowledge_catalog missing, cannot validate topic" });
+    return list || [];
+  } catch (e) {
+    Log.warn({ message: "parseAgentJson: knowledge_catalog read failed: " + e });
+    return [];
+  }
+}
+
+function validateTopicKey(candidate) {
+  const wanted = String(candidate).trim().toLowerCase();
+  const hit = loadTopics().find(t => String(t.key || "").toLowerCase() === wanted);
+  if (!hit) {
+    Log.warn({ message: "parseAgentJson: topic " + candidate + " is not in knowledge_catalog, not persisting" });
+    return null;
+  }
+  return String(hit.key);
+}
+
+function componentOfTopic(key) {
+  const hit = loadTopics().find(t => String(t.key || "") === String(key));
+  return hit && hit.componentName ? String(hit.componentName) : null;
+}
+
+function validateComponent(candidate) {
+  const wanted = normalize(candidate);
+  const hit = loadTopics().find(t => t.componentName && normalize(t.componentName) === wanted);
+  if (!hit) {
+    Log.warn({ message: "parseAgentJson: component " + candidate + " is not in knowledge_catalog, not persisting" });
+    return null;
+  }
+  return String(hit.componentName);
+}
+
 const raw = Context.getLastFunctionResult();
 const text = typeof raw === "string" ? raw : (raw && raw.content ? raw.content : String(raw || ""));
 const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
@@ -96,15 +137,63 @@ const dialog = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = dialog.taskId || null;
 
 if (parsed.unitFullName) parsed.unitFullName = validateUnit(parsed.unitFullName);
+if (parsed.topicKey) parsed.topicKey = validateTopicKey(parsed.topicKey);
+if (parsed.componentName) parsed.componentName = validateComponent(parsed.componentName);
+
+// The component of a known topic belongs to the catalog, not to the model's guess:
+// once the topic is resolved, the catalog value wins outright.
+if (parsed.topicKey) {
+  const fromCatalog = componentOfTopic(parsed.topicKey);
+  if (fromCatalog) parsed.componentName = fromCatalog;
+}
+
+// The confirmation answer that means решилось, но есть другой вопрос.
+const moreQuestions = String(stage || "") === "confirmation" &&
+  String(parsed.status || "") === "more_questions";
 
 if (taskId) {
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
     const state = (doc && doc.value) || {};
+    const documentExists = !!(doc && doc.value);
     const data = Object.assign({}, state.data);
+    // Paths this call is going to write. Rewriting the whole document instead meant the
+    // agents of a concurrent turn lost every fact they had collected since this run read
+    // it — the defect this replaces.
+    const patch = { "value.updatedAt": Date.now() };
     PERSISTED.forEach(key => {
-      if (parsed[key]) data[key] = parsed[key];
+      if (parsed[key]) {
+        data[key] = parsed[key];
+        patch["value.data." + key] = parsed[key];
+      }
     });
+
+    // Which way the article itself says this topic must go. Kept so the operator's
+    // summary can tell статьи нет вовсе apart from статья есть, и она велит передать
+    // человеку: для бота оба пути заканчиваются эскалацией, для оператора это совсем
+    // разные ситуации.
+    if (String(stage || "") === "routing") {
+      const route = String(parsed.route || "");
+      if (route === "solver" || route === "subtask" || route === "escalate") {
+        data.topicRoute = route;
+        patch["value.data.topicRoute"] = route;
+      }
+    }
+
+    // The partner confirms the old problem is gone and asks about something else. Left
+    // in place, the facts of the solved problem sent the next turn back into the old
+    // article: the solver read topicKey and served the next step of an article that no
+    // longer applies, while the attempts log kept growing under the wrong topic.
+    if (moreQuestions) {
+      // Cleared by writing null rather than by removing the key: only $set is available,
+      // and every reader treats null as «not collected» anyway.
+      ["problemSummary", "topicKey", "componentName", "topicRoute",
+       "attempts", "offeredStep", "preQuestionsAsked"].forEach(k => {
+        delete data[k];
+        patch["value.data." + k] = null;
+      });
+      Log.info({ message: "parseAgentJson: task " + taskId + " moved on to a new question, previous problem facts cleared" });
+    }
 
     // Every solution handed to the partner is logged: searchKnowledge reads this to
     // pick the next step of the article instead of repeating the first one, and the
@@ -132,13 +221,32 @@ if (taskId) {
           advice: String(parsed.replyText).replace(/\s+/g, " ").trim().slice(0, 200)
         });
         data.attempts = attempts;
+        patch["value.data.attempts"] = attempts;
       }
     }
-    Db.put({
-      dbIntegration: DB_ID,
-      documentKey: "state:" + taskId,
-      value: Object.assign({}, state, { data: data, updatedAt: Date.now() })
-    });
+    // `subtaskId` guards against creating the subtask twice for ONE problem. A new
+    // question in the same task is a different problem and may need its own subtask,
+    // and the streak counter must not carry a stale score into it either.
+    if (moreQuestions) {
+      patch["value.subtaskId"] = null;
+      patch["value.clarifyStreak"] = 0;
+    }
+
+    if (documentExists) {
+      Db.updateByFilters({
+        dbIntegration: DB_ID,
+        filters: { documentKey: "state:" + taskId },
+        operator: { $set: patch }
+      });
+    } else {
+      // No document yet means receiveWebhook could not create one; the facts still must
+      // not be lost, so it is created here instead of silently patching nothing.
+      Db.put({
+        dbIntegration: DB_ID,
+        documentKey: "state:" + taskId,
+        value: { data: data, updatedAt: Date.now() }
+      });
+    }
     // The facts this stage just resolved are republished as a note so the agents that
     // run later in the same pass (routing, solver) can see the unit and the topic.
     // A labelled note is followed far more reliably by a small model than the nested
@@ -146,7 +254,7 @@ if (taskId) {
     // The attempts log is for the code, not for the prompt: the platform serialises
     // every key of the dialog value into the system message.
     const published = Object.assign({}, dialog, data);
-    delete published.attempts;
+    ["attempts", "offeredStep", "preQuestionsAsked", "topicRoute"].forEach(k => { delete published[k]; });
     AgentContext.putValue({ key: "dialog", value: published });
     AgentContext.addNote({
       text: [

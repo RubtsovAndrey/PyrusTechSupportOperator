@@ -2,8 +2,9 @@
 id: receiveWebhook
 name: receiveWebhook
 description: "Validates the Pyrus webhook payload (task_id, allowlisted api_url, token),\
-  \ takes an owned idempotency lock, stores the request-scoped Pyrus data in the task\
-  \ document, rebuilds the dialog history and resolves the stage to enter."
-response-description: "{ taskId, stage, skip, lockToken, reason }"
+  \ drops the bot's own comments and comments already answered, stores the request-scoped\
+  \ Pyrus data in the task document, rebuilds the dialog history and resolves the stage\
+  \ to enter."
+response-description: "{ taskId, stage, skip, reason }"
 parameters: []
 language: JAVASCRIPT

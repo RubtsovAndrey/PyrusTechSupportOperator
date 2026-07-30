@@ -188,11 +188,11 @@ For detailed info about parameters and response, read the corresponding file.
 
 ## User Functions
 
-- `ID_Pyrus.receiveWebhook` — Validates the Pyrus webhook payload (task_id, allowlisted api_url, token), takes an owned idempotency lock, stores the request-scoped Pyrus data in the task document, rebuilds the dialog history and resolves the stage to enter.
+- `ID_Pyrus.receiveWebhook` — Validates the Pyrus webhook payload (task_id, allowlisted api_url, token), drops the bot's own comments and comments already answered, stores the request-scoped Pyrus data in the task document, rebuilds the dialog history and resolves the stage to enter.
   Directory: functions/ID_Pyrus/receiveWebhook/
-- `ID_Pyrus.finalize` — Terminal node for every path. Applies the pending outcome of the task document: persists the new stage, posts the comment to Pyrus and releases the lock this run owns. Falls back to an operator handover if no outcome was set.
+- `ID_Pyrus.finalize` — Terminal node for every path. Applies the pending outcome of the task document: aborts if a newer message has arrived, posts the comment to Pyrus and only then persists the new stage. Falls back to an operator handover if no outcome was set.
   Directory: functions/ID_Pyrus/finalize/
-- `ID_Actions.createSubtask` — Creates a Pyrus subtask from the facts stored in the task document (unit, component, email) and posts a summary comment to it. Idempotent: never creates a second subtask for the same task.
+- `ID_Actions.createSubtask` — Creates a Pyrus subtask from the facts stored in the task document (unit, component, email) and posts a summary comment to it. Idempotent: the task document catches retries and the form register is asked before creating, so two concurrent runs cannot produce two subtasks for the same problem.
   Directory: functions/ID_Actions/createSubtask/
 - `ID_Actions.applyOutcome` — Records the decision of the current turn (reply text, Pyrus action, field updates, next stage) into the task document. Single place where dialog transitions are defined; finalize only performs the I/O.
   Directory: functions/ID_Actions/applyOutcome/
@@ -200,7 +200,7 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Tools/matchUnit/
 - `ID_Tools.searchKnowledge` — Finds the knowledge topic that matches a problem description, ranked by token overlap. Returns found=false when nothing matches (never guesses), with knowledge-base chunks as a hint. Pass topicKey for an exact lookup.
   Directory: functions/ID_Tools/searchKnowledge/
-- `ID_Tools.parseAgentJson` — Parses the JSON answer of an agent, validates the unit against the catalog and persists the collected facts into the task document. Throws when the answer is not parseable, so the node error edge can hand the task to an operator.
+- `ID_Tools.parseAgentJson` — Parses the JSON answer of an agent, validates the unit, the topic and the component against the catalogs, persists the collected facts into the task document and clears the previous problem when the partner moves on to a new question. Throws when the answer is not parseable, so the node error edge can hand the task to an operator.
   Directory: functions/ID_Tools/parseAgentJson/
 - `ID_Tools.nextSolutionStep` — Decides what to do after the partner reports that a solution did not help: offer the next step of the knowledge article, or leave the topic through its onFail route. Not a tool — called by the graph after the confirmation stage.
   Directory: functions/ID_Tools/nextSolutionStep/

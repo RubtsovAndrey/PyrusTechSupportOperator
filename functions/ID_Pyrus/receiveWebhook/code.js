@@ -1,11 +1,18 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
-const LOCK_TTL_MS = 5 * 60 * 1000;
+// Pyrus fires a webhook for every new comment INCLUDING the ones this bot posts
+// itself. Without this check the bot reads its own reply as the partner's message,
+// answers it, and the answer fires the next webhook: the partner receives the whole
+// knowledge base article in a few seconds and the task escalates without him saying
+// a word. author.type is not usable for this — for programmatic agents Pyrus often
+// reports "user" — so the numeric id is the only reliable signal.
+const BOT_AUTHOR_ID = 1314929;
 // Ten lines used to cut the opening message, which is where the partner names the
 // unit — by the end of a dialog the model no longer saw where the unit came from.
 const HISTORY_LIMIT = 20;
-// Only these hosts may be sent the Pyrus access_token. The webhook body is
-// unauthenticated (the platform exposes no HMAC primitive, so X-Pyrus-Sig cannot
-// be verified here) — this allowlist is what stops a forged api_url from
+// Only these hosts may be sent the Pyrus access_token. The webhook body cannot be
+// authenticated at all: X-Pyrus-Sig is computed over the raw bytes, and the platform
+// hands functions an already-parsed object, so the original byte representation is
+// gone before any code runs. This allowlist is what stops a forged api_url from
 // exfiltrating the token to an attacker-controlled host.
 const ALLOWED_API_HOSTS = ["api.pyrus.com", "api.pyrus.kz"];
 
@@ -14,14 +21,21 @@ function hostOf(url) {
   return m ? m[1].toLowerCase() : null;
 }
 
+function isBot(author) {
+  if (!author) return false;
+  if (Number(author.id) === BOT_AUTHOR_ID) return true;
+  // Fallback for service accounts whose id we have not been told about.
+  return /^bot@/i.test(String(author.email || ""));
+}
+
 // Every exit returns the same shape, so downstream conditions never read undefined.
-function result(id, stage, skip, lockToken, reason) {
-  return { taskId: id, stage: stage, skip: skip, lockToken: lockToken, reason: reason || null };
+function result(id, stage, skip, reason) {
+  return { taskId: id, stage: stage, skip: skip, reason: reason || null };
 }
 
 function reject(reason) {
   Log.warn({ message: "receiveWebhook rejected: " + reason });
-  return result(null, null, true, null, reason);
+  return result(null, null, true, reason);
 }
 
 // Wipe the session context before anything else. It is scoped to the session, not to
@@ -46,7 +60,27 @@ if (!token) return reject("payload has no access_token");
 const task = raw.task || {};
 const comments = task.comments || [];
 
-if (raw.event !== "comment") return result(taskId, null, true, null, "event is not a comment");
+if (raw.event !== "comment") return result(taskId, null, true, "event is not a comment");
+
+const lastComment = comments[comments.length - 1];
+if (!lastComment) return result(taskId, null, true, "comment event without comments");
+
+// The recursion breaker. Must come before anything that costs money or writes state.
+if (isBot(lastComment.author)) {
+  return result(taskId, null, true, "last comment is the bot's own");
+}
+
+// Pyrus records a change of the base status on the comment that caused it: the
+// comment that closed the task carries action "finished", and the partner's reply
+// into a closed task carries action "reopened".
+const commentAction = String(lastComment.action || "");
+
+// Everything up to and including the comment that closed the task belongs to an
+// истекшее обращение. The task is reused for the next one, so without this cut the
+// prompt opens with a solved problem and the model answers that instead of the new one.
+let closedAt = -1;
+comments.forEach((c, i) => { if (String(c.action || "") === "finished") closedAt = i; });
+const threadComments = closedAt >= 0 ? comments.slice(closedAt + 1) : comments;
 
 // ── Dialog history ──
 // Pyrus resends the whole thread on every webhook, so notes are rebuilt from
@@ -54,26 +88,32 @@ if (raw.event !== "comment") return result(taskId, null, true, null, "event is n
 // Pyrus emits the opening message both as the task body and as the first comment,
 // which used to show the partner's greeting twice and made the model think it was
 // repeated. Collapse identical neighbours.
+// Who said it. An operator's internal note has no `channel` and is not the bot's —
+// labelling it «Партнёр» told the model the partner had said things he never said,
+// including the summaries the bot itself wrote for the operator. The opening message is
+// the exception: Pyrus reports the task body without a channel, and it is always the
+// partner's, so only later channel-less comments are read as internal.
+function speaker(c, index) {
+  if (isBot(c.author)) return "Ассистент";
+  if (c.channel || index === 0) return "Партнёр";
+  return "Оператор";
+}
+
 const history = [];
-comments
+threadComments
   .filter(c => c.text || c.formatted_text)
-  .forEach(c => {
-    const line = (c.author && c.author.type === "bot" ? "Ассистент: " : "Партнёр: ") + (c.text || c.formatted_text);
+  .forEach((c, i) => {
+    const line = speaker(c, i) + ": " + (c.text || c.formatted_text);
     if (history[history.length - 1] !== line) history.push(line);
   });
 
 history.slice(-HISTORY_LIMIT).forEach(line => AgentContext.addNote({ text: line }));
 
-const lastComment = comments[comments.length - 1];
-const incomingText = lastComment ? (lastComment.text || lastComment.formatted_text || "") : "";
-
-// Whether the bot has spoken in this thread yet. Decided here, not by the model,
-// which got the greeting wrong in both directions during testing. It goes into
-// runtime as well, so applyOutcome can strip a greeting the model adds anyway.
-const isFirstBotReply = !comments.some(c => c.author && c.author.type === "bot");
+const incomingText = lastComment.text || lastComment.formatted_text || "";
+// A screenshot with no caption is an ordinary support message, not a malformed one.
+const attachmentCount = Array.isArray(lastComment.attachments) ? lastComment.attachments.length : 0;
 
 const lastInbound = comments.slice().reverse().find(c => c.channel && c.channel.direction === "inbound");
-const lastInboundCommentId = lastInbound ? lastInbound.id : null;
 const outboundChannel = lastInbound
   ? { type: lastInbound.channel.type, direction: "outbound", to: lastInbound.channel.from }
   : null;
@@ -100,83 +140,152 @@ const componentField = allFields.find(f => f.name === "Компонент");
 const unitFieldId = unitField ? Number(unitField.id) : null;
 const componentFieldId = componentField ? Number(componentField.id) : null;
 
-// ── Idempotency lock ──
-// Db.get + Db.put is not atomic, so the lock carries a unique token: only the
-// invocation that owns the token may release it in finalize. Without this, a
-// duplicate webhook would delete the in-flight invocation's lock.
-const lockKey = "lock:" + taskId;
-const now = Date.now();
-const lockToken = taskId + "-" + now + "-" + Math.random().toString(36).slice(2, 10);
-
-let heldLock = null;
-try {
-  heldLock = Db.get({ dbIntegration: DB_ID, documentKey: lockKey });
-} catch (e) {
-  Log.warn({ message: "receiveWebhook: lock read failed: " + e });
-}
-
-if (heldLock && heldLock.value && (now - heldLock.value.ts) < LOCK_TTL_MS) {
-  // Another invocation is mid-flight. Skip without a token so finalize leaves its lock intact.
-  return result(taskId, null, true, null, "already processing");
-}
-
-try {
-  Db.put({ dbIntegration: DB_ID, documentKey: lockKey, value: { ts: now, token: lockToken } });
-} catch (e) {
-  Log.warn({ message: "receiveWebhook: lock write failed: " + e });
-}
-
 // ── Per-task state: the single source of truth, keyed by taskId ──
+const now = Date.now();
+const STATE_KEY = "state:" + taskId;
 let stored = {};
+let documentExists = false;
 try {
-  const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
-  if (doc && doc.value) stored = doc.value;
+  const doc = Db.get({ dbIntegration: DB_ID, documentKey: STATE_KEY });
+  if (doc && doc.value) { stored = doc.value; documentExists = true; }
 } catch (e) {
   Log.warn({ message: "receiveWebhook: state read failed: " + e });
 }
 
-const data = Object.assign({}, stored.data);
+// ── Idempotency ──
+// There is no lock here on purpose. The platform runs webhooks concurrently and
+// offers nothing to serialise them: Db.get + Db.put is not atomic, and
+// Db.updateByFilters returns no modifiedCount, so a compare-and-set cannot be told
+// apart from a no-op. A lock built on it would hand the same lock to both runs.
+//
+// What the previous lock did instead was drop the second webhook — and then finalize,
+// seeing a newer message, sent nothing at all, so a partner who wrote two lines in a
+// row got no answer whatsoever. The arbiter has to be the one thing both runs see
+// identically: the Pyrus thread itself.
+//   • one comment is answered once  — this check;
+//   • the bot never answers itself   — the isBot guard above;
+//   • of two racing runs only the one holding the newest comment speaks — finalize.
+const incomingCommentId = lastComment.id ? String(lastComment.id) : null;
+if (incomingCommentId && String(stored.lastProcessedCommentId || "") === incomingCommentId) {
+  return result(taskId, null, true, "comment " + incomingCommentId + " already answered");
+}
 
-// An address is recognisable without a model, and the one stage that waits for it must
-// not depend on an agent noticing it: the subtask branch asks for the email and the
-// answer goes straight back to creating the subtask, with no intake in between.
-const emailMatch = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.exec(incomingText || "");
-if (!data.email && emailMatch) {
-  data.email = emailMatch[0];
-  Log.info({ message: "receiveWebhook: picked up email " + data.email + " from the message on task " + taskId });
+let storedStage = stored.stage || null;
+let data = Object.assign({}, stored.data);
+
+// ── A reopen after the operator closed the task is a NEW обращение ──
+// Otherwise `escalated` is a trap: it exists to keep the bot quiet while a human owns
+// the thread, tasks are reused for months, and nothing ever cleared it — the bot went
+// silent in that chat forever. This is the one signal that says the human is done.
+// The reopen must come from the partner through his external channel. An operator can
+// reopen a task himself, and on that comment the bot would otherwise wake up and start
+// answering a colleague in the middle of his work. If a partner ever arrives without a
+// channel the bot stays quiet instead — the failure that leaves a human in charge.
+const reopenedByPartner = !!(lastComment.channel && lastComment.channel.direction === "inbound");
+const newRequest = commentAction === "reopened" && storedStage === "escalated" && reopenedByPartner;
+if (newRequest) {
+  // The unit and the address belong to the partner, not to the problem he had last
+  // time, so they are carried over — asking for them again would be the very loop that
+  // was removed everywhere else. Everything about the previous problem goes.
+  data = {};
+  if (stored.data && stored.data.unitFullName) data.unitFullName = stored.data.unitFullName;
+  if (stored.data && stored.data.email) data.email = stored.data.email;
+  storedStage = null;
+  Log.info({ message: "receiveWebhook: task " + taskId + " reopened after handover, starting a new request" });
 }
 
 // ── Stage the graph should enter (this replaces the separate routeStage function) ──
 // Only these stages are reachable. Anything else falls back to intake, which is
 // always safe: intake re-gathers whatever is missing.
 let stage = "intake";
-if (stored.stage === "closed") stage = "reopened";               // bot had finished, partner wrote again
-else if (stored.stage === "escalated") stage = "escalated";      // operator owns the thread now
-else if (stored.stage === "awaiting_confirmation") stage = "awaiting_confirmation";
-else if (stored.stage === "awaiting_email") stage = "awaiting_email";
+if (storedStage === "closed") stage = "reopened";               // bot had finished, partner wrote again
+else if (storedStage === "escalated") stage = "escalated";      // operator owns the thread now
+else if (storedStage === "awaiting_confirmation") stage = "awaiting_confirmation";
+else if (storedStage === "awaiting_email") stage = "awaiting_email";
+// A message the bot cannot read at all goes to a human immediately: guessing what is
+// on a screenshot from an empty text is exactly the improvisation this bot must not do.
+// True on every working stage — a screenshot answering "Получилось?" is just as
+// unreadable as one opening the dialog. The two stages that already belong to a human
+// (escalated, reopened) are left alone.
+if (!incomingText && attachmentCount && stage !== "escalated" && stage !== "reopened") {
+  stage = "attachment";
+  Log.info({ message: "receiveWebhook: " + attachmentCount + " attachment(s) and no text on task " + taskId + ", handing over" });
+}
+
+// An address is recognisable without a model, and the one stage that waits for it must
+// not depend on an agent noticing it: the subtask branch asks for the email and the
+// answer goes straight back to creating the subtask, with no intake in between.
+// Only read on that stage — picked up anywhere, the regex also captures addresses the
+// partner merely quotes ("письмо от noreply@… не пришло") and puts them in the subtask.
+let emailHarvested = false;
+if (stage === "awaiting_email" && !data.email) {
+  const emailMatch = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.exec(incomingText || "");
+  if (emailMatch) {
+    data.email = emailMatch[0];
+    emailHarvested = true;
+    Log.info({ message: "receiveWebhook: picked up email " + data.email + " from the message on task " + taskId });
+  }
+}
+
+// Whether the bot has spoken in this thread yet. Decided here, not by the model,
+// which got the greeting wrong in both directions during testing. Pyrus may truncate
+// task.comments from the tail, so a scan of the thread alone would start greeting the
+// partner again in the middle of a long dialog: once true, the flag stays true.
+// A new обращение weeks later does deserve a greeting, though.
+const isFirstBotReply = newRequest || !(stored.botHasReplied === true || comments.some(c => isBot(c.author)));
+
+const runtimeValue = {
+  apiUrl: apiUrl,
+  token: token,
+  outboundChannel: outboundChannel,
+  incomingCommentId: incomingCommentId,
+  formId: task.form_id ? String(task.form_id) : null,
+  unitFieldId: unitFieldId,
+  componentFieldId: componentFieldId,
+  isFirstBotReply: isFirstBotReply,
+  partnerName: partnerName
+};
 
 // Request-scoped Pyrus data lives in the task document, not in the session, so
 // concurrent webhooks for different tasks cannot overwrite each other.
+//
+// Only the paths this function actually owns are written. Rewriting the whole document
+// meant a run that had read it a second earlier resurrected everything it had missed
+// since: a concurrent turn's freshly collected unit, or the `lastProcessedCommentId`
+// that finalize had just recorded — which would let an answered comment be answered
+// again. `upsert` is not supported, so a document that does not exist yet is created
+// outright; from then on every other function only patches it.
+const patch = {
+  "value.updatedAt": now,
+  "value.botHasReplied": !isFirstBotReply,
+  "value.runtime": runtimeValue
+};
+if (newRequest) {
+  // The leftovers of the finished обращение must go, so here the whole subtree is
+  // replaced by the carried-over facts on purpose.
+  patch["value.data"] = data;
+  patch["value.stage"] = null;
+  patch["value.clarifyStreak"] = 0;
+  patch["value.subtaskId"] = null;
+  patch["value.pendingOutcome"] = null;
+} else if (emailHarvested) {
+  patch["value.data.email"] = data.email;
+}
+
 try {
-  Db.put({
-    dbIntegration: DB_ID,
-    documentKey: "state:" + taskId,
-    value: Object.assign({}, stored, {
-      updatedAt: now,
-      data: data,
-      runtime: {
-        apiUrl: apiUrl,
-        token: token,
-        outboundChannel: outboundChannel,
-        lastInboundCommentId: lastInboundCommentId,
-        formId: task.form_id ? String(task.form_id) : null,
-        unitFieldId: unitFieldId,
-        componentFieldId: componentFieldId,
-        isFirstBotReply: isFirstBotReply,
-        partnerName: partnerName
-      }
-    })
-  });
+  if (documentExists) {
+    Db.updateByFilters({
+      dbIntegration: DB_ID,
+      filters: { documentKey: STATE_KEY },
+      operator: { $set: patch }
+    });
+  } else {
+    Db.put({
+      dbIntegration: DB_ID,
+      documentKey: STATE_KEY,
+      value: { updatedAt: now, data: data, botHasReplied: !isFirstBotReply, runtime: runtimeValue }
+    });
+  }
 } catch (e) {
   Log.warn({ message: "receiveWebhook: state write failed: " + e });
 }
@@ -225,6 +334,6 @@ AgentContext.putValue({
   }
 });
 
-if (stage === "escalated") return result(taskId, stage, true, lockToken, "operator already handles this task");
+if (stage === "escalated") return result(taskId, stage, true, "operator already handles this task");
 
-return result(taskId, stage, false, lockToken, null);
+return result(taskId, stage, false, stage === "attachment" ? "партнёр прислал вложение без текста" : null);

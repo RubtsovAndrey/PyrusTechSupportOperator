@@ -132,13 +132,14 @@ if (resolvedFullName) {
     if (taskId) {
       const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
       const state = (doc && doc.value) || {};
-      const data = Object.assign({}, state.data);
-      if (data.unitFullName !== resolvedFullName) {
-        data.unitFullName = resolvedFullName;
-        Db.put({
+      const stored = state.data ? state.data.unitFullName : null;
+      if (stored !== resolvedFullName) {
+        // Only the unit path: this tool runs inside an agent's turn, and rewriting the
+        // whole document would undo whatever a concurrent turn has collected.
+        Db.updateByFilters({
           dbIntegration: DB_ID,
-          documentKey: "state:" + taskId,
-          value: Object.assign({}, state, { data: data, updatedAt: Date.now() })
+          filters: { documentKey: "state:" + taskId },
+          operator: { $set: { "value.data.unitFullName": resolvedFullName, "value.updatedAt": Date.now() } }
         });
         Log.info({ message: "matchUnit: persisted unit \"" + resolvedFullName + "\" for task " + taskId });
       }

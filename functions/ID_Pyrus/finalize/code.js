@@ -1,16 +1,28 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
+// Same id as in receiveWebhook: needed to tell the bot's own replies from the
+// partner's messages when deciding whether a newer message has arrived.
+const BOT_AUTHOR_ID = 1314929;
+
+function isBot(author) {
+  if (!author) return false;
+  if (Number(author.id) === BOT_AUTHOR_ID) return true;
+  return /^bot@/i.test(String(author.email || ""));
+}
 
 const prev = Context.getLastFunctionResult() || {};
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = prev.taskId || dialog.taskId || null;
 
-// A duplicate webhook turned away by the lock reaches finalize with skip=true and
-// no lockToken. It must not release the in-flight run's lock nor write to the chat.
-const foreignSkip = prev.skip === true && !prev.lockToken;
-
 if (!taskId) {
   Log.warn({ message: "finalize: no taskId, nothing to do" });
   return { success: false, reason: "no taskId" };
+}
+
+// Rejected payload, the bot's own comment, an already answered comment, a thread the
+// operator owns. Nothing was decided and nothing may be written.
+if (prev.skip === true) {
+  Log.info({ message: "finalize: nothing to do for task " + taskId + " (" + (prev.reason || "skipped") + ")" });
+  return { success: true, taskId: taskId, kind: "skipped" };
 }
 
 let state = {};
@@ -31,7 +43,7 @@ let outcome = state.pendingOutcome || null;
 
 // Nothing decided this turn (unexpected branch, agent failure). Never leave the
 // partner unanswered: reply and hand the thread to a human.
-if (!outcome && prev.skip !== true) {
+if (!outcome) {
   Log.warn({ message: "finalize: no outcome for task " + taskId + ", handing over to operator" });
   outcome = {
     kind: "fallback",
@@ -43,68 +55,88 @@ if (!outcome && prev.skip !== true) {
   };
 }
 
-// ── 1. Persist the new stage and consume the pending outcome ──
-if (outcome && outcome.nextStage) {
-  try {
-    Db.put({
-      dbIntegration: DB_ID,
-      documentKey: "state:" + taskId,
-      value: Object.assign({}, state, { stage: outcome.nextStage, pendingOutcome: null, updatedAt: Date.now() })
-    });
-  } catch (e) {
-    Log.warn({ message: "finalize: state write failed: " + e });
-  }
+const hasSomethingToPost = !!(outcome.replyText || outcome.action || outcome.approvalChoice || outcome.internalNote);
+
+if (!token) {
+  Log.error({ message: "finalize: no token for task " + taskId + ", cannot reach Pyrus" });
+  return { success: false, reason: "no token", taskId: taskId };
+}
+
+// ── 1. Is this run still the one that should speak? ──
+// Both racing runs ask Pyrus the same question and the thread only ever grows, so
+// exactly one of them — the one holding the newest message — gets "yes". This is the
+// whole concurrency control of the bot; see the comment in receiveWebhook.
+let current = null;
+try {
+  const resp = await Http.get({ url: apiUrl + "tasks/" + taskId, headers: { "Authorization": "Bearer " + token } });
+  current = resp && resp.body && resp.body.task ? resp.body.task : null;
+} catch (e) {
+  // A failed probe must not swallow the reply — at worst we answer a stale thread.
+  Log.warn({ message: "finalize: task probe failed, sending anyway: " + e });
+}
+
+const currentLast = current
+  ? (current.comments || []).slice().reverse().find(c => !isBot(c.author))
+  : null;
+
+// Which comment THIS run is answering. It has to come from the request's own payload:
+// the task document is shared, so a webhook that arrived a moment later has already
+// overwritten runtime.incomingCommentId, and a stale run comparing itself against the
+// newer run's id would conclude it is current and answer anyway — both runs would then
+// write to the chat. The document is only a fallback.
+let processedId = null;
+try {
+  const own = (Context.getMessageContent() || {}).payload || {};
+  const ownComments = (own.task && own.task.comments) || [];
+  const ownLast = ownComments[ownComments.length - 1];
+  if (ownLast && ownLast.id) processedId = String(ownLast.id);
+} catch (e) {
+  Log.warn({ message: "finalize: own payload unreadable, falling back to the document: " + e });
+}
+if (!processedId && runtime.incomingCommentId) processedId = String(runtime.incomingCommentId);
+const superseded = !!(processedId && currentLast && String(currentLast.id) !== String(processedId));
+
+if (superseded) {
+  // The partner wrote again (or an operator stepped in) while we were thinking. Leave
+  // the state exactly as it was: the run that owns the newer message answers, and it
+  // overwrites pendingOutcome with a decision made on the newer message. Advancing the
+  // stage here used to move the dialog on while the partner had heard nothing.
+  Log.info({ message: "finalize: superseded on task " + taskId + ", newer message " + (currentLast.id) + " wins" });
+  return { success: true, taskId: taskId, kind: "superseded" };
 }
 
 // ── 2. Send the comment to Pyrus ──
-if (outcome && token && (outcome.replyText || outcome.action || outcome.approvalChoice)) {
-  let current = null;
-  try {
-    const resp = await Http.get({ url: apiUrl + "tasks/" + taskId, headers: { "Authorization": "Bearer " + token } });
-    current = resp && resp.body && resp.body.task ? resp.body.task : null;
-  } catch (e) {
-    // A failed probe must not swallow the reply — at worst we answer a stale thread.
-    Log.warn({ message: "finalize: task probe failed, sending anyway: " + e });
+let posted = true;
+if (hasSomethingToPost) {
+  const channel = runtime.outboundChannel || (currentLast && currentLast.channel
+    ? { type: currentLast.channel.type, direction: "outbound", to: currentLast.channel.from }
+    : null);
+
+  // A comment without `channel` stays in the internal correspondence: the partner
+  // is never sent it. It goes first so the operator reads the summary above the
+  // handover itself.
+  if (outcome.internalNote) {
+    try {
+      await Http.post({
+        url: apiUrl + "tasks/" + taskId + "/comments",
+        headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+        body: { text: outcome.internalNote }
+      });
+    } catch (e) {
+      Log.warn({ message: "finalize: internal summary failed for task " + taskId + ": " + e });
+    }
   }
 
-  const currentLastInbound = current
-    ? (current.comments || []).slice().reverse().find(c => c.channel && c.channel.direction === "inbound")
-    : null;
-  const processedId = runtime.lastInboundCommentId;
-  const superseded = !!(processedId && currentLastInbound && String(currentLastInbound.id) !== String(processedId));
+  const body = {};
+  if (outcome.replyText) {
+    body.text = outcome.replyText;
+    if (channel) body.channel = channel;
+  }
+  if (outcome.action) body.action = outcome.action;
+  if (outcome.approvalChoice) body.approval_choice = outcome.approvalChoice;
+  if (outcome.fieldUpdates && outcome.fieldUpdates.length) body.field_updates = outcome.fieldUpdates;
 
-  if (superseded) {
-    // The partner wrote again while we were thinking; the newer webhook answers.
-    Log.info({ message: "finalize: debounced, newer inbound comment on task " + taskId });
-  } else {
-    const channel = runtime.outboundChannel || (currentLastInbound
-      ? { type: currentLastInbound.channel.type, direction: "outbound", to: currentLastInbound.channel.from }
-      : null);
-
-    // A comment without `channel` stays in the internal correspondence: the partner
-    // is never sent it. It goes first so the operator reads the summary above the
-    // handover itself.
-    if (outcome.internalNote) {
-      try {
-        await Http.post({
-          url: apiUrl + "tasks/" + taskId + "/comments",
-          headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-          body: { text: outcome.internalNote }
-        });
-      } catch (e) {
-        Log.warn({ message: "finalize: internal summary failed for task " + taskId + ": " + e });
-      }
-    }
-
-    const body = {};
-    if (outcome.replyText) {
-      body.text = outcome.replyText;
-      if (channel) body.channel = channel;
-    }
-    if (outcome.action) body.action = outcome.action;
-    if (outcome.approvalChoice) body.approval_choice = outcome.approvalChoice;
-    if (outcome.fieldUpdates && outcome.fieldUpdates.length) body.field_updates = outcome.fieldUpdates;
-
+  if (body.text || body.action || body.approval_choice) {
     try {
       await Http.post({
         url: apiUrl + "tasks/" + taskId + "/comments",
@@ -112,18 +144,43 @@ if (outcome && token && (outcome.replyText || outcome.action || outcome.approval
         body: body
       });
     } catch (e) {
+      posted = false;
       Log.error({ message: "finalize: post comment failed for task " + taskId + ": " + e });
     }
   }
 }
 
-// ── 3. Release the lock, but only the one this run owns ──
-if (!foreignSkip) {
+// ── 3. Persist the new stage ── only now that the partner has actually been told.
+// Written before the post, a five-second Pyrus outage left the bot convinced it had
+// asked a question the partner never saw, and the next message was read as an answer
+// to it. On failure the stage stays put and the dialog simply repeats the turn.
+if (!posted) {
+  return { success: false, reason: "post failed", taskId: taskId, kind: outcome.kind };
+}
+
+if (outcome.nextStage) {
+  // Only the paths this function owns: writing the whole document would resurrect the
+  // facts as they looked when this run started and undo whatever the agents of a
+  // concurrent turn have collected since.
   try {
-    Db.delete({ dbIntegration: DB_ID, documentKey: "lock:" + taskId });
+    Db.updateByFilters({
+      dbIntegration: DB_ID,
+      filters: { documentKey: "state:" + taskId },
+      operator: {
+        $set: {
+          "value.stage": outcome.nextStage,
+          "value.pendingOutcome": null,
+          // One comment is answered once: a redelivered webhook for it is dropped by
+          // receiveWebhook instead of producing a second reply.
+          "value.lastProcessedCommentId": processedId || state.lastProcessedCommentId || null,
+          "value.botHasReplied": state.botHasReplied === true || !!outcome.replyText,
+          "value.updatedAt": Date.now()
+        }
+      }
+    });
   } catch (e) {
-    Log.warn({ message: "finalize: lock release failed: " + e });
+    Log.warn({ message: "finalize: state write failed: " + e });
   }
 }
 
-return { success: true, taskId: taskId, kind: outcome ? outcome.kind : "none" };
+return { success: true, taskId: taskId, kind: outcome.kind };
