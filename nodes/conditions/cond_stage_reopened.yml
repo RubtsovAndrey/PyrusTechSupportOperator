@@ -2,8 +2,8 @@
 id: cond_stage_reopened
 name: reopened after close?
 position:
-  x: 1196
-  y: -154
+  x: 898
+  y: -114
 next-step: func_handover_silent
 next-error-step: null
 parameters:

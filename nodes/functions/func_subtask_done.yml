@@ -2,8 +2,8 @@
 id: func_subtask_done
 name: Outcome - subtask created
 position:
-  x: 5692
-  y: -318
+  x: 6170
+  y: -800
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:

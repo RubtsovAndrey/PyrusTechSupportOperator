@@ -2,8 +2,8 @@
 id: cond_stage_attachment
 name: attachment without text?
 position:
-  x: 1286
-  y: 60
+  x: 1422
+  y: 130
 next-step: func_escalate_attachment
 next-error-step: null
 parameters:
