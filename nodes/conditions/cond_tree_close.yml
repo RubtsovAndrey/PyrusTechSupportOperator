@@ -1,0 +1,11 @@
+---
+id: cond_tree_close
+name: tree ended in a closed chat?
+position:
+  x: 4620
+  y: -1540
+next-step: func_closetask_w2f6n
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).treeEnd === 'close'"
+  false-step: cond_solver_questions

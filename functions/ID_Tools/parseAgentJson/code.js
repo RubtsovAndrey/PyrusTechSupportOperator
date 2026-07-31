@@ -144,19 +144,50 @@ function validateTopicKey(candidate) {
   return String(hit.key);
 }
 
+function topicByKey(key) {
+  return loadTopics().find(t => String(t.key || "") === String(key)) || null;
+}
+
 function componentOfTopic(key) {
-  const hit = loadTopics().find(t => String(t.key || "") === String(key));
+  const hit = topicByKey(key);
   return hit && hit.componentName ? String(hit.componentName) : null;
+}
+
+// Which answers a branching article is allowed to collect. The model reports what the
+// partner said, but the NAMES of the fields come from the article — otherwise a model
+// having a bad day invents keys and the task document fills up with junk nobody reads.
+// A key with a dot or a $ in it would address a different part of the document than it
+// looks like, so those are refused outright.
+function answerKeysOfTopic(key) {
+  const topic = topicByKey(key);
+  const nodes = topic && topic.nodes && typeof topic.nodes === "object" ? topic.nodes : null;
+  const keys = [];
+  const add = list => (Array.isArray(list) ? list : []).forEach(q => {
+    if (q && q.key && !/[.$]/.test(String(q.key))) keys.push(String(q.key));
+  });
+  if (nodes) Object.keys(nodes).forEach(id => add(nodes[id] && nodes[id].ask));
+  if (topic) add(topic.askBeforeHandover);
+  return keys;
 }
 
 function validateComponent(candidate) {
   const wanted = normalize(candidate);
-  const hit = loadTopics().find(t => t.componentName && normalize(t.componentName) === wanted);
+  // Components live on topics and, in a branching article, on the branches themselves:
+  // one article covers both rating kinds and their subtasks go to different components.
+  const known = [];
+  loadTopics().forEach(t => {
+    if (t.componentName) known.push(String(t.componentName));
+    const nodes = t.nodes && typeof t.nodes === "object" ? t.nodes : null;
+    if (nodes) Object.keys(nodes).forEach(id => {
+      if (nodes[id] && nodes[id].componentName) known.push(String(nodes[id].componentName));
+    });
+  });
+  const hit = known.find(name => normalize(name) === wanted);
   if (!hit) {
     Log.warn({ message: "parseAgentJson: component " + candidate + " is not in knowledge_catalog, not persisting" });
     return null;
   }
-  return String(hit.componentName);
+  return hit;
 }
 
 const raw = Context.getLastFunctionResult();
@@ -214,10 +245,16 @@ if (parsed.topicKey) parsed.topicKey = validateTopicKey(parsed.topicKey);
 if (parsed.componentName) parsed.componentName = validateComponent(parsed.componentName);
 
 // The component of a known topic belongs to the catalog, not to the model's guess:
-// once the topic is resolved, the catalog value wins outright.
+// once the topic is resolved, the catalog value wins outright. A branching article is
+// the exception — there the component belongs to the branch, and searchKnowledge has
+// already written the right one while walking the tree. Overriding it from the topic
+// here would send every branch of one article to the same component.
 if (parsed.topicKey) {
-  const fromCatalog = componentOfTopic(parsed.topicKey);
+  const known = topicByKey(parsed.topicKey);
+  const isTree = !!(known && known.nodes && typeof known.nodes === "object");
+  const fromCatalog = isTree ? null : componentOfTopic(parsed.topicKey);
   if (fromCatalog) parsed.componentName = fromCatalog;
+  else if (isTree) delete parsed.componentName;
 }
 
 // The confirmation answer that means решилось, но есть другой вопрос.
@@ -241,6 +278,41 @@ if (taskId) {
       }
     });
 
+    // What the partner answered to the questions of a branching article. The names of
+    // the fields come from the article and the values from the model, written one path
+    // at a time: a whole-subtree write would undo the answers a concurrent turn had
+    // just collected, and the answers are the entire point of the tree.
+    if (parsed.answers && typeof parsed.answers === "object" && !Array.isArray(parsed.answers)) {
+      const allowed = answerKeysOfTopic(data.topicKey || parsed.topicKey);
+      const stored = Object.assign({}, data.treeAnswers);
+      const refused = [];
+      Object.keys(parsed.answers).forEach(k => {
+        const value = parsed.answers[k];
+        if (allowed.indexOf(k) < 0) { refused.push(k); return; }
+        // Objects and arrays are not answers to a question, and an array would break the
+        // point write outright. Only what a partner can actually say is kept.
+        if (value === null || value === undefined || value === "") return;
+        if (typeof value === "object") { refused.push(k); return; }
+        stored[k] = String(value);
+        patch["data.treeAnswers." + k] = String(value);
+      });
+      data.treeAnswers = stored;
+      if (refused.length) {
+        Log.warn({ message: "parseAgentJson: answers " + refused.join(", ") + " are not declared by article " + (data.topicKey || parsed.topicKey) + ", not persisting" });
+      }
+    }
+
+    // Where the tree ended, if it did. Written by searchKnowledge earlier in this same
+    // turn and handed to the graph here: the conditions after the solver can only read
+    // the previous function's result, not the task document.
+    // Only the solver walks the tree, so only its stage may hand a terminal to the graph.
+    // Surfacing it from every stage meant a terminal left over from an earlier turn could
+    // still be read by a condition that had no business seeing it.
+    if (String(stage || "") === "solver") {
+      if (data.treeEnd) parsed.treeEnd = String(data.treeEnd);
+      if (data.treeNode) parsed.treeNode = String(data.treeNode);
+    }
+
     // Which way the article itself says this topic must go. Kept so the operator's
     // summary can tell статьи нет вовсе apart from статья есть, и она велит передать
     // человеку: для бота оба пути заканчиваются эскалацией, для оператора это совсем
@@ -261,7 +333,11 @@ if (taskId) {
       // Cleared by writing null rather than by removing the key: only $set is available,
       // and every reader treats null as «not collected» anyway.
       ["problemSummary", "topicKey", "componentName", "topicRoute",
-       "attempts", "offeredStep", "preQuestionsAsked"].forEach(k => {
+       "attempts", "offeredStep", "preQuestionsAsked",
+       // The tree has to start from its root for the new question, and the answers to
+       // the old one must not end up in the subtask of the new one.
+       "treeNode", "treeAnswers", "treeEnd", "treeHandoverAsked", "treeNext",
+       "treeAskedNode"].forEach(k => {
         delete data[k];
         patch["data." + k] = null;
       });
@@ -303,6 +379,10 @@ if (taskId) {
     if (moreQuestions) {
       patch["subtaskId"] = null;
       patch["clarifyStreak"] = 0;
+      // The tree walk starts over too, so the new question gets its full budget of
+      // questions instead of inheriting the score of the one just solved.
+      patch["treeStreakNode"] = null;
+      patch["treeQuestions"] = 0;
     }
 
     // No document means receiveWebhook could not create one; writeState notices that the
@@ -318,15 +398,26 @@ if (taskId) {
     // The attempts log is for the code, not for the prompt: the platform serialises
     // every key of the dialog value into the system message.
     const published = Object.assign({}, dialog, data);
-    ["attempts", "offeredStep", "preQuestionsAsked", "topicRoute"].forEach(k => { delete published[k]; });
+    ["attempts", "offeredStep", "preQuestionsAsked", "topicRoute",
+     // Bookkeeping of the tree walk: the node ids and the terminal are for the code and
+     // the graph. Naming them in the prompt only invites the model to reason about the
+     // article's internals instead of answering the partner.
+     "treeNode", "treeEnd", "treeHandoverAsked", "treeNext", "treeAskedNode",
+     "treeAnswers"].forEach(k => { delete published[k]; });
     AgentContext.putValue({ key: "dialog", value: published });
+    // The answers already collected are named explicitly: without them the model asked
+    // again for what the partner had told it one turn earlier.
+    const collected = Object.keys(data.treeAnswers || {})
+      .map(k => k + ": " + data.treeAnswers[k])
+      .join("; ");
     AgentContext.addNote({
       text: [
         "Уточнённые данные по обращению:",
         "- Юнит: " + (data.unitFullName || "не определён"),
         "- Проблема: " + (data.problemSummary || "не описана"),
         "- Email: " + (data.email || "не указан"),
-        "- Тематика: " + (data.topicKey || "не определена")
+        "- Тематика: " + (data.topicKey || "не определена"),
+        "- Уже собрано по тематике: " + (collected || "ничего")
       ].join("\n")
     });
   } catch (e) {

@@ -4,13 +4,16 @@ name: searchKnowledge
 description: "Finds the knowledge topic that matches a problem description, ranked\
   \ by token overlap. Returns found=false when nothing matches (never guesses), with\
   \ knowledge-base chunks as a hint. Pass topicKey for an exact lookup."
-response-description: "With query: { found, source, topics: [{ score, key, description,\
-  \ route, componentName }], chunks }. With topicKey, one of three: the article's\
-  \ own questions, which must be asked before any solution — { found: true, needsPreQuestions:\
-  \ true, preQuestions, solverInstruction: null }; the single step to deliver now\
-  \ — { found: true, solverInstruction, followUpQuestion, stepNumber, stepCount, isLastStep,\
-  \ preQuestions, onFail, key, componentName }; or nothing left to try — { found:\
-  \ false, stepsExhausted: true, onFail }"
+response-description: "Always carries turnKind, which says what this turn is: choose-branch\
+  \ (call again with branch), questions (ask preQuestions, nothing else), solution (deliver\
+  \ solverInstruction), handover (say nothing, the graph hands over). With query: {\
+  \ found, source, topics: [{ score, key, description, route, componentName }], chunks\
+  \ }. With topicKey, a branching article returns one node: { turnKind, treeNode, preQuestions,\
+  \ answerKeys, branchOptions, solverInstruction, treeEnd }. A linear article returns\
+  \ the article's own questions — { needsPreQuestions: true, preQuestions }; the single\
+  \ step to deliver now — { solverInstruction, followUpQuestion, stepNumber, stepCount,\
+  \ isLastStep, onFail }; or nothing left to try — { found: false, stepsExhausted: true,\
+  \ onFail }"
 parameters:
 - name: query
   type: STRING
@@ -22,6 +25,14 @@ parameters:
   type: STRING
   required: false
   description: "Exact topic key, when the topic is already known"
+  properties: null
+  items: null
+- name: branch
+  type: STRING
+  required: false
+  description: "Which branch of the current node the partner's answer means. Only for\
+    \ a branching article, and only after a turn that returned turnKind: choose-branch\
+    \ — pass one of the branchOptions it listed, verbatim."
   properties: null
   items: null
 language: JAVASCRIPT

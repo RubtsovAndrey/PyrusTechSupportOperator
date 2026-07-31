@@ -170,9 +170,17 @@ function describe(e) {
 // into a comment: a comment is correspondence, and the request itself belongs in
 // «Входные данные», where the first line reads it.
 const attempts = Array.isArray(data.attempts) ? data.attempts : [];
+// What the article asked the partner, line by line. This is the reason a branching
+// article exists: without these lines the first line reads «просят поменять карточку
+// сотрудника» and has to start the conversation over.
+const answers = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
+const answerKeys = Object.keys(answers);
 const summaryText = [
   "Обращение передано ботом техподдержки.",
   data.problemSummary ? "Проблема: " + data.problemSummary : null,
+  answerKeys.length
+    ? "Данные, собранные у партнёра:\n" + answerKeys.map(k => "  " + k + ": " + answers[k]).join("\n")
+    : null,
   "Юнит: " + data.unitFullName,
   "Компонент: " + data.componentName,
   data.topicKey ? "Тематика БЗ: " + data.topicKey : null,

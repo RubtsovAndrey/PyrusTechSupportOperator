@@ -20,6 +20,46 @@ function hasToken(haystack, token) {
   return haystack.some(h => h === token || h.indexOf(stem) === 0 || token.indexOf(h.slice(0, Math.max(4, h.length - 2))) === 0);
 }
 
+// Where a branch of the dialog tree may end.
+const END_KINDS = ["close", "subtask", "escalate"];
+// A tree walked by `go` edges must not be able to hang this function.
+const MAX_HOPS = 12;
+
+// A branching article: named nodes, each of which may say something, ask up to a few
+// questions, choose a branch by the partner's answer and end the dialog. An article
+// without `nodes` is the older linear kind and is left completely alone — the catalog
+// migrates one topic at a time, and nothing that works today may stop working.
+function normalizeNodes(t) {
+  const raw = t && t.nodes && typeof t.nodes === "object" ? t.nodes : null;
+  if (!raw) return null;
+  const nodes = {};
+  Object.keys(raw).forEach(id => {
+    const n = raw[id] || {};
+    nodes[id] = {
+      id: String(id),
+      advice: n.advice ? String(n.advice) : null,
+      ask: (Array.isArray(n.ask) ? n.ask : [])
+        .filter(q => q && q.key && q.question)
+        .map(q => ({ key: String(q.key), question: String(q.question) })),
+      // `when` is a list of synonyms for the model to recognise the partner's answer
+      // by; `go` is the only thing the code acts on. A branch without a target is not
+      // a branch, so it is dropped rather than silently leading nowhere.
+      branches: (Array.isArray(n.branches) ? n.branches : [])
+        .filter(b => b && b.go)
+        .map(b => ({
+          when: (Array.isArray(b.when) ? b.when : [b.when]).filter(Boolean).map(String),
+          go: String(b.go)
+        })),
+      "else": n["else"] ? String(n["else"]) : null,
+      go: n.go ? String(n.go) : null,
+      end: END_KINDS.indexOf(String(n.end || "")) >= 0 ? String(n.end) : null,
+      componentName: n.componentName ? String(n.componentName) : null,
+      onFail: n.onFail ? String(n.onFail) : null
+    };
+  });
+  return Object.keys(nodes).length ? nodes : null;
+}
+
 // An article may offer several solutions to try in order. Older articles carry a
 // single solverInstruction; they are read as a one-step article so the catalog can
 // be migrated topic by topic.
@@ -49,7 +89,18 @@ function normalizeTopic(t) {
     preQuestions: Array.isArray(t.preQuestions) ? t.preQuestions.filter(Boolean).map(String) : [],
     // Where the dialog goes when every step has been tried and nothing helped.
     onFail: String(t.onFail || "escalate") === "subtask" ? "subtask" : "escalate",
-    steps: steps
+    // In a tree article `onFail` may also name a node to continue from, so the raw
+    // value is kept beside the coerced one.
+    onFailRaw: t.onFail ? String(t.onFail) : null,
+    steps: steps,
+    nodes: normalizeNodes(t),
+    start: t.start ? String(t.start) : null,
+    // Questions asked before any handover to a human, in whichever branch it happens:
+    // the place for rules like «всегда уточняем причину», which must not depend on
+    // every branch remembering to repeat them.
+    askBeforeHandover: (Array.isArray(t.askBeforeHandover) ? t.askBeforeHandover : [])
+      .filter(q => q && q.key && q.question)
+      .map(q => ({ key: String(q.key), question: String(q.question) }))
   };
 }
 
@@ -144,6 +195,25 @@ function stepDone(attempts, key) {
   return max || mine.length;
 }
 
+function sameLabel(a, b) {
+  const clean = s => String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[^0-9a-zа-я]+/g, " ").trim();
+  return clean(a) === clean(b);
+}
+
+// A node that neither speaks, asks, branches nor ends is a pure redirect and is walked
+// through without spending a turn on it.
+function resolveNode(nodes, id) {
+  let current = String(id || "");
+  for (let hop = 0; hop < MAX_HOPS; hop++) {
+    const node = nodes[current];
+    if (!node) return null;
+    if (node.advice || node.ask.length || node.branches.length || node.end || !node.go) return node;
+    current = node.go;
+  }
+  Log.warn({ message: "searchKnowledge: more than " + MAX_HOPS + " redirects from node " + id });
+  return null;
+}
+
 let topics = [];
 try {
   const doc = Db.get({ dbIntegration: DB_ID, documentKey: "knowledge_catalog" });
@@ -166,6 +236,206 @@ if (topicKey) {
   const exact = topics.filter(t => String(t.key || "").toLowerCase() === wanted);
   if (exact.length) {
     const topic = normalizeTopic(exact[0]);
+
+    // ── A branching article walks its tree, one node per turn ──
+    // The node the partner is standing on lives in the task document, and his answer to
+    // it decides the next one. Which branch that answer means is the one judgement only
+    // the model can make — but it chooses from the list the node declares, and the
+    // choice is checked here: a branch the node does not have is not a branch. Same rule
+    // that already keeps invented units and topics out of the Pyrus fields.
+    if (topic.nodes) {
+      const data = loadData();
+      const answers = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
+      const atId = data.treeNode ? String(data.treeNode) : null;
+      const at = atId && topic.nodes[atId] ? topic.nodes[atId] : null;
+      const chosen = String(branch || "").trim();
+
+      let target = null;
+      let how = "";
+      if (data.treeNext && topic.nodes[String(data.treeNext)]) {
+        // A node handed over by name instead of being reached through an answer: this is
+        // how «не помогло» continues an article. It must be DELIVERED, not advanced from,
+        // which is exactly what would happen if it were stored as the current node.
+        target = resolveNode(topic.nodes, String(data.treeNext));
+        how = "onFail";
+      } else if (!at) {
+        target = resolveNode(topic.nodes, topic.start || Object.keys(topic.nodes)[0]);
+        how = "start";
+      } else if (at.end) {
+        // Standing on a terminal: the previous turn asked the questions that always
+        // precede a handover, and now the terminal itself is due.
+        target = at;
+        how = "end";
+      } else if (at.branches.length) {
+        if (!chosen) {
+          // The partner's answer has to be read before the tree can move. Nothing is
+          // written and nothing is said: this turn is not over, the caller classifies
+          // the answer and asks again with the branch.
+          Log.info({ message: "searchKnowledge: node " + at.id + " of " + topic.key + " awaits a branch choice" });
+          return {
+            found: true,
+            source: "tree-branch",
+            turnKind: "choose-branch",
+            key: topic.key,
+            awaitingBranch: true,
+            treeNode: at.id,
+            branchOptions: at.branches.map(b => b.when.join(" / ")),
+            answerKeys: at.ask.map(q => q.key),
+            onFail: topic.onFail,
+            solverInstruction: null,
+            followUpQuestion: null
+          };
+        }
+        const hit = at.branches.find(b => b.when.some(w => sameLabel(w, chosen)))
+          || at.branches.find(b => sameLabel(b.go, chosen))
+          || at.branches.find(b => b.when.some(w => String(chosen).toLowerCase().indexOf(String(w).toLowerCase()) >= 0));
+        if (hit) {
+          target = resolveNode(topic.nodes, hit.go);
+          how = "branch \"" + chosen + "\"";
+        } else if (at["else"]) {
+          Log.warn({ message: "searchKnowledge: branch \"" + chosen + "\" is not declared on node " + at.id + " of " + topic.key + ", taking else" });
+          target = resolveNode(topic.nodes, at["else"]);
+          how = "else";
+        } else {
+          Log.warn({ message: "searchKnowledge: branch \"" + chosen + "\" is not declared on node " + at.id + " of " + topic.key + " and there is no else" });
+          patchData({ treeEnd: "escalate" });
+          return { found: false, topics: [], source: "tree-branch-unknown", turnKind: "handover", key: topic.key, treeEnd: "escalate", onFail: topic.onFail };
+        }
+      } else if (at.go) {
+        target = resolveNode(topic.nodes, at.go);
+        how = "go";
+      } else {
+        // An advice node whose only continuation is onFail, re-entered without a verdict
+        // the confirmation stage could read. Guessing is worse than a human looking.
+        Log.warn({ message: "searchKnowledge: node " + at.id + " of " + topic.key + " has no continuation" });
+        patchData({ treeEnd: "escalate" });
+        return { found: false, topics: [], source: "tree-dead-end", turnKind: "handover", key: topic.key, treeEnd: "escalate", onFail: topic.onFail };
+      }
+
+      if (!target) {
+        Log.error({ message: "searchKnowledge: the node after " + (at ? at.id : topic.start) + " of " + topic.key + " is missing from the article" });
+        patchData({ treeEnd: "escalate" });
+        return { found: false, topics: [], source: "tree-broken", turnKind: "handover", key: topic.key, treeEnd: "escalate", onFail: topic.onFail };
+      }
+
+      // The branch may carry its own component: one article covers two rating kinds and
+      // the subtasks go to different components.
+      const component = target.componentName || topic.componentName;
+      // `treeNext` is consumed the moment it is delivered: left in place it would pin the
+      // dialog to that node and every later answer would land on it again.
+      const patch = { treeNode: target.id, treeEnd: null, treeNext: null };
+      if (component) patch.componentName = component;
+
+      // A node that asks — with or without a recommendation above the question. The turn
+      // ends awaiting an answer, so it is a clarification, never a solution.
+      //
+      // Only what is still missing is asked, and only once. A node that both asks and
+      // ends — «на какой номер поменять» and then a subtask — would otherwise ask the
+      // same question on every turn: the dialog stands on it until the terminal fires,
+      // and asking again is what that looks like from the inside. Fields are optional by
+      // decision, so an answer the partner did not give moves the article on instead of
+      // holding him there.
+      const unanswered = target.ask.filter(q => !answers[q.key]);
+      if (unanswered.length && String(data.treeAskedNode || "") !== target.id) {
+        patch.treeAskedNode = target.id;
+        patchData(patch);
+        Log.info({ message: "searchKnowledge: topic " + topic.key + " -> node " + target.id + " (" + how + "), " + unanswered.length + " question(s)" });
+        return {
+          found: true,
+          source: "tree-questions",
+          turnKind: "questions",
+          key: topic.key,
+          description: topic.description,
+          componentName: component,
+          treeNode: target.id,
+          needsPreQuestions: true,
+          preQuestions: unanswered.map(q => q.question),
+          answerKeys: unanswered.map(q => q.key),
+          branchOptions: target.branches.map(b => b.when.join(" / ")),
+          onFail: topic.onFail,
+          solverInstruction: target.advice,
+          followUpQuestion: null
+        };
+      }
+      if (unanswered.length) {
+        Log.warn({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " asked for " + unanswered.map(q => q.key).join(", ") + " and got nothing, moving on without it" });
+      }
+
+      // Rules like «всегда уточняем причину» are asked once, in whichever branch the
+      // handover happens — and only after the branch has asked what it needs itself.
+      // Asked before them, the reason for a change arrived before the partner had been
+      // asked WHAT to change, which reads as an interrogation and collects worse answers.
+      // Asked once and once only: the partner may not know, and holding the dialog hostage
+      // over an optional field is worse than a subtask that says the field was not given.
+      const pending = (target.end === "subtask" || target.end === "escalate")
+        ? topic.askBeforeHandover.filter(q => !answers[q.key])
+        : [];
+      if (pending.length && data.treeHandoverAsked !== true) {
+        patch.treeHandoverAsked = true;
+        patchData(patch);
+        Log.info({ message: "searchKnowledge: topic " + topic.key + " asks " + pending.length + " question(s) before handing over at " + target.id });
+        return {
+          found: true,
+          source: "tree-handover-questions",
+          turnKind: "questions",
+          key: topic.key,
+          description: topic.description,
+          componentName: component,
+          treeNode: target.id,
+          needsPreQuestions: true,
+          preQuestions: pending.map(q => q.question),
+          answerKeys: pending.map(q => q.key),
+          onFail: topic.onFail,
+          solverInstruction: null,
+          followUpQuestion: null
+        };
+      }
+
+      if (target.end) {
+        patch.treeEnd = target.end;
+        patchData(patch);
+        Log.info({ message: "searchKnowledge: topic " + topic.key + " ends at " + target.id + " with " + target.end + " (" + how + ")" });
+        return {
+          found: true,
+          source: "tree-end",
+          // A recommendation the partner can act on himself is still said out loud, and
+          // then the chat closes; a handover to a human needs no words from the bot.
+          turnKind: target.advice ? "solution" : "handover",
+          key: topic.key,
+          description: topic.description,
+          componentName: component,
+          treeNode: target.id,
+          treeEnd: target.end,
+          solverInstruction: target.advice,
+          followUpQuestion: null,
+          treeAnswers: answers
+        };
+      }
+
+      // A recommendation to try. Logged as an attempt so the confirmation stage can tell
+      // «не помогло» apart from a fresh question, and so the operator's summary lists
+      // what the partner has already been told.
+      const attempt = stepDone(data.attempts, topic.key) + 1;
+      patch.offeredStep = { topicKey: topic.key, stepNumber: attempt, nodeId: target.id, at: Date.now() };
+      patchData(patch);
+      Log.info({ message: "searchKnowledge: topic " + topic.key + " advises at node " + target.id + " (" + how + ")" });
+      return {
+        found: true,
+        source: "tree-advice",
+        turnKind: "solution",
+        key: topic.key,
+        description: topic.description,
+        componentName: component,
+        treeNode: target.id,
+        solverInstruction: target.advice,
+        followUpQuestion: DEFAULT_FOLLOW_UP,
+        stepNumber: attempt,
+        stepCount: attempt,
+        isLastStep: true,
+        onFail: topic.onFail
+      };
+    }
+
     if (!topic.steps.length) {
       Log.warn({ message: "searchKnowledge: topic " + topic.key + " has no solution steps" });
       return { found: false, topics: [], source: "no-steps", onFail: topic.onFail };
@@ -259,7 +529,12 @@ if (scored.length) {
       score: Number(r.score.toFixed(2)),
       key: String(r.topic.key || ""),
       description: r.topic.description ? String(r.topic.description) : null,
-      route: r.topic.route ? String(r.topic.route) : "solver",
+      // A tree article is always entered through the solver, whatever the catalog says:
+      // its route is decided by the branch the partner ends up in, and jumping straight
+      // to a subtask would skip every question the tree exists to ask.
+      route: r.topic.nodes && typeof r.topic.nodes === "object"
+        ? "solver"
+        : (r.topic.route ? String(r.topic.route) : "solver"),
       componentName: r.topic.componentName ? String(r.topic.componentName) : null
     }))
   };

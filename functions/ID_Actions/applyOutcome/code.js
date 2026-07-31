@@ -147,12 +147,36 @@ const runtime = state.runtime || {};
 // agent may be allowed to hold a partner in that loop — after this many questions in a
 // row a human takes over, and the summary tells him what the bot could not collect.
 const MAX_CLARIFY_STREAK = 3;
+// A branching article legitimately asks question after question, so the streak alone
+// cannot bound it. This does: a tree deeper than this is an error in the article, not a
+// dialog, and the partner must not pay for it.
+const MAX_TREE_QUESTIONS = 12;
 const isClarify = String(outcome || "") === "clarify";
 const asksSomething = isClarify || String(outcome || "") === "clarify_email";
 let clarifyStreak = asksSomething ? (Number(state.clarifyStreak) || 0) + 1 : 0;
 let loopBroken = false;
-if (clarifyStreak > MAX_CLARIFY_STREAK) {
-  Log.warn({ message: "applyOutcome: " + (clarifyStreak - 1) + " clarifying questions in a row on task " + taskId + ", handing over to an operator" });
+let overrun = false;
+
+// Counting questions was the wrong measure. Three in a row is a loop only when they
+// achieve nothing: walking the tree of an article asks «что именно менять», then «на
+// какое значение», then «по какой причине» — three questions that are pure progress, and
+// the old counter handed such a dialog to an operator one question before the subtask it
+// was about to create. What separates the two is movement: a question asked from a node
+// the dialog has not stood on before advanced the article; a question asked from the same
+// node again did not.
+const treeNode = data.treeNode ? String(data.treeNode) : null;
+const treeMoved = !!treeNode && treeNode !== String(state.treeStreakNode || "");
+let treeQuestions = Number(state.treeQuestions) || 0;
+if (asksSomething && treeMoved) {
+  treeQuestions += 1;
+  clarifyStreak = 1;
+}
+if (treeQuestions > MAX_TREE_QUESTIONS) {
+  Log.error({ message: "applyOutcome: article " + (data.topicKey || "?") + " asked more than " + MAX_TREE_QUESTIONS + " questions on task " + taskId + ", its tree is probably looping" });
+  overrun = true;
+}
+if (clarifyStreak > MAX_CLARIFY_STREAK || overrun) {
+  if (!overrun) Log.warn({ message: "applyOutcome: " + (clarifyStreak - 1) + " clarifying questions in a row on task " + taskId + " without moving on, handing over to an operator" });
   spec = OUTCOMES.escalated;
   loopBroken = true;
   clarifyStreak = 0;
@@ -237,11 +261,19 @@ if (spec.nextStage === "escalated") {
     : "  ничего не предлагалось";
   const who = [runtime.partnerName, data.unitFullName ? "юнит " + data.unitFullName : null, data.email]
     .filter(Boolean).join(", ");
+  // Everything the article managed to ask before giving up. For the long guided cases
+  // this is the whole value of the handover: the operator continues from where the bot
+  // stopped instead of asking the partner the same five questions again.
+  const answers = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
+  const answerKeys = Object.keys(answers);
   internalNote = [
     "[Внутренняя переписка]",
     "Бот передаёт обращение оператору.",
     "Кто обращается: " + (who || "не определено"),
     "Суть проблемы: " + (data.problemSummary || "не описана"),
+    (answerKeys.length
+      ? "Собрано по тематике:\n" + answerKeys.map(k => "  " + k + ": " + answers[k]).join("\n")
+      : null),
     // For the bot both cases end in a handover, for the operator they are different
     // jobs: an article that routes to a human is a known procedure, no article at all
     // means nobody has written one yet.
@@ -252,9 +284,12 @@ if (spec.nextStage === "escalated") {
     "Уже пробовали:",
     tried,
     "Причина передачи: " + (loopBroken
-      ? "бот задал подряд " + MAX_CLARIFY_STREAK + " уточняющих вопроса и так и не собрал данные"
+      ? (overrun
+        ? "статья задала больше " + MAX_TREE_QUESTIONS + " вопросов и не пришла ни к решению, ни к подзадаче — похоже на ошибку в самой статье"
+        : "бот задал подряд " + MAX_CLARIFY_STREAK + " уточняющих вопроса и не продвинулся")
       : (spec.silent ? "партнёр написал в закрытый чат" : (prev.reason || "не указана")))
-  ].join("\n");
+    // A null line means there was nothing to put on it; it must not print as "null".
+  ].filter(Boolean).join("\n");
 }
 
 const pendingOutcome = {
@@ -275,6 +310,10 @@ const pendingOutcome = {
 if (!writeState(taskId, {
   "pendingOutcome": pendingOutcome,
   "clarifyStreak": clarifyStreak,
+  // Which node the streak was last counted at, so the next turn can tell a question that
+  // moved the article on from one that asked the same thing again.
+  "treeStreakNode": treeNode,
+  "treeQuestions": treeQuestions,
   "updatedAt": Date.now()
 }, "applyOutcome")) {
   return { success: false, reason: "state write lost", taskId: taskId };

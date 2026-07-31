@@ -1,0 +1,11 @@
+---
+id: cond_tree_subtask
+name: tree ended in a subtask?
+position:
+  x: 4620
+  y: -1700
+next-step: func_createsubtask_v5r8k
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).treeEnd === 'subtask'"
+  false-step: cond_tree_escalate
