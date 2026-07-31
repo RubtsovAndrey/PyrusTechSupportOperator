@@ -4,14 +4,29 @@ const ABBR = { "мск": "москва", "спб": "санкт-петербур�
 
 // Words partners wrap the unit name in. No catalog entry contains them, and while
 // every query token was mandatory a message like "пиццерия Тамбов-1" matched nothing.
-const NOISE = ["пиццерия", "пиццерии", "пиццерию", "пиццерией", "пиццерий", "кофейня", "кофейни", "кофейню", "кофейней", "кофеен", "точка", "точки", "точке", "точку", "юнит", "юнита", "юните", "филиал", "филиала", "магазин", "адрес", "наша", "наш", "нашей", "моя", "мой", "это", "в", "на", "из", "от"];
+// Split in two because the two halves cannot be compared the same way: a stem is matched
+// at the start of a token, so every case form is covered without listing it, but «в» or
+// «на» as a stem would swallow half the catalog and must match whole words only.
+const NOISE_STEMS = ["пиццер", "кофейн", "точк", "юнит", "филиал", "магазин", "адрес"];
+const NOISE_WORDS = ["наша", "наш", "нашей", "нашего", "моя", "мой", "моей", "это", "эта", "в", "на", "из", "от", "у"];
+
+function isNoise(token) {
+  return NOISE_WORDS.indexOf(token) >= 0 || NOISE_STEMS.some(stem => token.indexOf(stem) === 0);
+}
 
 // The business the partner already named. Used to pick a side when one name exists
-// for two businesses, instead of asking him to repeat himself.
+// for two businesses, instead of asking him to repeat himself. Stems again, for the same
+// reason: «я из кофейни» used to be understood while «работаю в кофейне» was not.
+// «кофе» and «пицц» are deliberately absent: they fire on «кофемашина» and «пиццу
+// пересолили», which are descriptions of a problem and not the name of a business.
 const BUSINESS_HINTS = [
-  { words: ["пиццерия", "пиццерии", "пиццерию", "пиццерией", "пиццерий", "пицца", "пиццы", "пиццу", "додо"], match: ["pizza"] },
-  { words: ["кофейня", "кофейни", "кофейню", "кофейней", "кофеен", "кофе", "дринкит"], match: ["coffee", "drinkit"] }
+  { stems: ["пиццер", "додо", "dodo"], match: ["pizza"] },
+  { stems: ["кофейн", "дринкит", "drinkit"], match: ["coffee", "drinkit"] }
 ];
+
+// «это не пиццерия, а кофейня» names both and means one. A denial only removes a
+// candidate; inferring the other one from «не пиццерия» alone would be a guess.
+const DENIALS = ["не", "ни"];
 
 function normUnit(s) {
   if (!s || typeof s !== "string") return "";
@@ -138,7 +153,8 @@ function matchUnitRaw(tokens, catalog) {
 // Naming two businesses at once names none: choosing between them is the very error this
 // check exists to prevent.
 function businessHint(tokens) {
-  const found = BUSINESS_HINTS.filter(h => tokens.some(t => h.words.indexOf(t) >= 0));
+  const found = BUSINESS_HINTS.filter(h => tokens.some((t, i) =>
+    h.stems.some(stem => t.indexOf(stem) === 0) && DENIALS.indexOf(tokens[i - 1] || "") < 0));
   return found.length === 1 ? found[0] : null;
 }
 
@@ -164,7 +180,7 @@ if (claimed && !hint) {
   Log.warn({ message: "matchUnit: the query claims one business and the partner named another; the partner's word is taken" });
 }
 
-let matches = matchUnitRaw(queryTokens.filter(t => NOISE.indexOf(t) < 0), catalog);
+let matches = matchUnitRaw(queryTokens.filter(t => !isNoise(t)), catalog);
 
 if (hint && matches.length > 1) {
   const narrowed = matches.filter(u => hint.match.some(m => u.business.indexOf(m) >= 0));

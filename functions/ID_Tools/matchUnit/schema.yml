@@ -1,32 +1,19 @@
 ---
 id: matchUnit
 name: matchUnit
-description: "Resolves the unit the partner named against the catalog. Call it whenever\
-  \ he mentions a city, a point number or a brand. It decides by itself and returns\
-  \ the exact catalog string only when the answer is certain; the same name can belong\
-  \ to two businesses, and then it asks rather than guesses."
-response-description: "{ resolvedFullName: the exact catalog string — copy it verbatim\
-  \ — or null when the search did not decide; needsBusinessClarification: true when\
-  \ one name exists for two businesses, ask the partner which; networkPick: true when\
-  \ the first point of a network was taken; matches: [{ name, business }] — candidates\
-  \ only, they carry no fullName while the choice is open, never assemble a name from\
-  \ them; count }"
+description: "Находит юнит партнёра в каталоге. Вызывай всегда, когда партнёр назвал город, номер точки или бренд. Инструмент решает сам и возвращает точную строку каталога только тогда, когда ответ однозначен: одно и то же название бывает и у пиццерии, и у кофейни, и тогда он просит уточнить, а не угадывает."
+response-description: "{ resolvedFullName: точная строка каталога, копируй её символ в символ — или null, если поиск не пришёл к однозначному ответу; needsBusinessClarification: true, когда одно название есть у двух бизнесов — спроси у партнёра, какой именно; networkPick: true, когда взята первая точка сети; matches: [{ name, business }] — только кандидаты, пока выбор не сделан, они не содержат fullName — никогда не собирай имя из этого списка сам; count: сколько нашлось }"
 parameters:
 - name: query
   type: STRING
   required: true
-  description: "What the partner called his unit, in HIS words (e.g. \"Москва 1-1\",\
-    \ \"додо спб\", \"кофейня на невском\"). Do not add words he did not say:\
-    \ \"пиццерия\" or \"кофейня\" from you is a choice of business made for him, and\
-    \ it is ignored."
+  description: "Как партнёр назвал свой юнит — ЕГО словами (например: \"Москва 1-1\", \"додо спб\", \"кофейня на невском\"). НЕ добавляй слов, которых он не говорил: \"пиццерия\" или \"кофейня\" от тебя — это выбор бизнеса за партнёра, и он будет проигнорирован."
   properties: null
   items: null
 - name: scope
   type: STRING
   required: false
-  description: "\"unit\" (default) for a request about one point, \"network\" when\
-    \ the partner writes on behalf of a whole network and no point number can be expected\
-    \ — then the first point of that network is returned"
+  description: "\"unit\" (по умолчанию) — обращение по одной точке. \"network\" — партнёр пишет от лица всей сети и номера точки у него нет; тогда вернётся первая точка этой сети."
   properties: null
   items: null
 language: JAVASCRIPT

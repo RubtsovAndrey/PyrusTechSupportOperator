@@ -1,51 +1,31 @@
 ---
 id: searchKnowledge
 name: searchKnowledge
-description: "Finds the knowledge topic that matches a problem description, ranked\
-  \ by token overlap. Returns found=false when nothing matches (never guesses), with\
-  \ knowledge-base chunks as a hint. Pass topicKey for an exact lookup."
-response-description: "Always carries turnKind, which says what this turn is: choose-branch\
-  \ (call again with branch), questions (ask preQuestions, nothing else), solution\
-  \ (deliver solverInstruction), handover (say nothing, the graph hands over). With\
-  \ query: { found, source, topics: [{ score, key, description, route, componentName\
-  \ }], chunks }. With topicKey, a branching article returns one node: { turnKind,\
-  \ treeNode, preQuestions, answerKeys, branchOptions, solverInstruction, treeEnd\
-  \ }. A linear article returns the article's own questions — { needsPreQuestions:\
-  \ true, preQuestions }; the single step to deliver now — { solverInstruction, followUpQuestion,\
-  \ stepNumber, stepCount, isLastStep, onFail }; or nothing left to try — { found:\
-  \ false, stepsExhausted: true, onFail }"
+description: "Ищет в базе знаний тематику, подходящую под описание проблемы. Если ничего не подходит, возвращает found=false и никогда не угадывает; в chunks при этом приходят выдержки из базы для ориентира. Когда тематика уже известна, передавай topicKey."
+response-description: "В ответе всегда есть turnKind — он говорит, чем сейчас этот виток: choose-branch (вызови инструмент ещё раз, передав branch), questions (задай preQuestions и ничего кроме них), solution (выдай solverInstruction), handover (не говори ничего, передачей занимается сценарий). На query: { found, source, topics: [{ score, key, description, route, componentName }], chunks }. На topicKey ветвящаяся статья возвращает один узел: { turnKind, treeNode, preQuestions, answerKeys, branchOptions, solverInstruction, treeEnd }. Линейная статья возвращает либо свои вопросы — { needsPreQuestions: true, preQuestions }; либо один шаг, который надо выдать сейчас — { solverInstruction, followUpQuestion, stepNumber, stepCount, isLastStep, onFail }; либо то, что пробовать больше нечего — { found: false, stepsExhausted: true, onFail }"
 parameters:
 - name: query
   type: STRING
   required: true
-  description: Problem description to search for
+  description: "Описание проблемы, по которому искать тематику."
   properties: null
   items: null
 - name: topicKey
   type: STRING
   required: false
-  description: "Exact topic key, when the topic is already known"
+  description: "Точный ключ тематики, если тематика уже известна."
   properties: null
   items: null
 - name: branch
   type: STRING
   required: false
-  description: "Which branch of the current node the partner's answer means. Only\
-    \ for a branching article, and only after a turn that returned turnKind: choose-branch\
-    \ — pass one of the branchOptions it listed, verbatim."
+  description: "Какую ветку текущего узла означает ответ партнёра. Только для ветвящейся статьи и только после витка, где вернулось turnKind: choose-branch — передавай одну из строк branchOptions символ в символ."
   properties: null
   items: null
 - name: answers
   type: STRING
   required: true
-  description: "Facts the partner has ALREADY told in this chat, as JSON: {\"ключ\"\
-    : \"его слова\"}. Keys are the answerKeys of the article, listed for you in the\
-    \ note «Ещё не отвечено» together with the question each one answers; anything\
-    \ else is ignored. REQUIRED: read the whole chat, the first message included,\
-    \ and fill in everything already there — those questions will not be asked again,\
-    \ and the article may reach its end in this one turn. Pass {} only when the partner\
-    \ has genuinely said nothing yet. Never invent or guess a value: only what the\
-    \ partner actually wrote."
+  description: "Факты, которые партнёр УЖЕ сообщил в этой переписке, в виде JSON: {\"ключ\": \"его слова\"}. Ключи — это answerKeys статьи, они перечислены для тебя в заметке «Ещё не отвечено» вместе с вопросом, на который каждый из них отвечает; всё остальное игнорируется. ОБЯЗАТЕЛЬНО: прочитай всю переписку, включая самое первое сообщение, и заполни всё, что в ней уже есть — эти вопросы не будут заданы снова, и статья может дойти до конца за один этот виток. Передавай {} только если партнёр действительно ещё ничего не сказал. Никогда не выдумывай и не угадывай значение: только то, что партнёр написал сам."
   properties: null
   items: null
 language: JAVASCRIPT

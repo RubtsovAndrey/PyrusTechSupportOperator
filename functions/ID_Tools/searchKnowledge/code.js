@@ -211,12 +211,16 @@ function sameLabel(a, b) {
 // Word forms are compared by their stems: an answer says «фамилию» where the branch says
 // «фамилия», and the whole point is lost to that one letter. Five common leading characters
 // are enough to tell «телефон» from «перевод» and short enough to survive any ending.
+// A flat five let the short labels down, though: «стаж» can never share five characters
+// with «стажа», so the shortest of the two words sets the bar — never below three, or a
+// two-letter word would start claiming branches.
 function stemMatch(a, b) {
   if (a === b) return true;
+  const need = Math.max(3, Math.min(5, a.length, b.length));
   const n = Math.min(a.length, b.length);
   let same = 0;
   while (same < n && a[same] === b[same]) same++;
-  return same >= 5;
+  return same >= need;
 }
 
 function branchFromAnswers(node, known) {

@@ -46,6 +46,35 @@ function checkSyntax() {
   return rows;
 }
 
+// The descriptions the model reads live in YAML that is edited by hand, and a stray quote
+// there is not a typo the platform survives — it rejects the whole function. There is no
+// YAML parser to lean on without dependencies, so the one mistake worth catching is
+// checked directly: a quoted value that never closes its quote on the line it opened.
+function checkYaml() {
+  const rows = [];
+  ["functions", "nodes"].forEach(sub => {
+    walk(path.join(ROOT, sub), []).filter(f => f.endsWith(".yml")).forEach(file => {
+      const rel = path.relative(ROOT, file).split(path.sep).join("/");
+      const bad = [];
+      fs.readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
+        const m = /^(\s*-?\s*[a-zA-Z-]+):\s+"/.exec(line);
+        if (!m) return;
+        const value = line.slice(line.indexOf('"', m[1].length));
+        let quotes = 0;
+        for (let c = 0; c < value.length; c++) {
+          if (value[c] === "\\") { c++; continue; }
+          if (value[c] === '"') quotes++;
+        }
+        // An odd count means the string is continued on the next line, which is legal only
+        // in the platform's own escaped-continuation style — a trailing backslash.
+        if (quotes % 2 !== 0 && !/\\$/.test(line)) bad.push(i + 1);
+      });
+      rows.push([rel, bad]);
+    });
+  });
+  return rows;
+}
+
 function checkGraph() {
   const ids = new Set();
   const refs = [];
@@ -74,6 +103,17 @@ function checkGraph() {
     if (!ok) failed++;
     console.log("  " + (ok ? "PASS  " : "FAIL  ") + rel + (ok ? "" : "\n        " + err));
   });
+
+  console.log("\nyaml quoting");
+  const yaml = checkYaml();
+  yaml.forEach(([rel, bad]) => {
+    total++;
+    if (bad.length) {
+      failed++;
+      console.log("  FAIL  " + rel + ": unterminated quoted value on line " + bad.join(", "));
+    }
+  });
+  console.log("  PASS  " + yaml.length + " files, every quoted value closes");
 
   console.log("\nnode graph");
   const graph = checkGraph();

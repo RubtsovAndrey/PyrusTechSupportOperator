@@ -79,6 +79,24 @@ async function main() {
   t.check("a partner naming both businesses resolves nothing",
     r.result.resolvedFullName === null, r.result);
 
+  // The same question, answered in whatever words come to hand. Case forms used to be
+  // listed one by one, and the ones nobody thought of cost the partner a repeat question.
+  for (const said of ["работаю в кофейне Москва 0-22", "пишу из дринкита, Москва 0-22",
+    "это сотрудник кофейни, точка Москва 0-22", "нет, это кофейня Москва 0-22",
+    "это не пиццерия, а кофейня, Москва 0-22"]) {
+    r = await run("Москва 0-22", null, said);
+    t.check("«" + said + "» resolves the coffee shop",
+      r.result.resolvedFullName === "[drinkit.ru] Москва 0-22 (Дмитровское шоссе, 163А)", r.result);
+  }
+
+  // Noise words in any case form must not cost the search its match.
+  for (const q of ["пиццерия Тамбов-1", "наша пиццерии Тамбов-1", "точке Тамбов-1",
+    "в филиале Тамбов-1", "у нашего юнита Тамбов-1"]) {
+    r = await run(q);
+    t.check("«" + q + "» still finds the point",
+      r.result.resolvedFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", r.result);
+  }
+
   r = await run("Тамбов");
   t.check("a city without a number is not resolved to its first point",
     r.result.resolvedFullName === null && r.result.count === 2, r.result);

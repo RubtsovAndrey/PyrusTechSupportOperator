@@ -135,6 +135,39 @@ async function main() {
   t.check("a message naming both businesses resolves nothing",
     !r.state.data.unitFullName, r.state.data);
 
+  // ── How many ways there are to answer one question ──
+  // «это пиццерия или кофейня?» is answered in whatever words come to hand, and every case
+  // form the word list did not happen to contain cost the partner the same question again.
+  const SAID_DRINKIT = [
+    "кофейня", "я из кофейни", "это сотрудник кофейни", "работаю в кофейне",
+    "пишу из кофейни", "у нас кофейня", "дринкит", "пишу из дринкита", "это drinkit",
+    "нет, это кофейня", "это не пиццерия, а кофейня", "кофейня, Дринкит"
+  ];
+  for (const said of SAID_DRINKIT) {
+    r = await run("intake", json({ action: "route", unit: "Москва-12" }), null, { incomingText: said });
+    t.check("«" + said + "» is understood as the coffee shop",
+      r.state.data.unitFullName === "[drinkit.ru] Москва-12 (Тверская, 1)", r.state.data);
+  }
+
+  const SAID_DODO = [
+    "пиццерия", "я из пиццерии", "это пиццерией открыто", "работаю в пиццерии",
+    "додо", "мы из Додо Пиццы", "это dodo", "нет, пиццерия", "не кофейня, а пиццерия"
+  ];
+  for (const said of SAID_DODO) {
+    r = await run("intake", json({ action: "route", unit: "Москва-12" }), null, { incomingText: said });
+    t.check("«" + said + "» is understood as the pizzeria",
+      r.state.data.unitFullName === "[dodopizza.ru] Москва-12 (Ленинский проспект, 5)", r.state.data);
+  }
+
+  // A business word must not be read out of a problem description: these are the reason
+  // the stems stop short of «кофе» and «пицц».
+  const NOT_AN_ANSWER = ["не работает кофемашина", "пиццу пересолили", "кофе горький", "нет", "не знаю"];
+  for (const said of NOT_AN_ANSWER) {
+    r = await run("intake", json({ action: "route", unit: "Москва-12" }), null, { incomingText: said });
+    t.check("«" + said + "» names no business and decides nothing",
+      !r.state.data.unitFullName, r.state.data);
+  }
+
   // ── The point that was chosen FOR the partner ──
   // matchUnit found «Москва-12» in two businesses, refused to resolve it, and listed both;
   // the agent copied the first full name out of that list and it was accepted, because an

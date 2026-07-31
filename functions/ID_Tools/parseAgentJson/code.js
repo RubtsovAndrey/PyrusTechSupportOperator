@@ -31,23 +31,41 @@ function businessOf(full) {
 // turns the loop guard handed a perfectly answerable request to an operator. The
 // question is already fixed in code (applyOutcome), so the vocabulary of its answer
 // belongs in code too.
-// Keys are the domains as the catalog spells them. Deliberately narrow: «кофе» would fire
-// on «кофемашина» and cost a legitimate answer, so only words a partner uses to name the
-// business itself are listed. A brand missing from here is not broken, it just falls back
-// to needing the domain from the agent — add it when the catalog gains one.
+// Keys are the domains as the catalog spells them. The values are STEMS, not whole words:
+// listing full forms meant «я из кофейни» was understood and «работаю в кофейне» was not,
+// and every case form the list happened to miss cost the partner the same question again.
+// Deliberately narrow all the same: «кофе» would fire on «не работает кофемашина» and
+// «пицц» on «пиццу пересолили», and this runs over the WHOLE message, so a word from a
+// problem description would silently decide which business the partner belongs to.
+// «кофейн» and «пиццер» cannot appear in anything but the name of the business itself.
+// A brand missing from here is not broken — the partner is simply asked which it is.
 const BUSINESS_WORDS = {
-  dodopizza: ["пиццерия", "пиццерии", "пиццерию", "пиццерий", "додо", "dodo", "dodopizza"],
-  drinkit: ["кофейня", "кофейни", "кофейню", "кофеен", "дринкит", "drinkit"]
+  dodopizza: ["пиццер", "додо", "dodo", "pizza"],
+  drinkit: ["кофейн", "дринкит", "drinkit"]
 };
 
-// Which business a piece of the partner's text names, if any. Matching is anchored at a
-// word start, so «кофейня» is found inside a sentence without «кофе» firing on the middle
-// of another word. If the text names more than one business, it names none: guessing
-// between them is exactly the error this whole validation exists to prevent.
+// «это не пиццерия, а кофейня» names both businesses and means one. Without this a
+// perfectly clear answer counted as naming two, which counts as naming none, and the
+// question came back a second time. Only the word IMMEDIATELY before counts: looking two
+// words back turned «нет, это кофейня» — as plain an answer as there is — into a denial.
+const DENIALS = ["не", "ни"];
+
+// Which business the partner's own text names, if any. Stems are matched at a word start,
+// so any ending works and no stem can fire from the middle of another word. If the text
+// names more than one business it names none: guessing between them is exactly the error
+// this whole validation exists to prevent. A denial only ever removes a candidate — «не
+// пиццерия» on its own is not read as «кофейня», because the reading would be an
+// inference, and inferring the partner's business is what went wrong in the first place.
 function businessFromText(text) {
-  const hay = " " + normalize(text) + " ";
-  const found = Object.keys(BUSINESS_WORDS).filter(biz =>
-    BUSINESS_WORDS[biz].some(w => hay.indexOf(" " + w) >= 0));
+  const tokens = normalize(text).split(" ").filter(Boolean);
+  const named = {};
+  tokens.forEach((token, i) => {
+    Object.keys(BUSINESS_WORDS).forEach(biz => {
+      if (!BUSINESS_WORDS[biz].some(stem => token.indexOf(stem) === 0)) return;
+      if (DENIALS.indexOf(tokens[i - 1] || "") < 0) named[biz] = true;
+    });
+  });
+  const found = Object.keys(named);
   return found.length === 1 ? found[0] : null;
 }
 
