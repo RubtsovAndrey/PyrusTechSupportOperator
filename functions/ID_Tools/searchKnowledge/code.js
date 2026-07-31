@@ -200,6 +200,55 @@ function sameLabel(a, b) {
   return clean(a) === clean(b);
 }
 
+// ── Which branch the answer already on the table means ──
+// The node asks «что именно нужно изменить в карточке», the partner answers «фамилию», and
+// the branch is called «фамилия / имя / ФИО». Asking the model which branch that is costs a
+// whole turn of the partner's time, and the turn used to be spent even when the answer had
+// been in his very first message. The words the branch declares in `when` are there to be
+// matched, so they are matched here — the same way a unit is resolved against the catalog
+// rather than by asking the model to decide.
+//
+// Word forms are compared by their stems: an answer says «фамилию» where the branch says
+// «фамилия», and the whole point is lost to that one letter. Five common leading characters
+// are enough to tell «телефон» from «перевод» and short enough to survive any ending.
+function stemMatch(a, b) {
+  if (a === b) return true;
+  const n = Math.min(a.length, b.length);
+  let same = 0;
+  while (same < n && a[same] === b[same]) same++;
+  return same >= 5;
+}
+
+function branchFromAnswers(node, known) {
+  const words = s => String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[^0-9a-zа-я]+/g, " ").trim().split(" ").filter(Boolean);
+  // Only what THIS node asked: an answer collected three nodes ago has already had its say,
+  // and matching it again would re-decide a branch on stale words.
+  const said = [];
+  (node.ask || []).forEach(q => { if (known[q.key]) words(known[q.key]).forEach(w => said.push(w)); });
+  if (!said.length) return null;
+
+  let best = 0;
+  const winners = {};
+  node.branches.forEach(b => {
+    let hits = 0;
+    b.when.forEach(label => {
+      // A multi-word label counts only when the answer carries every word of it, so
+      // «номер телефона» is not claimed by an answer that merely says «номер».
+      const parts = words(label);
+      if (parts.length && parts.every(p => said.some(w => stemMatch(w, p)))) hits += parts.length;
+    });
+    if (hits > best) best = hits;
+    if (hits > 0) (winners[hits] = winners[hits] || []).push(b);
+  });
+  if (!best) return null;
+  const top = winners[best];
+  // Two branches with equal claim on the same words is not a decision: «фамилия» and «имя»
+  // may both live on the branch that wins, but a tie between DIFFERENT nodes is a genuine
+  // ambiguity, and the model reads the partner's whole message better than this does.
+  const goes = top.map(b => String(b.go)).filter((g, i, a) => a.indexOf(g) === i);
+  return goes.length === 1 ? top[0] : null;
+}
+
 // A node that neither speaks, asks, branches nor ends is a pure redirect and is walked
 // through without spending a turn on it.
 function resolveNode(nodes, id) {
@@ -326,39 +375,29 @@ if (topicKey) {
         target = at;
         how = "end";
       } else if (at.branches.length) {
-        if (!chosen) {
-          // The partner's answer has to be read before the tree can move. Nothing is
-          // written and nothing is said: this turn is not over, the caller classifies
-          // the answer and asks again with the branch.
-          Log.info({ message: "searchKnowledge: node " + at.id + " of " + topic.key + " awaits a branch choice" });
-          return {
-            found: true,
-            source: "tree-branch",
-            turnKind: "choose-branch",
-            key: topic.key,
-            awaitingBranch: true,
-            treeNode: at.id,
-            branchOptions: at.branches.map(b => b.when.join(" / ")),
-            answerKeys: at.ask.map(q => q.key),
-            onFail: topic.onFail,
-            solverInstruction: null,
-            followUpQuestion: null
-          };
-        }
-        const hit = at.branches.find(b => b.when.some(w => sameLabel(w, chosen)))
-          || at.branches.find(b => sameLabel(b.go, chosen))
-          || at.branches.find(b => b.when.some(w => String(chosen).toLowerCase().indexOf(String(w).toLowerCase()) >= 0));
-        if (hit) {
-          target = resolveNode(topic.nodes, hit.go);
-          how = "branch \"" + chosen + "\"";
-        } else if (at["else"]) {
-          Log.warn({ message: "searchKnowledge: branch \"" + chosen + "\" is not declared on node " + at.id + " of " + topic.key + ", taking else" });
-          target = resolveNode(topic.nodes, at["else"]);
-          how = "else";
+        if (chosen) {
+          const hit = at.branches.find(b => b.when.some(w => sameLabel(w, chosen)))
+            || at.branches.find(b => sameLabel(b.go, chosen))
+            || at.branches.find(b => b.when.some(w => String(chosen).toLowerCase().indexOf(String(w).toLowerCase()) >= 0));
+          if (hit) {
+            target = resolveNode(topic.nodes, hit.go);
+            how = "branch \"" + chosen + "\"";
+          } else if (at["else"]) {
+            Log.warn({ message: "searchKnowledge: branch \"" + chosen + "\" is not declared on node " + at.id + " of " + topic.key + ", taking else" });
+            target = resolveNode(topic.nodes, at["else"]);
+            how = "else";
+          } else {
+            Log.warn({ message: "searchKnowledge: branch \"" + chosen + "\" is not declared on node " + at.id + " of " + topic.key + " and there is no else" });
+            patchData({ treeEnd: "escalate" });
+            return { found: false, topics: [], source: "tree-branch-unknown", turnKind: "handover", key: topic.key, treeEnd: "escalate", onFail: topic.onFail };
+          }
         } else {
-          Log.warn({ message: "searchKnowledge: branch \"" + chosen + "\" is not declared on node " + at.id + " of " + topic.key + " and there is no else" });
-          patchData({ treeEnd: "escalate" });
-          return { found: false, topics: [], source: "tree-branch-unknown", turnKind: "handover", key: topic.key, treeEnd: "escalate", onFail: topic.onFail };
+          // The dialog is standing on the branching node with no choice made. Whether it
+          // can move on its own is decided below, in one place for every way of arriving
+          // at such a node — there used to be two, and only one of them had learnt to read
+          // the branch out of the answer the node had itself collected.
+          target = at;
+          how = "standing on it";
         }
       } else if (at.go) {
         target = resolveNode(topic.nodes, at.go);
@@ -375,6 +414,25 @@ if (topicKey) {
         Log.error({ message: "searchKnowledge: the node after " + (at ? at.id : topic.start) + " of " + topic.key + " is missing from the article" });
         patchData({ treeEnd: "escalate" });
         return { found: false, topics: [], source: "tree-broken", turnKind: "handover", key: topic.key, treeEnd: "escalate", onFail: topic.onFail };
+      }
+
+      // ── A branch the article can read for itself costs no turn ──
+      // The node asked what to change, the partner said «фамилию», and the branch is called
+      // «фамилия / имя / ФИО»: putting that to the model was a whole turn of the partner's
+      // time spent on a question the article had already answered. Walked in a loop, because
+      // one resolved branch may lead to a node that resolves the next — which is how a
+      // partner who says everything in his first message reaches the end of the article at
+      // once. It stops the moment a node has something left to ask or leaves any doubt.
+      for (let hop = 0; hop < MAX_HOPS; hop++) {
+        if (!target.branches.length) break;
+        if (target.ask.some(q => !known[q.key])) break;
+        const own = branchFromAnswers(target, known);
+        if (!own) break;
+        const next = resolveNode(topic.nodes, own.go);
+        if (!next) break;
+        Log.info({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " read its branch out of the answer itself -> " + own.go + " (" + own.when.join(" / ") + ")" });
+        target = next;
+        how = "branch \"" + own.when[0] + "\" read from the answer";
       }
 
       // The branch may carry its own component: one article covers two rating kinds and

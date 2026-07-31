@@ -37,12 +37,14 @@ parameters:
   items: null
 - name: answers
   type: STRING
-  required: false
+  required: true
   description: "Facts the partner has ALREADY told in this chat, as JSON: {\"ключ\":\
-    \ \"его слова\"}. Keys are the answerKeys of the article; anything else is ignored.\
-    \ Read the whole chat, including the first message, and fill in everything that is\
-    \ already there — those questions will not be asked again. Never invent or guess a\
-    \ value: only what the partner actually wrote."
+    \ \"его слова\"}. Keys are the answerKeys of the article, listed for you in the\
+    \ note «Ещё не отвечено» together with the question each one answers; anything else\
+    \ is ignored. REQUIRED: read the whole chat, the first message included, and fill in\
+    \ everything already there — those questions will not be asked again, and the article\
+    \ may reach its end in this one turn. Pass {} only when the partner has genuinely said\
+    \ nothing yet. Never invent or guess a value: only what the partner actually wrote."
   properties: null
   items: null
 language: JAVASCRIPT

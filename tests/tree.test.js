@@ -35,7 +35,8 @@ const CATALOG = {
             ],
             branches: [
               { when: ["аватарка", "фото"], go: "avatar" },
-              { when: ["телефон", "номер телефона"], go: "phone" }
+              { when: ["телефон", "номер телефона"], go: "phone" },
+              { when: ["фамилия", "имя", "ФИО"], go: "name" }
             ],
             "else": "other"
           },
@@ -44,6 +45,10 @@ const CATALOG = {
             ask: [{ key: "newValue", question: "на какой номер поменять" }],
             end: "subtask",
             componentName: "Сотрудники — контакты"
+          },
+          name: {
+            ask: [{ key: "newValue", question: "как правильно должны быть записаны фамилия и имя" }],
+            end: "subtask"
           },
           other: {
             ask: [{ key: "newValue", question: "какое поле и на какое значение" }],
@@ -194,15 +199,14 @@ async function main() {
   t.check("answers are stored under the article's own keys",
     d.data.treeAnswers.employee === "Иванов Иван" && d.data.treeAnswers.changeKind === "номер телефона", d.data.treeAnswers);
 
+  // The answer names its own branch, and the words to recognise it by are in the article.
+  // Asking the model which branch «номер телефона» means spent a turn of the partner's
+  // time on a question the article had already answered for itself.
   r = await d.search("profile_change");
-  t.check("with an answer on the table the tree asks which branch it means",
-    r.turnKind === "choose-branch" && r.awaitingBranch === true, r);
-  t.check("and offers only the branches this node declares",
-    r.branchOptions.length === 2 && /телефон/.test(r.branchOptions.join(" ")), r.branchOptions);
-
-  r = await d.search("profile_change", "телефон");
-  t.check("the chosen branch asks what that branch needs",
-    r.turnKind === "questions" && /на какой номер/.test(r.preQuestions[0]), r);
+  t.check("the branch is read from the answer, without a turn spent asking the model",
+    r.turnKind === "questions" && d.data.treeNode === "phone", r);
+  t.check("and the branch's own question is asked in that same turn",
+    /на какой номер/.test(r.preQuestions[0]), r);
   t.check("the branch's own component wins over the article's",
     d.data.componentName === "Сотрудники — контакты", d.data.componentName);
 
@@ -342,20 +346,43 @@ async function main() {
     employee: "Иванов Иван", changeKind: "фамилию", newValue: "Петров Иван",
     reason: "ошибка при заведении карточки"
   }));
-  t.check("a node whose questions are already answered asks nothing",
-    r.turnKind === "choose-branch" && r.awaitingBranch === true, r);
+  // «фамилию» against a branch that says «фамилия»: one letter of an ending used to cost
+  // the whole saving. Nothing is asked and nothing is put to the model — the entire article
+  // is walked in the single turn the partner's first message paid for.
+  t.check("everything told in the first message walks the article to its end in one turn",
+    r.turnKind === "handover" && r.treeEnd === "subtask", r);
   t.check("and the answers are written down at once, not after the turn",
     d.data.treeAnswers.employee === "Иванов Иван" && d.data.treeAnswers.reason === "ошибка при заведении карточки", d.data.treeAnswers);
-  t.check("the node is recorded, so the call that brings the branch resolves from it",
-    d.data.treeNode === "what", d.data);
-
-  r = await d.search("profile_change", "фамилия");
-  t.check("the branch goes straight to its terminal, with nothing left to ask",
-    r.turnKind === "handover" && r.treeEnd === "subtask", r);
-  t.check("including the question that always precedes a handover",
-    !d.data.treeHandoverAsked, d.data);
+  t.check("the branch the answer named is the one the dialog stands on",
+    d.data.treeNode === "name", d.data);
   t.check("all four answers are on record for the subtask",
     Object.keys(d.data.treeAnswers).sort().join(",") === "changeKind,employee,newValue,reason", d.data.treeAnswers);
+
+  // ── Где ветку всё же выбирает модель ──
+  // The words are the article's own, so an answer that uses none of them decides nothing.
+  // Reading the partner's whole message is the model's job, and it keeps it.
+  d = dialog();
+  d.state.data.topicKey = "profile_change";
+  r = await d.search("profile_change", null, JSON.stringify({
+    employee: "Иванов Иван", changeKind: "не та должность указана"
+  }));
+  t.check("an answer none of the branches declare is still put to the model",
+    r.turnKind === "choose-branch" && r.awaitingBranch === true, r);
+  t.check("and it offers only the branches this node declares",
+    r.branchOptions.length === 3 && /телефон/.test(r.branchOptions.join(" ")), r.branchOptions);
+  r = await d.search("profile_change", "аватарка");
+  t.check("the branch the model chose is taken as before",
+    d.data.treeNode === "avatar", d.data);
+
+  // A label of several words is claimed only by an answer that carries all of them: «номер»
+  // alone is not «номер телефона», and «номер документа» is not it either.
+  d = dialog();
+  d.state.data.topicKey = "profile_change";
+  r = await d.search("profile_change", null, JSON.stringify({
+    employee: "Иванов", changeKind: "неверный номер документа"
+  }));
+  t.check("half of a two-word label does not claim its branch",
+    r.turnKind === "choose-branch", r);
 
   // Keys are the article's, here as everywhere: the model reading a chat is no more
   // trusted than the model answering in JSON.
