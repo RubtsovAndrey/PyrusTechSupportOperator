@@ -135,9 +135,34 @@ function matchUnitRaw(tokens, catalog) {
   return scored.filter(s => s.hits === best).map(s => s.unit).sort(byName);
 }
 
+// Naming two businesses at once names none: choosing between them is the very error this
+// check exists to prevent.
+function businessHint(tokens) {
+  const found = BUSINESS_HINTS.filter(h => tokens.some(t => h.words.indexOf(t) >= 0));
+  return found.length === 1 ? found[0] : null;
+}
+
 const catalog = loadUnitCatalog();
 const queryTokens = keyOf(query).split(" ").filter(Boolean);
-const hint = BUSINESS_HINTS.find(h => queryTokens.some(t => h.words.indexOf(t) >= 0));
+
+// ── Which business, and on whose word ──
+// The hint used to be taken from `query`, and `query` is written by the agent. The partner
+// asked about «Москва 0-22» — a pizzeria AND a coffee shop — the agent phrased its search
+// as «пиццерия Москва 0-22», and this narrowed to the pizzeria, resolved it and wrote it
+// into the task document, with no question asked and nothing in the reply to show a choice
+// had been made. The word that decides between two businesses has to be the PARTNER's:
+// he is the one who knows, and he is the one who will read the answer.
+const dialogContext = (function () {
+  try { return AgentContext.getValue({ key: "dialog" }) || {}; } catch (e) { return {}; }
+})();
+const partnerTokens = keyOf(dialogContext.incomingText || "").split(" ").filter(Boolean);
+const hint = businessHint(partnerTokens);
+const claimed = businessHint(queryTokens);
+if (claimed && !hint) {
+  Log.warn({ message: "matchUnit: the query claims a business the partner has not named (\"" + String(query || "") + "\"), ignored" });
+} else if (claimed && claimed !== hint) {
+  Log.warn({ message: "matchUnit: the query claims one business and the partner named another; the partner's word is taken" });
+}
 
 let matches = matchUnitRaw(queryTokens.filter(t => NOISE.indexOf(t) < 0), catalog);
 

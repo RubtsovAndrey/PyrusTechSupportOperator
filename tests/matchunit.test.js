@@ -17,11 +17,12 @@ const CATALOG = [
   "[drinkit.ru] Москва 0-22 (Дмитровское шоссе, 163А)"
 ];
 
-function run(query, scope) {
+function run(query, scope, said) {
   // makeEnv clones the seed, so the document to inspect afterwards is the environment's own.
+  // `said` is the partner's message this turn — the only place a business may come from.
   const env = makeEnv({
     db: { unitCatalog: CATALOG, ["state:" + TASK]: { taskId: TASK, data: {} } },
-    contextValues: { dialog: { taskId: String(TASK) } }
+    contextValues: { dialog: { taskId: String(TASK), incomingText: said || "" } }
   });
   return matchUnit(env, [query, scope]).then(r => ({ result: r, state: env.db["state:" + TASK] }));
 }
@@ -50,10 +51,33 @@ async function main() {
   t.check("nothing is written to the document either",
     !r.state.data.unitFullName, r.state);
 
-  // The word the partner used narrows it, and then the full name is his to have.
-  r = await run("кофейня Москва 0-22");
-  t.check("the business named in the query resolves the same name",
+  // The word the PARTNER used narrows it, and then the full name is his to have.
+  r = await run("Москва 0-22", null, "кофейня Москва 0-22");
+  t.check("the business the partner named resolves the same name",
     r.result.resolvedFullName === "[drinkit.ru] Москва 0-22 (Дмитровское шоссе, 163А)", r.result);
+
+  // ── A business the agent added to its own search ──
+  // With the candidate full names gone from the list, the next way to get a name out of the
+  // tool is to narrow the search — and the agent narrowed it with a word the partner had
+  // never said. The pizzeria was resolved, written into the task document, and nothing in
+  // the reply showed that a choice had been made at all.
+  r = await run("пиццерия Москва 0-22", null, "Москва 0-22, нужно изменить фамилию сотрудника");
+  t.check("a business the query adds on its own does not narrow anything",
+    r.result.resolvedFullName === null && r.result.count === 2, r.result);
+  t.check("and the partner is asked which business it is",
+    r.result.needsBusinessClarification === true, r.result);
+  t.check("nothing is written to the document on the agent's word",
+    !r.state.data.unitFullName, r.state);
+
+  // And when the two disagree, the partner is the one who knows.
+  r = await run("пиццерия Москва 0-22", null, "у нас кофейня Москва 0-22");
+  t.check("the partner's word outranks the business the query claims",
+    r.result.resolvedFullName === "[drinkit.ru] Москва 0-22 (Дмитровское шоссе, 163А)", r.result);
+
+  // Both businesses in one message names neither.
+  r = await run("Москва 0-22", null, "у нас и пиццерия, и кофейня Москва 0-22");
+  t.check("a partner naming both businesses resolves nothing",
+    r.result.resolvedFullName === null, r.result);
 
   r = await run("Тамбов");
   t.check("a city without a number is not resolved to its first point",
@@ -71,6 +95,10 @@ async function main() {
 
   r = await run("Москва 0-22", "network");
   t.check("but not when the city holds two businesses",
+    r.result.resolvedFullName === null && r.result.needsBusinessClarification === true, r.result);
+
+  r = await run("пиццерия Москва 0-22", "network");
+  t.check("a network request cannot be narrowed by the agent's word either",
     r.result.resolvedFullName === null && r.result.needsBusinessClarification === true, r.result);
 
   r = await run("Тамбов-9");
