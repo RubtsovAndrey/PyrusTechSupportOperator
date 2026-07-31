@@ -201,8 +201,15 @@ if (resolvedFullName) {
 
 Log.info({ message: "matchUnit: query=\"" + String(query || "") + "\" scope=" + (scope || "unit") + " count=" + matches.length + " resolved=" + (resolvedFullName || "-") + (networkPick ? " (first of network)" : "") + " needsBusiness=" + needsBusinessClarification });
 
+// The exact catalog string is handed over ONLY when the search actually decided. While it
+// is undecided the list used to carry every candidate's fullName, and the agent — told in
+// as many words never to assemble a name from that list — copied the first one: the partner
+// asked about «Москва 0-22», which is a pizzeria AND a coffee shop, and got the pizzeria
+// chosen for him. An instruction the model may ignore is no guard; a string it never sees is.
 return {
-  matches: matches.slice(0, 10).map(u => ({ name: u.name, business: u.business, fullName: u.fullName })),
+  matches: matches.slice(0, 10).map(u => resolvedFullName
+    ? { name: u.name, business: u.business, fullName: u.fullName }
+    : { name: u.name, business: u.business }),
   count: matches.length,
   resolvedFullName: resolvedFullName,
   networkPick: networkPick,

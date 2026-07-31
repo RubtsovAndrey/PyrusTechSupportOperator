@@ -8,7 +8,7 @@ const { ROOT } = require("./harness");
 
 const SUITES = [
   "./receivewebhook.test.js", "./finalize.test.js", "./parseagentjson.test.js",
-  "./createsubtask.test.js", "./tree.test.js"
+  "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js"
 ];
 
 // Function parameters declared in schema.yml, needed to wrap the source exactly as the

@@ -70,17 +70,36 @@ function validateUnit(candidate, business, ambiguity) {
       Log.warn({ message: "parseAgentJson: unitCatalog missing, cannot validate unit" });
       return null;
     }
+    // The business the hint names, whichever spelling it arrived in.
+    const wantedBiz = business ? (businessFromText(business) || normalize(business)) : "";
+    // Refusing to decide has to survive an agent that quotes the catalog back at us. The
+    // exact string used to be accepted outright, and that is how a point got chosen for
+    // the partner: matchUnit found «Москва 0-22» in two businesses, refused to resolve it,
+    // and listed both — and the agent, told never to assemble a name from that list, copied
+    // the first one. An exact string is not a decision when the name it spells belongs to
+    // two businesses and nobody has said which.
     let hit = raw.find(item => normalize(item) === wantedFull);
+    if (hit) {
+      const twins = raw.filter(item => normalize(nameOf(item)) === normalize(nameOf(hit)));
+      const businesses = twins.map(businessOf).filter((b, i, a) => b && a.indexOf(b) === i);
+      if (businesses.length > 1 && normalize(businessOf(hit)) !== wantedBiz) {
+        Log.warn({ message: "parseAgentJson: unit \"" + candidate + "\" spells one of " + businesses.length + " businesses with that name" + (business ? " but the business named is \"" + business + "\"" : " and no business was named") + ", not persisting" });
+        if (ambiguity) {
+          ambiguity.kind = "need_business";
+          ambiguity.name = nameOf(hit);
+        }
+        return null;
+      }
+    }
     if (!hit) {
       let byName = raw.filter(item => normalize(nameOf(item)) === wantedName);
       // The same point name exists in more than one business, and the agent reports which
       // one it heard. Without that hint an ambiguous name is still refused: a point of the
       // wrong network in the Pyrus field is worse than an empty field.
-      if (byName.length > 1 && business) {
+      if (byName.length > 1 && wantedBiz) {
         // The hint may arrive as a catalog domain (`drinkit`, what the agent is asked for)
         // or as the word the partner actually used (`кофейня`). Both are accepted: the
         // agent reports the domain when it can, and the partner never does.
-        const wantedBiz = businessFromText(business) || normalize(business);
         const inBiz = byName.filter(item => normalize(businessOf(item)) === wantedBiz);
         if (inBiz.length === 1) byName = inBiz;
       }
@@ -199,16 +218,42 @@ function componentOfTopic(key) {
 // having a bad day invents keys and the task document fills up with junk nobody reads.
 // A key with a dot or a $ in it would address a different part of the document than it
 // looks like, so those are refused outright.
+// Deduplicated: five sibling branches each asking their own `newValue` listed it five
+// times over, which told the model nothing except that something was wrong with the list.
 function answerKeysOfTopic(key) {
   const topic = topicByKey(key);
   const nodes = topic && topic.nodes && typeof topic.nodes === "object" ? topic.nodes : null;
   const keys = [];
   const add = list => (Array.isArray(list) ? list : []).forEach(q => {
-    if (q && q.key && !/[.$]/.test(String(q.key))) keys.push(String(q.key));
+    if (q && q.key && !/[.$]/.test(String(q.key)) && keys.indexOf(String(q.key)) < 0) keys.push(String(q.key));
   });
   if (nodes) Object.keys(nodes).forEach(id => add(nodes[id] && nodes[id].ask));
   if (topic) add(topic.askBeforeHandover);
   return keys;
+}
+
+// The same keys, each with the question it answers. A bare list of names was not enough to
+// read a chat against: `newValue` is asked by five sibling branches — a phone number, a
+// surname, a length of service — and the model, shown only the word, matched nothing and
+// asked the partner what he had already written. Every meaning is listed, because which
+// branch the dialog will take is not known until the answer is in.
+function answerPromptsOfTopic(key, collected) {
+  const topic = topicByKey(key);
+  if (!topic) return [];
+  const nodes = topic.nodes && typeof topic.nodes === "object" ? topic.nodes : null;
+  const order = [];
+  const questions = {};
+  const add = list => (Array.isArray(list) ? list : []).forEach(q => {
+    if (!q || !q.key || /[.$]/.test(String(q.key))) return;
+    const k = String(q.key);
+    if ((collected || {})[k]) return;
+    if (order.indexOf(k) < 0) { order.push(k); questions[k] = []; }
+    const text = String(q.question || "").trim();
+    if (text && questions[k].indexOf(text) < 0) questions[k].push(text);
+  });
+  if (nodes) Object.keys(nodes).forEach(id => add(nodes[id] && nodes[id].ask));
+  add(topic.askBeforeHandover);
+  return order.map(k => questions[k].length ? k + " — " + questions[k].join(" / ") : k);
 }
 
 function validateComponent(candidate) {
@@ -283,11 +328,12 @@ const taskId = dialog.taskId || null;
 const unitCandidate = parsed.unitFullName || parsed.unit || null;
 const ambiguity = {};
 if (unitCandidate) {
-  // The business is taken from the agent OR from the partner's own message. The agent is
-  // asked to report a catalog domain and, in the dialog this fixes, reported null while
-  // the partner had just said «кофейня» out loud — twice. The partner's words are the
-  // more reliable of the two sources and cost nothing to read.
-  const business = parsed.business || businessFromText(dialog.incomingText);
+  // The business is taken from the partner's own message FIRST and from the agent only
+  // as a fallback. The agent is asked to report a catalog domain and, in the dialog this
+  // fixes, reported null while the partner had just said «кофейня» out loud — twice.
+  // The partner's words are the more reliable of the two, and the order matters: an agent
+  // that names a business out of nowhere must not outvote the partner who named another.
+  const business = businessFromText(dialog.incomingText) || parsed.business;
   parsed.unitFullName = validateUnit(unitCandidate, business, ambiguity);
   if (!parsed.unitFullName && ambiguity.kind) {
     // The next question is decided here, not by the agent: it is a fact about the catalog,
@@ -477,8 +523,8 @@ if (taskId) {
     // The keys the article can store, named BEFORE the solver calls the tool: the facts
     // the partner volunteered in his first message are worth most on the very first turn,
     // and until the tool answers there is nothing to read them into.
-    const keys = answerKeysOfTopic(data.topicKey).filter(k => !(data.treeAnswers || {})[k]);
-    if (keys.length) lines.push("- Ключи ответов статьи: " + keys.join(", "));
+    const open = answerPromptsOfTopic(data.topicKey, data.treeAnswers);
+    if (open.length) lines.push("- Ещё не отвечено (ключ — вопрос): " + open.join("; "));
     AgentContext.addNote({ text: lines.join("\n") });
   } catch (e) {
     Log.warn({ message: "parseAgentJson: state write failed: " + e });

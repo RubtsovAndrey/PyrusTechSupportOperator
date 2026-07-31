@@ -379,14 +379,19 @@ async function main() {
   // the one that usually holds everything — is read into nothing.
   d = dialog();
   await d.solver({ kind: "questions", replyText: "?", topicKey: "profile_change" });
-  t.check("the article's answer keys are named to the model up front",
-    /Ключи ответов статьи: .*employee/.test(d.notes) && /reason/.test(d.notes), d.notes);
+  t.check("the article's open questions are named to the model up front",
+    /Ещё не отвечено \(ключ — вопрос\): .*employee/.test(d.notes) && /reason/.test(d.notes), d.notes);
+  // A bare key list said «newValue» five times over, once per branch, and meant nothing:
+  // the model cannot tell a phone number from a surname by the word `newValue`.
+  t.check("each key is named once, with every question it stands for",
+    (d.notes.match(/newValue/g) || []).length === 1 &&
+    /newValue — [^;]*\/[^;]*/.test(d.notes), d.notes);
 
   d = dialog();
   d.state.data.treeAnswers = { employee: "Иванов", changeKind: "фамилия", newValue: "Петров", reason: "ошибка" };
   await d.solver({ kind: "questions", replyText: "?", topicKey: "profile_change" });
   t.check("and keys already collected are not offered again",
-    !/Ключи ответов статьи/.test(d.notes), d.notes);
+    !/Ещё не отвечено/.test(d.notes), d.notes);
 
   // A partial reading shrinks the question instead of skipping it.
   d = dialog();

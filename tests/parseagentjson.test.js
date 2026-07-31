@@ -123,6 +123,36 @@ async function main() {
   t.check("a message naming both businesses resolves nothing",
     !r.state.data.unitFullName, r.state.data);
 
+  // ── The point that was chosen FOR the partner ──
+  // matchUnit found «Москва-12» in two businesses, refused to resolve it, and listed both;
+  // the agent copied the first full name out of that list and it was accepted, because an
+  // exact catalog string short-circuited the check. The partner never said which business.
+  r = await run("intake", json({
+    action: "route", unitFullName: "[dodopizza.ru] Москва-12 (Ленинский проспект, 5)"
+  }));
+  t.check("quoting the catalog exactly is not a decision when the name has two businesses",
+    !r.state.data.unitFullName, r.state.data);
+  t.check("and the partner is asked which one",
+    r.result.clarifyKind === "need_business", r.result);
+
+  r = await run("intake", json({
+    action: "route", unitFullName: "[dodopizza.ru] Москва-12 (Ленинский проспект, 5)"
+  }), null, { incomingText: "пиццерия" });
+  t.check("the same string is accepted once the partner has named the business",
+    r.state.data.unitFullName === "[dodopizza.ru] Москва-12 (Ленинский проспект, 5)", r.state.data);
+
+  // The partner outranks the agent: an agent naming a business out of nowhere must not
+  // overrule the word the partner actually wrote.
+  r = await run("intake", json({ action: "route", unit: "Москва-12", business: "dodopizza" }),
+    null, { incomingText: "кофейня" });
+  t.check("the partner's word wins over the business the agent reports",
+    r.state.data.unitFullName === "[drinkit.ru] Москва-12 (Тверская, 1)", r.state.data);
+
+  // An unambiguous full name is still accepted outright — the guard is about twins only.
+  r = await run("intake", json({ action: "route", unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)" }));
+  t.check("a name only one business has needs no business named",
+    r.state.data.unitFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", r.state.data);
+
   // Ambiguity inside ONE business is a missing point number: asking about the brand there
   // would be nonsense, and the old code asked it anyway.
   r = await run("intake", json({ action: "route", unit: "Химки-1" }));
