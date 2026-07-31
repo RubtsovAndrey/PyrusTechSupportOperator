@@ -466,16 +466,20 @@ if (taskId) {
     const collected = Object.keys(data.treeAnswers || {})
       .map(k => k + ": " + data.treeAnswers[k])
       .join("; ");
-    AgentContext.addNote({
-      text: [
-        "Уточнённые данные по обращению:",
-        "- Юнит: " + (data.unitFullName || "не определён"),
-        "- Проблема: " + (data.problemSummary || "не описана"),
-        "- Email: " + (data.email || "не указан"),
-        "- Тематика: " + (data.topicKey || "не определена"),
-        "- Уже собрано по тематике: " + (collected || "ничего")
-      ].join("\n")
-    });
+    const lines = [
+      "Уточнённые данные по обращению:",
+      "- Юнит: " + (data.unitFullName || "не определён"),
+      "- Проблема: " + (data.problemSummary || "не описана"),
+      "- Email: " + (data.email || "не указан"),
+      "- Тематика: " + (data.topicKey || "не определена"),
+      "- Уже собрано по тематике: " + (collected || "ничего")
+    ];
+    // The keys the article can store, named BEFORE the solver calls the tool: the facts
+    // the partner volunteered in his first message are worth most on the very first turn,
+    // and until the tool answers there is nothing to read them into.
+    const keys = answerKeysOfTopic(data.topicKey).filter(k => !(data.treeAnswers || {})[k]);
+    if (keys.length) lines.push("- Ключи ответов статьи: " + keys.join(", "));
+    AgentContext.addNote({ text: lines.join("\n") });
   } catch (e) {
     Log.warn({ message: "parseAgentJson: state write failed: " + e });
   }

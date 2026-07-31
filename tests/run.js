@@ -17,7 +17,7 @@ const SUITES = [
 const FUNCTION_PARAMS = {
   "functions/ID_Actions/applyOutcome/code.js": ["outcome", "replyText"],
   "functions/ID_Tools/parseAgentJson/code.js": ["stage"],
-  "functions/ID_Tools/searchKnowledge/code.js": ["query", "topicKey", "branch"],
+  "functions/ID_Tools/searchKnowledge/code.js": ["query", "topicKey", "branch", "answers"],
   "functions/ID_Tools/matchUnit/code.js": ["query", "scope"]
 };
 

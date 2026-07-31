@@ -35,4 +35,14 @@ parameters:
     \ — pass one of the branchOptions it listed, verbatim."
   properties: null
   items: null
+- name: answers
+  type: STRING
+  required: false
+  description: "Facts the partner has ALREADY told in this chat, as JSON: {\"ключ\":\
+    \ \"его слова\"}. Keys are the answerKeys of the article; anything else is ignored.\
+    \ Read the whole chat, including the first message, and fill in everything that is\
+    \ already there — those questions will not be asked again. Never invent or guess a\
+    \ value: only what the partner actually wrote."
+  properties: null
+  items: null
 language: JAVASCRIPT

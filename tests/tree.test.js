@@ -7,7 +7,7 @@
 // bug in the handover between them is invisible to a test that calls them in isolation.
 const { loadFunction, makeEnv, suite } = require("./harness");
 
-const searchKnowledge = loadFunction("functions/ID_Tools/searchKnowledge/code.js", ["query", "topicKey", "branch"]);
+const searchKnowledge = loadFunction("functions/ID_Tools/searchKnowledge/code.js", ["query", "topicKey", "branch", "answers"]);
 const parseAgentJson = loadFunction("functions/ID_Tools/parseAgentJson/code.js", ["stage"]);
 const applyOutcome = loadFunction("functions/ID_Actions/applyOutcome/code.js", ["outcome", "replyText"]);
 const nextSolutionStep = loadFunction("functions/ID_Tools/nextSolutionStep/code.js", []);
@@ -140,13 +140,15 @@ function dialog(seed) {
     }, seed || {})
   });
   const carry = env => { Object.keys(env.db).forEach(k => { db[k] = env.db[k]; }); };
+  const notes = [];
   const env = () => makeEnv({ db: db, contextValues: { dialog: { taskId: String(TASK) } } });
   return {
     get state() { return db[KEY]; },
     get data() { return db[KEY].data || {}; },
-    async search(topicKey, branch) {
+    get notes() { return notes.join("\n"); },
+    async search(topicKey, branch, given) {
       const e = env();
-      const r = await searchKnowledge(e, ["", topicKey, branch]);
+      const r = await searchKnowledge(e, ["", topicKey, branch, given]);
       carry(e);
       return r;
     },
@@ -155,6 +157,8 @@ function dialog(seed) {
       const e = makeEnv({ db: db, prev: JSON.stringify(answer), contextValues: { dialog: { taskId: String(TASK) } } });
       const r = await parseAgentJson(e, ["solver"]);
       carry(e);
+      notes.length = 0;
+      e.notes.forEach(n => notes.push(n));
       return r;
     },
     async outcome(kind, prev) {
@@ -327,6 +331,70 @@ async function main() {
   o = await d.outcome("clarify", { agentStage: "solver" });
   t.check("asking from the same node again and again still hands over",
     o.kind === "escalated", o);
+
+  // ── Что уже сказано в переписке, второй раз не спрашивают ──
+  // «Москва 0-22, нужно изменить фамилию сотрудника Иванов Иван на Петров Иван из-за
+  // того, что была допущена ошибка при заведении карточки» — здесь есть ответы на все
+  // вопросы статьи, кроме выбора ветки. Раньше их спрашивали заново, все четыре.
+  d = dialog();
+  d.state.data.topicKey = "profile_change";
+  r = await d.search("profile_change", null, JSON.stringify({
+    employee: "Иванов Иван", changeKind: "фамилию", newValue: "Петров Иван",
+    reason: "ошибка при заведении карточки"
+  }));
+  t.check("a node whose questions are already answered asks nothing",
+    r.turnKind === "choose-branch" && r.awaitingBranch === true, r);
+  t.check("and the answers are written down at once, not after the turn",
+    d.data.treeAnswers.employee === "Иванов Иван" && d.data.treeAnswers.reason === "ошибка при заведении карточки", d.data.treeAnswers);
+  t.check("the node is recorded, so the call that brings the branch resolves from it",
+    d.data.treeNode === "what", d.data);
+
+  r = await d.search("profile_change", "фамилия");
+  t.check("the branch goes straight to its terminal, with nothing left to ask",
+    r.turnKind === "handover" && r.treeEnd === "subtask", r);
+  t.check("including the question that always precedes a handover",
+    !d.data.treeHandoverAsked, d.data);
+  t.check("all four answers are on record for the subtask",
+    Object.keys(d.data.treeAnswers).sort().join(",") === "changeKind,employee,newValue,reason", d.data.treeAnswers);
+
+  // Keys are the article's, here as everywhere: the model reading a chat is no more
+  // trusted than the model answering in JSON.
+  d = dialog();
+  d.state.data.topicKey = "profile_change";
+  await d.search("profile_change", null, JSON.stringify({
+    employee: "Иванов", salary: "300000", newValue: { a: 1 }
+  }));
+  t.check("an undeclared key from the chat is refused",
+    d.data.treeAnswers.salary === undefined, d.data.treeAnswers);
+  t.check("and so is a value that is not something a partner could have said",
+    d.data.treeAnswers.newValue === undefined && d.data.treeAnswers.employee === "Иванов", d.data.treeAnswers);
+
+  d = dialog();
+  d.state.data.topicKey = "profile_change";
+  r = await d.search("profile_change", null, "это не JSON, а рассуждение модели");
+  t.check("garbage instead of JSON is ignored, the article carries on asking",
+    r.turnKind === "questions" && r.preQuestions.length === 2, r);
+
+  // The keys have to reach the model BEFORE it calls the tool, or the first message —
+  // the one that usually holds everything — is read into nothing.
+  d = dialog();
+  await d.solver({ kind: "questions", replyText: "?", topicKey: "profile_change" });
+  t.check("the article's answer keys are named to the model up front",
+    /Ключи ответов статьи: .*employee/.test(d.notes) && /reason/.test(d.notes), d.notes);
+
+  d = dialog();
+  d.state.data.treeAnswers = { employee: "Иванов", changeKind: "фамилия", newValue: "Петров", reason: "ошибка" };
+  await d.solver({ kind: "questions", replyText: "?", topicKey: "profile_change" });
+  t.check("and keys already collected are not offered again",
+    !/Ключи ответов статьи/.test(d.notes), d.notes);
+
+  // A partial reading shrinks the question instead of skipping it.
+  d = dialog();
+  d.state.data.topicKey = "profile_change";
+  r = await d.search("profile_change", null, JSON.stringify({ employee: "Иванов Иван" }));
+  t.check("one answer found in the chat leaves only the other to ask",
+    r.turnKind === "questions" && r.preQuestions.length === 1 &&
+    JSON.stringify(r.answerKeys) === JSON.stringify(["changeKind"]), r);
 
   // ── Собранное попадает оператору ──
   d = dialog();

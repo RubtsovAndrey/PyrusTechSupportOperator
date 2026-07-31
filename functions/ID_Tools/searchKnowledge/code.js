@@ -227,6 +227,52 @@ if (!topics.length) {
   return { found: false, topics: [], source: "catalog-empty" };
 }
 
+// ── Facts already on the table ──
+// The partner opens with «Москва 0-22, поменяйте фамилию Иванову Ивану на Петрова, ошиблись
+// при заведении карточки» and the article then asked him for the employee, for the new
+// value and for the reason — all three already said. The caller reads the chat and passes
+// what it found; the article decides what that is worth. Only keys the article declared
+// are accepted, and only plain values: an invented key would put a field nobody reads into
+// the task document, and a nested object would land in the subtask as `[object Object]`.
+function declaredKeys(topic) {
+  const keys = {};
+  (topic.askBeforeHandover || []).forEach(q => { keys[q.key] = true; });
+  Object.keys(topic.nodes || {}).forEach(id => {
+    (topic.nodes[id].ask || []).forEach(q => { keys[q.key] = true; });
+  });
+  return keys;
+}
+
+function readGivenAnswers(raw, topic) {
+  if (!raw) return {};
+  let obj = raw;
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    if (!text || text === "null" || text === "{}") return {};
+    try {
+      obj = JSON.parse(text);
+    } catch (e) {
+      Log.warn({ message: "searchKnowledge: answers is not JSON, ignored: " + text.slice(0, 200) });
+      return {};
+    }
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
+  const allowed = declaredKeys(topic);
+  const out = {};
+  Object.keys(obj).forEach(k => {
+    const key = String(k);
+    if (!allowed[key]) {
+      Log.warn({ message: "searchKnowledge: answer key \"" + key + "\" is not declared by " + topic.key + ", ignored" });
+      return;
+    }
+    const v = obj[k];
+    if (v === null || v === undefined || typeof v === "object") return;
+    const text = String(v).trim();
+    if (text) out[key] = text.slice(0, 500);
+  });
+  return out;
+}
+
 // Exact lookup: the solver already knows which topic it must follow, and gets one
 // step at a time. Handing over the whole article invited the model to dump every
 // variant in a single reply, which left nothing to try when the partner said the
@@ -245,7 +291,20 @@ if (topicKey) {
     // that already keeps invented units and topics out of the Pyrus fields.
     if (topic.nodes) {
       const data = loadData();
-      const answers = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
+      const stored = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
+      // What the partner said earlier in the chat counts as answered, and is written down
+      // right here: the caller's own report of it arrives only after this turn is over, so
+      // a tool that merely read the document would ask again for what it had just been told.
+      const given = readGivenAnswers(answers, topic);
+      const known = Object.assign({}, stored, given);
+      const givenPatch = {};
+      Object.keys(given).forEach(k => {
+        if (stored[k] !== given[k]) givenPatch["treeAnswers." + k] = given[k];
+      });
+      if (Object.keys(givenPatch).length) {
+        patchData(givenPatch);
+        Log.info({ message: "searchKnowledge: " + Object.keys(givenPatch).length + " answer(s) taken from the chat for " + topic.key + ": " + Object.keys(given).join(", ") });
+      }
       const atId = data.treeNode ? String(data.treeNode) : null;
       const at = atId && topic.nodes[atId] ? topic.nodes[atId] : null;
       const chosen = String(branch || "").trim();
@@ -335,7 +394,7 @@ if (topicKey) {
       // and asking again is what that looks like from the inside. Fields are optional by
       // decision, so an answer the partner did not give moves the article on instead of
       // holding him there.
-      const unanswered = target.ask.filter(q => !answers[q.key]);
+      const unanswered = target.ask.filter(q => !known[q.key]);
       if (unanswered.length && String(data.treeAskedNode || "") !== target.id) {
         patch.treeAskedNode = target.id;
         patchData(patch);
@@ -368,7 +427,7 @@ if (topicKey) {
       // Asked once and once only: the partner may not know, and holding the dialog hostage
       // over an optional field is worse than a subtask that says the field was not given.
       const pending = (target.end === "subtask" || target.end === "escalate")
-        ? topic.askBeforeHandover.filter(q => !answers[q.key])
+        ? topic.askBeforeHandover.filter(q => !known[q.key])
         : [];
       if (pending.length && data.treeHandoverAsked !== true) {
         patch.treeHandoverAsked = true;
@@ -385,6 +444,28 @@ if (topicKey) {
           needsPreQuestions: true,
           preQuestions: pending.map(q => q.question),
           answerKeys: pending.map(q => q.key),
+          onFail: topic.onFail,
+          solverInstruction: null,
+          followUpQuestion: null
+        };
+      }
+
+      // Nothing left to ask at this node, but it branches — so the answer still has to be
+      // read before the tree can move. The node is written down first: unlike the branch
+      // choice asked for at the top, this one is about a node the dialog has only just
+      // reached, and the call that brings the choice back must resolve from here.
+      if (target.branches.length) {
+        patchData(patch);
+        Log.info({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " (" + how + ") is answered already and awaits a branch choice" });
+        return {
+          found: true,
+          source: "tree-branch",
+          turnKind: "choose-branch",
+          key: topic.key,
+          awaitingBranch: true,
+          treeNode: target.id,
+          branchOptions: target.branches.map(b => b.when.join(" / ")),
+          answerKeys: target.ask.map(q => q.key),
           onFail: topic.onFail,
           solverInstruction: null,
           followUpQuestion: null
@@ -408,7 +489,7 @@ if (topicKey) {
           treeEnd: target.end,
           solverInstruction: target.advice,
           followUpQuestion: null,
-          treeAnswers: answers
+          treeAnswers: known
         };
       }
 

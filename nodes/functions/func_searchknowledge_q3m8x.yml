@@ -24,6 +24,10 @@ parameters:
       type: STRING
       value: null
       filled-ai: true
+    answers:
+      type: STRING
+      value: null
+      filled-ai: true
   context-config: null
   hitl-tool-config: null
   custom-headers: null
