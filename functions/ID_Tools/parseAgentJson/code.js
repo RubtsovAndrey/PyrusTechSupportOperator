@@ -24,12 +24,42 @@ function businessOf(full) {
   return m ? m[1].split(".")[0] : "";
 }
 
+// ── How the partner names his business ──
+// The bot asks «это пиццерия или кофейня?» and the partner answers «кофейня». The catalog
+// spells the same fact as `[drinkit.ru]`. Nothing connected the two, so the answer was
+// worthless: the unit stayed ambiguous, the question was asked again, and after three
+// turns the loop guard handed a perfectly answerable request to an operator. The
+// question is already fixed in code (applyOutcome), so the vocabulary of its answer
+// belongs in code too.
+// Keys are the domains as the catalog spells them. Deliberately narrow: «кофе» would fire
+// on «кофемашина» and cost a legitimate answer, so only words a partner uses to name the
+// business itself are listed. A brand missing from here is not broken, it just falls back
+// to needing the domain from the agent — add it when the catalog gains one.
+const BUSINESS_WORDS = {
+  dodopizza: ["пиццерия", "пиццерии", "пиццерию", "пиццерий", "додо", "dodo", "dodopizza"],
+  drinkit: ["кофейня", "кофейни", "кофейню", "кофеен", "дринкит", "drinkit"]
+};
+
+// Which business a piece of the partner's text names, if any. Matching is anchored at a
+// word start, so «кофейня» is found inside a sentence without «кофе» firing on the middle
+// of another word. If the text names more than one business, it names none: guessing
+// between them is exactly the error this whole validation exists to prevent.
+function businessFromText(text) {
+  const hay = " " + normalize(text) + " ";
+  const found = Object.keys(BUSINESS_WORDS).filter(biz =>
+    BUSINESS_WORDS[biz].some(w => hay.indexOf(" " + w) >= 0));
+  return found.length === 1 ? found[0] : null;
+}
+
 // A wrong unit written into Pyrus is worse than no unit, so the value is accepted
 // only if the catalog really has it. Matching used to demand the whole entry
 // character for character; the agent routinely drops the business prefix or the
 // address, and the value was then discarded without a trace, leaving the unit empty
 // for the rest of the dialog. The unit name alone is enough as long as it is unique.
-function validateUnit(candidate, business) {
+// `ambiguity` is an out-parameter: the caller needs to know that the unit was refused
+// ONLY because the business is missing, because that changes the question the partner is
+// asked next. Refused as «not in the catalog» it asked for the point all over again.
+function validateUnit(candidate, business, ambiguity) {
   if (!candidate) return null;
   const wantedFull = normalize(candidate);
   const wantedName = normalize(nameOf(candidate));
@@ -47,13 +77,24 @@ function validateUnit(candidate, business) {
       // one it heard. Without that hint an ambiguous name is still refused: a point of the
       // wrong network in the Pyrus field is worse than an empty field.
       if (byName.length > 1 && business) {
-        const wantedBiz = normalize(business);
+        // The hint may arrive as a catalog domain (`drinkit`, what the agent is asked for)
+        // or as the word the partner actually used (`кофейня`). Both are accepted: the
+        // agent reports the domain when it can, and the partner never does.
+        const wantedBiz = businessFromText(business) || normalize(business);
         const inBiz = byName.filter(item => normalize(businessOf(item)) === wantedBiz);
         if (inBiz.length === 1) byName = inBiz;
       }
       if (byName.length === 1) hit = byName[0];
       else if (byName.length > 1) {
-        Log.warn({ message: "parseAgentJson: unit \"" + candidate + "\" matches " + byName.length + " catalog entries, not persisting" });
+        Log.warn({ message: "parseAgentJson: unit \"" + candidate + "\" matches " + byName.length + " catalog entries" + (business ? " even with business \"" + business + "\"" : " and no business was named") + ", not persisting" });
+        // Ambiguous only across businesses is a question worth asking; ambiguous within
+        // one business means the point number is missing and asking about the brand
+        // would be nonsense.
+        if (ambiguity) {
+          const businesses = byName.map(businessOf).filter((b, i, a) => b && a.indexOf(b) === i);
+          ambiguity.kind = businesses.length > 1 ? "need_business" : "need_point_number";
+          ambiguity.name = String(candidate);
+        }
         return null;
       }
     }
@@ -240,7 +281,22 @@ const taskId = dialog.taskId || null;
 // escalated with nothing collected. The catalog stays the only arbiter: a name it does
 // not contain resolves to nothing and is not persisted.
 const unitCandidate = parsed.unitFullName || parsed.unit || null;
-if (unitCandidate) parsed.unitFullName = validateUnit(unitCandidate, parsed.business);
+const ambiguity = {};
+if (unitCandidate) {
+  // The business is taken from the agent OR from the partner's own message. The agent is
+  // asked to report a catalog domain and, in the dialog this fixes, reported null while
+  // the partner had just said «кофейня» out loud — twice. The partner's words are the
+  // more reliable of the two sources and cost nothing to read.
+  const business = parsed.business || businessFromText(dialog.incomingText);
+  parsed.unitFullName = validateUnit(unitCandidate, business, ambiguity);
+  if (!parsed.unitFullName && ambiguity.kind) {
+    // The next question is decided here, not by the agent: it is a fact about the catalog,
+    // and the agent had to call a tool to learn it — which a flash model mostly skips.
+    parsed.clarifyKind = ambiguity.kind;
+    if (String(parsed.action || "") === "route") parsed.action = "clarify";
+    Log.info({ message: "parseAgentJson: unit \"" + ambiguity.name + "\" needs " + ambiguity.kind + " on task " + taskId });
+  }
+}
 if (parsed.topicKey) parsed.topicKey = validateTopicKey(parsed.topicKey);
 if (parsed.componentName) parsed.componentName = validateComponent(parsed.componentName);
 

@@ -11,7 +11,11 @@ const CATALOGS = {
   unitCatalog: [
     "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)",
     "[dodopizza.ru] Москва-12 (Ленинский проспект, 5)",
-    "[drinkit.ru] Москва-12 (Тверская, 1)"
+    "[drinkit.ru] Москва-12 (Тверская, 1)",
+    // One name, one business, two addresses — the point number is what is missing here,
+    // not the brand.
+    "[dodopizza.ru] Химки-1 (Ленина, 1)",
+    "[dodopizza.ru] Химки-1 (Мира, 2)"
   ],
   knowledge_catalog: {
     topics: [
@@ -94,6 +98,36 @@ async function main() {
   r = await run("intake", json({ action: "route", unit: "Москва-12" }));
   t.check("an ambiguous name without a business is still refused",
     !r.state.data.unitFullName, r.state.data);
+  t.check("and the partner is asked which business, not for the point all over again",
+    r.result.clarifyKind === "need_business" && r.result.action === "clarify", r.result);
+
+  // ── The loop a partner actually lived through ──
+  // He answered «кофейня» twice. The agent reported business: null both times, and the
+  // catalog spells that business `[drinkit.ru]` — so no answer he could give would ever
+  // have matched. Three questions later the dialog went to an operator.
+  r = await run("intake", json({
+    action: "clarify", clarifyKind: "need_business", unit: "Москва-12",
+    business: null, problemSummary: "проблема с вредителями"
+  }), null, { incomingText: "кофейня" });
+  t.check("the word the partner used resolves the business the agent left null",
+    r.state.data.unitFullName === "[drinkit.ru] Москва-12 (Тверская, 1)", r.state.data);
+
+  r = await run("intake", json({ action: "route", unit: "Москва-12", business: "пиццерия" }),
+    null, { incomingText: "пиццерия" });
+  t.check("the agent may report the partner's word instead of the catalog domain",
+    r.state.data.unitFullName === "[dodopizza.ru] Москва-12 (Ленинский проспект, 5)", r.state.data);
+
+  // Both businesses named in one message is not a hint, it is a coin toss.
+  r = await run("intake", json({ action: "route", unit: "Москва-12" }),
+    null, { incomingText: "у нас и пиццерия, и кофейня" });
+  t.check("a message naming both businesses resolves nothing",
+    !r.state.data.unitFullName, r.state.data);
+
+  // Ambiguity inside ONE business is a missing point number: asking about the brand there
+  // would be nonsense, and the old code asked it anyway.
+  r = await run("intake", json({ action: "route", unit: "Химки-1" }));
+  t.check("a name ambiguous within one business asks for the point number",
+    r.result.clarifyKind === "need_point_number", r.result);
 
   r = await run("intake", json({ action: "route", unit: "Тамбов-5", business: "dodopizza" }));
   t.check("a unit the catalog does not have is refused even when the agent insists",
