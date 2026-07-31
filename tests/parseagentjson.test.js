@@ -90,10 +90,22 @@ async function main() {
   t.check("the unit is taken from what the agent heard, without a tool call",
     r.state.data.unitFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", r.state.data);
 
-  // The bare name alone is ambiguous across businesses; the one the agent reports decides.
-  r = await run("intake", json({ action: "route", unit: "Москва-12", business: "drinkit" }));
-  t.check("the business the agent reports resolves an ambiguous name",
-    r.state.data.unitFullName === "[drinkit.ru] Москва-12 (Тверская, 1)", r.state.data);
+  // ── A business the agent named and the partner did not ──
+  // The whole message was «Москва-12, нужно изменить фамилию сотрудника…». The agent did
+  // not call matchUnit at all, reported the bare name and `business: "dodopizza"` — a domain
+  // nothing in the chat contains — and the pizzeria was written into the task document with
+  // no question asked. An agent's guess used to be accepted whenever the partner's own words
+  // named no business, which is precisely when the question needs asking.
+  r = await run("intake", json({
+    action: "route", unit: "Москва-12", unitFullName: "Москва-12", business: "dodopizza",
+    problemSummary: "изменить фамилию сотрудника"
+  }), null, { incomingText: "Москва-12, нужно изменить фамилию сотрудника Иванов Иван на Петров Иван" });
+  t.check("a business only the agent names decides nothing",
+    !r.state.data.unitFullName, r.state.data);
+  t.check("and the partner is asked which business it is",
+    r.result.clarifyKind === "need_business" && r.result.action === "clarify", r.result);
+  t.check("the problem is still kept, so it is not asked about again",
+    r.state.data.problemSummary === "изменить фамилию сотрудника", r.state.data);
 
   r = await run("intake", json({ action: "route", unit: "Москва-12" }));
   t.check("an ambiguous name without a business is still refused",

@@ -328,12 +328,19 @@ const taskId = dialog.taskId || null;
 const unitCandidate = parsed.unitFullName || parsed.unit || null;
 const ambiguity = {};
 if (unitCandidate) {
-  // The business is taken from the partner's own message FIRST and from the agent only
-  // as a fallback. The agent is asked to report a catalog domain and, in the dialog this
-  // fixes, reported null while the partner had just said «кофейня» out loud — twice.
-  // The partner's words are the more reliable of the two, and the order matters: an agent
-  // that names a business out of nowhere must not outvote the partner who named another.
-  const business = businessFromText(dialog.incomingText) || parsed.business;
+  // ── Whose word says which business ──
+  // The business is what tells «Москва 0-22» the pizzeria from «Москва 0-22» the coffee
+  // shop, and it is taken from the partner's own message ONLY. It used to fall back to the
+  // agent's `business` when the partner's text named none, and that fallback is how a point
+  // was chosen for the partner three runs in a row: the agent never called matchUnit at all,
+  // reported `unit: "Москва 0-22"` with `business: "dodopizza"` invented out of nothing, and
+  // the fallback turned that invention into the deciding vote. An agent naming a business
+  // must not outvote a partner who named another — nor a partner who named none. Silence is
+  // not consent, and here it is the whole question.
+  const business = businessFromText(dialog.incomingText);
+  if (!business && parsed.business) {
+    Log.warn({ message: "parseAgentJson: the agent names business \"" + parsed.business + "\" that the partner has not, ignored on task " + taskId });
+  }
   parsed.unitFullName = validateUnit(unitCandidate, business, ambiguity);
   if (!parsed.unitFullName && ambiguity.kind) {
     // The next question is decided here, not by the agent: it is a fact about the catalog,
