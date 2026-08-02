@@ -53,6 +53,90 @@ function writeState(taskId, paths, who) {
   }
 }
 
+// ── Одна форма на подзадачу и на внутреннюю переписку ──
+// Читает их один и тот же человек, поэтому и скелет один: кто и где → что случилось →
+// что собрали → что пробовали → куда это идёт. Раньше форм было две, с разными
+// названиями одних и тех же блоков, и в подзадаче не было сказано даже, кто обращается.
+//
+// Что печатается всегда, а что только при наличии, решено так: обязательное печатается
+// даже пустым, потому что пустота здесь — тоже факт («email не указан» говорит, что
+// спросить его не удалось, а «тематика не определена» отличает «статья велела передать»
+// от «статьи никто не написал»). Необязательное — собранные ответы и предложенные
+// советы — печатается только когда есть: блок «Уже пробовали: ничего» занимает две
+// строки и не сообщает ничего.
+//
+// Один и тот же текст собирается в двух функциях, потому что функции платформы не
+// импортируют друг друга. Правку нужно вносить в обе — иначе оператор снова начнёт
+// получать два разных документа об одном и том же.
+function topicForm(topicKey, nodeId, who) {
+  const out = { labels: {}, description: null };
+  if (!topicKey) return out;
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "knowledge_catalog" });
+    const topics = (doc && doc.value && Array.isArray(doc.value.topics)) ? doc.value.topics : [];
+    const topic = topics.filter(t => t && String(t.key || "") === String(topicKey))[0];
+    if (!topic) return out;
+    out.description = topic.description ? String(topic.description) : null;
+    // `label` — как поле называется для человека. Без него печатается сам ключ: он
+    // придуман для кода, и «newValue: +79001234567» первой линии ничего не говорит.
+    //
+    // Один ключ живёт в нескольких ветках, и подпись у него в каждой своя: `newValue` —
+    // это «Новый номер телефона» в одной и «Куда перевести» в другой. Слово последней
+    // ветки в файле не имеет никакого отношения к тому, о чём был разговор, поэтому
+    // побеждает подпись того узла, на котором диалог и закончился.
+    const take = force => q => {
+      if (!q || !q.key || !q.label) return;
+      const key = String(q.key);
+      if (force || !out.labels[key]) out.labels[key] = String(q.label);
+    };
+    Object.keys(topic.nodes || {}).forEach(id => {
+      const node = topic.nodes[id] || {};
+      (Array.isArray(node.ask) ? node.ask : []).forEach(take(false));
+    });
+    (Array.isArray(topic.askBeforeHandover) ? topic.askBeforeHandover : []).forEach(take(false));
+    const at = nodeId && topic.nodes ? topic.nodes[String(nodeId)] : null;
+    if (at && Array.isArray(at.ask)) at.ask.forEach(take(true));
+  } catch (e) {
+    Log.warn({ message: who + ": catalog read failed, the summary falls back to raw keys: " + e });
+  }
+  return out;
+}
+
+function requestSummary(o) {
+  const data = o.data || {};
+  const runtime = o.runtime || {};
+  const labels = o.labels || {};
+  const answers = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
+  // The order the article asked them in — that is also the order they make sense in.
+  const keys = Object.keys(answers);
+  const attempts = Array.isArray(data.attempts) ? data.attempts : [];
+  // A name that is not a string has already reached an operator once, as
+  // «Кто обращается: [object Object]».
+  const name = typeof runtime.partnerName === "string" && runtime.partnerName ? runtime.partnerName : null;
+  const lines = [o.header, ""];
+  lines.push("Партнёр: " + [name || "имя не определено", data.email || "email не указан"].join(", "));
+  lines.push("Юнит: " + (data.unitFullName || "не определён"));
+  lines.push("Тематика: " + (data.topicKey
+    ? data.topicKey + (o.description ? " — " + o.description : "") + (o.topicNote || "")
+    : "не определена — подходящей статьи в базе нет"));
+  lines.push("", "Суть обращения: " + (data.problemSummary || "не описана"));
+  if (keys.length) {
+    lines.push("", "Собрано у партнёра:");
+    keys.forEach(k => lines.push("  " + (labels[k] || k) + ": " + answers[k]));
+  }
+  // Listed without a verdict: the last advice is written down when it is offered, and
+  // whether it helped is exactly what we do not know at the moment of a handover.
+  if (attempts.length) {
+    lines.push("", "Что уже пробовали:");
+    attempts.forEach((a, i) => lines.push("  " + (a.step || i + 1) + ") " + (a.advice || "—")));
+  }
+  (o.tail || []).filter(Boolean).forEach((t, i) => {
+    if (i === 0) lines.push("");
+    lines.push(t);
+  });
+  return lines.join("\n");
+}
+
 // The whole state machine in one table. Adding a scenario means adding a row here
 // plus one node in the graph, and nothing else changes.
 const OUTCOMES = {
@@ -260,41 +344,23 @@ if (!text) {
 // summary goes to the internal correspondence, so the partner never sees it.
 let internalNote = null;
 if (spec.nextStage === "escalated") {
-  const attempts = Array.isArray(data.attempts) ? data.attempts : [];
-  const tried = attempts.length
-    ? attempts.map((a, i) => "  " + (a.step || i + 1) + ") " + (a.advice || "—")).join("\n")
-    : "  ничего не предлагалось";
-  const who = [runtime.partnerName, data.unitFullName ? "юнит " + data.unitFullName : null, data.email]
-    .filter(Boolean).join(", ");
-  // Everything the article managed to ask before giving up. For the long guided cases
-  // this is the whole value of the handover: the operator continues from where the bot
-  // stopped instead of asking the partner the same five questions again.
-  const answers = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
-  const answerKeys = Object.keys(answers);
-  internalNote = [
-    "[Внутренняя переписка]",
-    "Бот передаёт обращение оператору.",
-    "Кто обращается: " + (who || "не определено"),
-    "Суть проблемы: " + (data.problemSummary || "не описана"),
-    (answerKeys.length
-      ? "Собрано по тематике:\n" + answerKeys.map(k => "  " + k + ": " + answers[k]).join("\n")
-      : null),
+  const form = topicForm(data.topicKey, data.treeNode, "applyOutcome");
+  internalNote = requestSummary({
+    header: "[Внутренняя переписка]\nБот передаёт обращение оператору.",
+    data: data,
+    runtime: runtime,
+    labels: form.labels,
+    description: form.description,
     // For the bot both cases end in a handover, for the operator they are different
     // jobs: an article that routes to a human is a known procedure, no article at all
     // means nobody has written one yet.
-    (data.topicKey
-      ? "Тематика БЗ: " + data.topicKey +
-        (data.topicRoute === "escalate" ? " (статья предписывает передать обращение человеку)" : "")
-      : "Тематика БЗ: не определена — подходящей статьи в базе нет"),
-    "Уже пробовали:",
-    tried,
-    "Причина передачи: " + (loopBroken
+    topicNote: data.topicRoute === "escalate" ? " (статья предписывает передать обращение человеку)" : "",
+    tail: ["Причина передачи: " + (loopBroken
       ? (overrun
         ? "статья задала больше " + MAX_TREE_QUESTIONS + " вопросов и не пришла ни к решению, ни к подзадаче — похоже на ошибку в самой статье"
         : "бот задал подряд " + MAX_CLARIFY_STREAK + " уточняющих вопроса и не продвинулся")
-      : (spec.silent ? "партнёр написал в закрытый чат" : (prev.reason || "не указана")))
-    // A null line means there was nothing to put on it; it must not print as "null".
-  ].filter(Boolean).join("\n");
+      : (spec.silent ? "партнёр написал в закрытый чат" : (prev.reason || "не указана")))]
+  });
 }
 
 const pendingOutcome = {

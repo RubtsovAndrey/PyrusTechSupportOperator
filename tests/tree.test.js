@@ -30,7 +30,7 @@ const CATALOG = {
         nodes: {
           what: {
             ask: [
-              { key: "employee", question: "ФИО сотрудника" },
+              { key: "employee", label: "Сотрудник", question: "ФИО сотрудника" },
               { key: "changeKind", question: "что именно изменить" }
             ],
             branchOn: "changeKind",
@@ -43,12 +43,12 @@ const CATALOG = {
           },
           avatar: { advice: "Аватарку менеджер меняет сам в личном кабинете.", end: "close" },
           phone: {
-            ask: [{ key: "newValue", question: "на какой номер поменять" }],
+            ask: [{ key: "newValue", label: "Новый номер", question: "на какой номер поменять" }],
             end: "subtask",
             componentName: "Сотрудники — контакты"
           },
           name: {
-            ask: [{ key: "newValue", question: "как правильно должны быть записаны фамилия и имя" }],
+            ask: [{ key: "newValue", label: "Как правильно", question: "как правильно должны быть записаны фамилия и имя" }],
             end: "subtask"
           },
           other: {
@@ -512,13 +512,47 @@ async function main() {
   // ── Собранное попадает оператору ──
   d = dialog();
   d.state.data.topicKey = "profile_change";
-  d.state.data.treeAnswers = { employee: "Иванов Иван", newValue: "+7 900" };
+  d.state.data.treeAnswers = { employee: "Иванов Иван", newValue: "+7 900", reason: "опечатка" };
   await d.outcome("escalated", {});
   t.check("the operator's summary lists what the article managed to collect",
     /Иванов Иван/.test(d.state.pendingOutcome.internalNote) &&
     /\+7 900/.test(d.state.pendingOutcome.internalNote), d.state.pendingOutcome.internalNote);
   t.check("and the summary has no empty lines printed as null",
-    !/null/.test(d.state.pendingOutcome.internalNote), d.state.pendingOutcome.internalNote);
+    !/null|undefined/.test(d.state.pendingOutcome.internalNote), d.state.pendingOutcome.internalNote);
+
+  // ── Форма сути обращения ──
+  // Одна и та же у подзадачи и у внутренней переписки, и заполняется по правилу:
+  // обязательное печатается даже пустым, необязательное — только когда есть.
+  let note = d.state.pendingOutcome.internalNote;
+  t.check("the human label from the article replaces the internal key",
+    /Сотрудник: Иванов Иван/.test(note) && !/employee:/.test(note), note);
+  t.check("a key without a label still prints, as itself",
+    /reason: опечатка/.test(note), note);
+  t.check("who and where is stated even when nothing is known",
+    /Партнёр: имя не определено, email не указан/.test(note) && /Юнит: /.test(note), note);
+  t.check("the topic line carries the article's own description",
+    /Тематика: profile_change — изменить данные сотрудника/.test(note), note);
+  t.check("nothing was tried, so there is no block saying so",
+    !/Что уже пробовали/.test(note), note);
+  t.check("and the reason for the handover closes the summary",
+    /Причина передачи: /.test(note), note);
+
+  // Один ключ живёт в двух ветках под разными подписями, и правильная только та, что
+  // из ветки этого разговора.
+  d = dialog();
+  d.state.data.topicKey = "profile_change";
+  d.state.data.treeNode = "phone";
+  d.state.data.treeAnswers = { newValue: "+7 900" };
+  await d.outcome("escalated", {});
+  t.check("the label comes from the branch the dialog ended in",
+    /Новый номер: \+7 900/.test(d.state.pendingOutcome.internalNote), d.state.pendingOutcome.internalNote);
+
+  // Ни статьи, ни собранного: обязательные строки всё равно на месте.
+  d = dialog();
+  await d.outcome("escalated", {});
+  note = d.state.pendingOutcome.internalNote;
+  t.check("with no article at all the summary says so instead of leaving a blank",
+    /Тематика: не определена/.test(note) && !/Собрано у партнёра/.test(note), note);
 
   // ── Ключи ответов берутся из статьи, а не от модели ──
   d = dialog();

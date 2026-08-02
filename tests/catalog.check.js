@@ -8,6 +8,8 @@ const searchKnowledge = loadFunction(
   "functions/ID_Tools/searchKnowledge/code.js",
   ["query", "topicKey", "branch", "answers"]
 );
+const applyOutcome = loadFunction("functions/ID_Actions/applyOutcome/code.js", ["outcome", "replyText"]);
+const createSubtask = loadFunction("functions/ID_Actions/createSubtask/code.js", []);
 
 let task = 1000;
 
@@ -119,6 +121,52 @@ async function main() {
   // 7. Каталог не знает темы — эскалация без выдумок.
   f = await chat("хочу заказать пиццу на день рождения").find("хочу заказать пиццу на день рождения");
   show("Темы нет в каталоге", ["found: " + f.found + ", тем: " + f.topics.length]);
+
+  // 8. Что в итоге читает человек — обе формы целиком.
+  await showForms();
+}
+
+// Одна и та же собранная история, поданная оператору и в подзадачу.
+async function showForms() {
+  const id = ++task;
+  const key = "state:" + id;
+  const story = {
+    unitFullName: "[drinkit.ru] Москва 0-22 (Дмитровское шоссе, 163А)",
+    componentName: "Менеджер офиса → Команда → Сотрудники (запрос на редактирование карточки)",
+    email: "manager@example.ru",
+    problemSummary: "нужно изменить номер телефона сотрудника",
+    topicKey: "employee_card_change",
+    treeNode: "phone",
+    treeAnswers: { changeKind: "телефон", employee: "Иванов Иван", newValue: "+79001234567", reason: "ошиблись при заведении карточки" }
+  };
+  const db = {
+    knowledge_catalog: JSON.parse(JSON.stringify(CATALOG)),
+    config: { subtaskFormId: 1096731, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5, subjectFieldId: 1, messageFieldId: 2 },
+    [key]: {
+      taskId: id,
+      stage: "gathering",
+      data: JSON.parse(JSON.stringify(story)),
+      runtime: { apiUrl: "https://api.pyrus.com/v4/", token: "t", partnerName: "Андрей Рубцов" }
+    }
+  };
+
+  const e1 = makeEnv({ db: db, prev: { taskId: id }, contextValues: { dialog: { taskId: String(id) } } });
+  await applyOutcome(e1, ["escalated", null]);
+  console.log("\n=== Внутренняя переписка оператору ===\n");
+  console.log(e1.db[key].pendingOutcome.internalNote);
+
+  const e2 = makeEnv({
+    db: db,
+    prev: { taskId: id },
+    contextValues: { dialog: { taskId: String(id) } },
+    onGet: () => ({ body: { tasks: [] } }),
+    onPost: a => (/\/tasks$/.test(a.url) ? { body: { task: { id: 90001 } } } : { body: {} })
+  });
+  await createSubtask(e2);
+  const created = e2.posts.filter(p => /\/tasks$/.test(p.url))[0];
+  const message = (created.body.fields || []).filter(f => f.id === 2)[0];
+  console.log("\n=== Текст в подзадаче ===\n");
+  console.log(message ? message.value : "(поле «Сообщение» не заполнено)");
 }
 
 // Ответ «не помогло» ведёт в onFail узла — здесь он берётся прямо из каталога.
