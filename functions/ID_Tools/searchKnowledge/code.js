@@ -50,6 +50,12 @@ function normalizeNodes(t) {
           when: (Array.isArray(b.when) ? b.when : [b.when]).filter(Boolean).map(String),
           go: String(b.go)
         })),
+      // Which of this node's own questions the branches read. Two questions in one node
+      // are two different jobs — «ФИО сотрудника» is data for the subtask, «что именно
+      // изменить» is the fork — and only the second can be answered by the partner's own
+      // words matching a `when`. Optional: a node asking exactly one question needs no
+      // declaration, there is nothing to confuse it with.
+      branchOn: n.branchOn ? String(n.branchOn) : null,
       "else": n["else"] ? String(n["else"]) : null,
       go: n.go ? String(n.go) : null,
       end: END_KINDS.indexOf(String(n.end || "")) >= 0 ? String(n.end) : null,
@@ -104,7 +110,12 @@ function normalizeTopic(t) {
   };
 }
 
-const taskId = (AgentContext.getValue({ key: "dialog" }) || {}).taskId || null;
+const dialogValue = AgentContext.getValue({ key: "dialog" }) || {};
+const taskId = dialogValue.taskId || null;
+
+// What the partner has said in his own words: the message this turn answers, plus the
+// summary of the problem he opened with. Both are his, neither is the model's retelling.
+const PARTNER_WORDS = words(dialogValue.incomingText).concat(words(dialogValue.problemSummary));
 
 function loadData() {
   if (!taskId) return {};
@@ -223,12 +234,11 @@ function stemMatch(a, b) {
   return same >= need;
 }
 
-function branchFromAnswers(node, known) {
-  const words = s => String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[^0-9a-zа-я]+/g, " ").trim().split(" ").filter(Boolean);
-  // Only what THIS node asked: an answer collected three nodes ago has already had its say,
-  // and matching it again would re-decide a branch on stale words.
-  const said = [];
-  (node.ask || []).forEach(q => { if (known[q.key]) words(known[q.key]).forEach(w => said.push(w)); });
+function words(s) {
+  return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[^0-9a-zа-я]+/g, " ").trim().split(" ").filter(Boolean);
+}
+
+function branchFromWords(node, said) {
   if (!said.length) return null;
 
   let best = 0;
@@ -251,6 +261,21 @@ function branchFromAnswers(node, known) {
   // ambiguity, and the model reads the partner's whole message better than this does.
   const goes = top.map(b => String(b.go)).filter((g, i, a) => a.indexOf(g) === i);
   return goes.length === 1 ? top[0] : null;
+}
+
+function branchFromAnswers(node, known) {
+  // Only what THIS node asked: an answer collected three nodes ago has already had its say,
+  // and matching it again would re-decide a branch on stale words.
+  const said = [];
+  (node.ask || []).forEach(q => { if (known[q.key]) words(known[q.key]).forEach(w => said.push(w)); });
+  return branchFromWords(node, said);
+}
+
+// Which question of the node the branches read, if it can be told at all.
+function branchKeyOf(node) {
+  if (!node.branches.length) return null;
+  if (node.branchOn && node.ask.some(q => q.key === node.branchOn)) return node.branchOn;
+  return node.ask.length === 1 ? node.ask[0].key : null;
 }
 
 // A node that neither speaks, asks, branches nor ends is a pure redirect and is walked
@@ -428,6 +453,29 @@ if (topicKey) {
       // partner who says everything in his first message reaches the end of the article at
       // once. It stops the moment a node has something left to ask or leaves any doubt.
       for (let hop = 0; hop < MAX_HOPS; hop++) {
+        // ── The question the partner has already answered, unasked ──
+        // The node asks «что именно нужно изменить в карточке» and its branches are named
+        // «аватарка / фото / фотография / аватар». The partner had written «нам нужно
+        // изменить аватарку у курьера» in the message before — and was asked anyway, then
+        // got the answer to that question back from the bot in the same breath: «уточните,
+        // что именно нужно изменить — в вашем случае это аватарка». The words were there;
+        // what failed is that the answers are prefilled by the model, and the model, told
+        // twice in its prompt to reread the chat, prefilled nothing on the first turn of
+        // the article. The article's own synonyms are the semantics and they are right
+        // here, so the words are matched by the same rules that already read a branch out
+        // of a collected answer — including the tie guard: two branches with an equal
+        // claim mean the partner has not decided, and he is asked.
+        const askKey = branchKeyOf(target);
+        if (askKey && !known[askKey]) {
+          const heard = branchFromWords(target, PARTNER_WORDS);
+          if (heard) {
+            known[askKey] = heard.when[0];
+            const heardPatch = {};
+            heardPatch["treeAnswers." + askKey] = heard.when[0];
+            patchData(heardPatch);
+            Log.info({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " took \"" + askKey + ": " + heard.when[0] + "\" from the partner's own words, not asking it" });
+          }
+        }
         if (!target.branches.length) break;
         if (target.ask.some(q => !known[q.key])) break;
         const own = branchFromAnswers(target, known);

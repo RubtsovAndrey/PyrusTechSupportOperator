@@ -33,6 +33,7 @@ const CATALOG = {
               { key: "employee", question: "ФИО сотрудника" },
               { key: "changeKind", question: "что именно изменить" }
             ],
+            branchOn: "changeKind",
             branches: [
               { when: ["аватарка", "фото"], go: "avatar" },
               { when: ["телефон", "номер телефона"], go: "phone" },
@@ -146,11 +147,15 @@ function dialog(seed) {
   });
   const carry = env => { Object.keys(env.db).forEach(k => { db[k] = env.db[k]; }); };
   const notes = [];
-  const env = () => makeEnv({ db: db, contextValues: { dialog: { taskId: String(TASK) } } });
+  // What the partner has just written. The article reads it directly, so a test that
+  // leaves it empty is testing a dialog with a silent partner.
+  let spoken = "";
+  const env = () => makeEnv({ db: db, contextValues: { dialog: { taskId: String(TASK), incomingText: spoken } } });
   return {
     get state() { return db[KEY]; },
     get data() { return db[KEY].data || {}; },
     get notes() { return notes.join("\n"); },
+    say(text) { spoken = text; return this; },
     // The routing agent's call: a free-text query and no topic key yet.
     async find(query) {
       const e = env();
@@ -265,6 +270,53 @@ async function main() {
   t.check("and it is a spoken turn, not a silent handover", r.turnKind === "solution", r);
   t.check("no subtask questions are asked on the way",
     d.data.treeHandoverAsked !== true, d.data);
+
+  // ── Вопрос, на который партнёр уже ответил своими словами ──
+  // «нам нужно изменить аватарку у курьера» — и статья всё равно спросила, что именно
+  // менять, а бот, зная ответ, дописал его сам: «в вашем случае это аватарка». Витка
+  // партнёра это стоило, а слова были у нас на руках.
+  d = dialog();
+  d.state.data.topicKey = "profile_change";
+  d.say("нам нужно изменить аватарку у курьера");
+  r = await d.search("profile_change");
+  t.check("the branching question is not asked when the partner has answered it",
+    r.turnKind === "questions" && r.preQuestions.length === 1 && /ФИО/.test(r.preQuestions[0]), r);
+  t.check("and only the key that is really open comes back",
+    JSON.stringify(r.answerKeys) === JSON.stringify(["employee"]), r.answerKeys);
+  t.check("what he said is written down as his answer",
+    d.data.treeAnswers.changeKind === "аватарка", d.data.treeAnswers);
+
+  await d.solver({ kind: "questions", replyText: "…", answers: { employee: "Иванов Иван" } });
+  d.say("Иванов Иван");
+  r = await d.search("profile_change");
+  t.check("the next turn is the advice itself, with no branch question in between",
+    r.turnKind === "solution" && r.treeEnd === "close" && /личном кабинете/.test(r.solverInstruction), r);
+
+  // Two branches with an equal claim is not an answer: he named two things at once, and
+  // guessing which he meant is worse than asking.
+  d = dialog();
+  d.state.data.topicKey = "profile_change";
+  d.say("нужно поменять фамилию и телефон сотруднику");
+  r = await d.search("profile_change");
+  t.check("words that fit two branches decide nothing and both questions are asked",
+    r.preQuestions.length === 2, r.preQuestions);
+
+  // A node that asks exactly one question needs no branchOn: there is nothing to confuse
+  // its branches with.
+  d = dialog();
+  d.state.data.topicKey = "no_internet";
+  d.say("не работает интернет целиком, другие сайты тоже не открываются");
+  r = await d.search("no_internet");
+  t.check("a single-question node reads the branch out of his words too",
+    d.data.treeNode === "isp" && /провайдер/.test(r.solverInstruction), d.data.treeNode);
+
+  // Nothing in his words about the fork — the question is asked, as it must be.
+  d = dialog();
+  d.state.data.topicKey = "no_internet";
+  d.say("добрый день, помогите пожалуйста");
+  r = await d.search("no_internet");
+  t.check("words that say nothing about the fork leave the question in place",
+    r.turnKind === "questions" && /Додо ИС или интернет/.test(r.preQuestions[0]), r);
 
   // ── Ветка else и её отсутствие ──
   d = dialog();
