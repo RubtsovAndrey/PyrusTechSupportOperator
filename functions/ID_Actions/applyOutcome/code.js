@@ -94,6 +94,9 @@ function topicForm(topicKey, nodeId, who) {
       (Array.isArray(node.ask) ? node.ask : []).forEach(take(false));
     });
     (Array.isArray(topic.askBeforeHandover) ? topic.askBeforeHandover : []).forEach(take(false));
+    // У линейной статьи узлов нет вовсе, и все её подписи — здесь. Строковые
+    // вопросы проходят мимо: без ключа их ответа в сводке и не будет.
+    (Array.isArray(topic.preQuestions) ? topic.preQuestions : []).forEach(take(false));
     const at = nodeId && topic.nodes ? topic.nodes[String(nodeId)] : null;
     if (at && Array.isArray(at.ask)) at.ask.forEach(take(true));
   } catch (e) {

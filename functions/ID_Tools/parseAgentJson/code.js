@@ -247,6 +247,9 @@ function answerKeysOfTopic(key) {
   });
   if (nodes) Object.keys(nodes).forEach(id => add(nodes[id] && nodes[id].ask));
   if (topic) add(topic.askBeforeHandover);
+  // Вопросы линейной статьи бывают строками — у строки ключа нет, и её ответ
+  // сохранить нельзя. Те, у кого ключ объявлен, ничем не отличаются от вопросов дерева.
+  if (topic) add(topic.preQuestions);
   return keys;
 }
 
@@ -271,6 +274,7 @@ function answerPromptsOfTopic(key, collected) {
   });
   if (nodes) Object.keys(nodes).forEach(id => add(nodes[id] && nodes[id].ask));
   add(topic.askBeforeHandover);
+  add(topic.preQuestions);
   return order.map(k => questions[k].length ? k + " — " + questions[k].join(" / ") : k);
 }
 

@@ -92,7 +92,18 @@ function normalizeTopic(t) {
     description: t.description ? String(t.description) : null,
     route: t.route ? String(t.route) : "solver",
     componentName: t.componentName ? String(t.componentName) : null,
-    preQuestions: Array.isArray(t.preQuestions) ? t.preQuestions.filter(Boolean).map(String) : [],
+    // Вопрос линейной статьи — строка или такой же объект, как в `ask`. Строка живёт
+    // один виток: её ответ некуда положить, и до человека он не доедет. Ключ даёт ответу
+    // те же права, что у ответов дерева: он записывается в задачу, больше не спрашивается
+    // и попадает в сводку для первой линии. Ключ с точкой или `$` адресовал бы не то место
+    // документа, чем выглядит, — такой вопрос остаётся без ключа, а не пропадает.
+    preQuestions: (Array.isArray(t.preQuestions) ? t.preQuestions : [])
+      .map(q => (typeof q === "string" ? { key: null, question: q } : q))
+      .filter(q => q && q.question)
+      .map(q => ({
+        key: q.key && !/[.$]/.test(String(q.key)) ? String(q.key) : null,
+        question: String(q.question)
+      })),
     // Where the dialog goes when every step has been tried and nothing helped.
     onFail: String(t.onFail || "escalate") === "subtask" ? "subtask" : "escalate",
     // In a tree article `onFail` may also name a node to continue from, so the raw
@@ -315,6 +326,7 @@ if (!topics.length) {
 function declaredKeys(topic) {
   const keys = {};
   (topic.askBeforeHandover || []).forEach(q => { keys[q.key] = true; });
+  (topic.preQuestions || []).forEach(q => { if (q.key) keys[q.key] = true; });
   Object.keys(topic.nodes || {}).forEach(id => {
     (topic.nodes[id].ask || []).forEach(q => { keys[q.key] = true; });
   });
@@ -637,23 +649,50 @@ if (topicKey) {
     // together with them let the model answer both at once: the partner got the first
     // solution attached to a question, that turn counted as "questions" and was never
     // logged, and the next turn served the very same solution again.
+    // Ответы на вопросы линейной статьи — те, у которых есть ключ. Прочитанное в чате
+    // записывается здесь же, как и в дереве: отчёт вызывающего об этом витке придёт уже
+    // после него, а спрашивать заново то, что партнёр только что сказал, нельзя.
+    const storedPre = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
+    const givenPre = readGivenAnswers(answers, topic);
+    const knownPre = Object.assign({}, storedPre, givenPre);
+    const prePatch = {};
+    Object.keys(givenPre).forEach(k => {
+      if (storedPre[k] !== givenPre[k]) prePatch["treeAnswers." + k] = givenPre[k];
+    });
+    if (Object.keys(prePatch).length) {
+      patchData(prePatch);
+      Log.info({ message: "searchKnowledge: " + Object.keys(prePatch).length + " answer(s) taken from the chat for " + topic.key + ": " + Object.keys(givenPre).join(", ") });
+    }
+
     const asked = Array.isArray(data.preQuestionsAsked) ? data.preQuestionsAsked : [];
-    if (topic.preQuestions.length && asked.indexOf(topic.key) < 0) {
+    // Вопрос с ключом, на который уже есть ответ, не задаётся: партнёр назвал устройство
+    // в первом же сообщении — виток вопросов не нужен вовсе. Вопросы без ключа так
+    // проверить нечем, поэтому для них остаётся прежнее правило «спросить один раз».
+    const openPre = topic.preQuestions.filter(q => !(q.key && knownPre[q.key]));
+    if (openPre.length && asked.indexOf(topic.key) < 0) {
       patchData({ preQuestionsAsked: asked.concat([topic.key]) });
-      Log.info({ message: "searchKnowledge: topic " + topic.key + " asks " + topic.preQuestions.length + " question(s) before any solution" });
+      Log.info({ message: "searchKnowledge: topic " + topic.key + " asks " + openPre.length + " question(s) before any solution" });
       return {
         found: true,
         source: "pre-questions",
         key: topic.key,
         description: topic.description,
         componentName: topic.componentName,
-        preQuestions: topic.preQuestions,
+        preQuestions: openPre.map(q => q.question),
+        // Куда вызывающему складывать ответы. Пусто — значит статья спрашивает строками,
+        // и ответ нужен только для выбора следующего шага, дальше витка он не живёт.
+        answerKeys: openPre.filter(q => q.key).map(q => q.key),
         onFail: topic.onFail,
         needsPreQuestions: true,
         stepCount: topic.steps.length,
         solverInstruction: null,
         followUpQuestion: null
       };
+    }
+    if (!openPre.length && topic.preQuestions.length && asked.indexOf(topic.key) < 0) {
+      // Виток вопросов сэкономлен: партнёр ответил на всё раньше, чем его спросили.
+      patchData({ preQuestionsAsked: asked.concat([topic.key]) });
+      Log.info({ message: "searchKnowledge: topic " + topic.key + " asks nothing, all its questions are already answered" });
     }
 
     const done = stepDone(data.attempts, topic.key);
@@ -681,7 +720,7 @@ if (topicKey) {
       key: topic.key,
       description: topic.description,
       componentName: topic.componentName,
-      preQuestions: topic.preQuestions,
+      preQuestions: topic.preQuestions.map(q => q.question),
       onFail: topic.onFail,
       stepNumber: index + 1,
       stepCount: topic.steps.length,

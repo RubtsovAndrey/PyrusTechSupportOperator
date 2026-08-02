@@ -130,6 +130,16 @@ const CATALOG = {
         preQuestions: ["какая модель принтера"],
         steps: [{ instruction: "Проверьте бумагу." }, { instruction: "Замените ленту." }],
         onFail: "subtask"
+      },
+      // Линейная статья нового вида: у вопроса есть ключ, и ответ на него доезжает
+      // до человека — как у ответов дерева.
+      {
+        key: "is_slow",
+        description: "система тормозит",
+        route: "solver",
+        preQuestions: [{ key: "scope", label: "Где тормозит", question: "на всех устройствах или только на одном" }],
+        steps: [{ instruction: "Обновите страницу." }],
+        onFail: "escalate"
       }
     ]
   }
@@ -577,6 +587,45 @@ async function main() {
     r.stepNumber === 1 && r.stepCount === 2 && /бумагу/.test(r.solverInstruction), r);
   t.check("a linear article has no tree bookkeeping at all",
     d.data.treeNode === undefined, d.data);
+
+  // Ответ на строковый вопрос по-прежнему сохранить нельзя: ключа у него нет, и никакой
+  // ключ от модели статья не объявляла.
+  d = dialog();
+  d.state.data.topicKey = "printer_no_receipt";
+  await d.solver({ kind: "questions", replyText: "…", answers: { posModel: "Атол 30Ф" } });
+  t.check("an answer to a bare string question has nowhere to go",
+    (d.data.treeAnswers || {}).posModel === undefined, d.data.treeAnswers);
+
+  // ── Вопрос линейной статьи с ключом ──
+  d = dialog();
+  d.state.data.topicKey = "is_slow";
+  r = await d.search("is_slow");
+  t.check("a keyed pre-question is asked like any other",
+    r.needsPreQuestions === true && /на всех устройствах/.test(r.preQuestions[0]), r);
+  t.check("and the key it must be stored under is named",
+    JSON.stringify(r.answerKeys) === JSON.stringify(["scope"]), r.answerKeys);
+
+  await d.solver({ kind: "questions", replyText: "…", answers: { scope: "только на одном" } });
+  t.check("the answer of a linear article is persisted now",
+    d.data.treeAnswers.scope === "только на одном", d.data.treeAnswers);
+
+  r = await d.search("is_slow");
+  t.check("and having been answered it is not asked again",
+    !r.needsPreQuestions && /Обновите страницу/.test(r.solverInstruction), r);
+
+  // Сказанное в первом же сообщении экономит целый виток: спрашивать нечего.
+  d = dialog();
+  d.state.data.topicKey = "is_slow";
+  r = await d.search("is_slow", null, JSON.stringify({ scope: "на одной кассе" }));
+  t.check("an answer found in the chat skips the question turn entirely",
+    !r.needsPreQuestions && r.stepNumber === 1, r);
+  t.check("and is written down where the summary will find it",
+    d.data.treeAnswers.scope === "на одной кассе", d.data.treeAnswers);
+
+  await d.outcome("escalated", {});
+  t.check("the operator sees it under the label the article gave it",
+    /Где тормозит: на одной кассе/.test(d.state.pendingOutcome.internalNote),
+    d.state.pendingOutcome.internalNote);
 
   return t.report();
 }

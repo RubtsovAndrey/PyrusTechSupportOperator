@@ -101,8 +101,14 @@ async function main() {
   f = await c.find("Додо ИС жутко тормозит весь день");
   const steps = [];
   r = await c.step(f.topics[0].key);
-  steps.push("виток 1 -> вопросов: " + (r.preQuestions || []).length);
-  for (let i = 2; i <= 5; i++) {
+  steps.push("виток 1 -> вопросов: " + (r.preQuestions || []).length +
+    " [" + (r.answerKeys || []).join(", ") + "]");
+  // Ответ на вопрос статьи: у него есть ключ, значит он сохранится и доедет до человека.
+  r = await c.step(f.topics[0].key, { scope: "только на одной кассе" });
+  steps.push("виток 2 -> шаг " + r.stepNumber + "/" + r.stepCount +
+    ", сохранено: " + JSON.stringify(c.data.treeAnswers));
+  c.data.attempts = (c.data.attempts || []).concat([{ topicKey: f.topics[0].key, step: r.stepNumber, advice: r.solverInstruction }]);
+  for (let i = 3; i <= 6; i++) {
     r = await c.step(f.topics[0].key);
     if (r.stepsExhausted) { steps.push("виток " + i + " -> шаги кончились, onFail: " + r.onFail); break; }
     steps.push("виток " + i + " -> шаг " + r.stepNumber + "/" + r.stepCount + ": " + String(r.solverInstruction).slice(0, 40) + "…");
