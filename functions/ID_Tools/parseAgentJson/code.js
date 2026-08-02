@@ -337,6 +337,20 @@ if (!parsed || typeof parsed !== "object") {
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = dialog.taskId || null;
 
+// What the task document already knows, read BEFORE anything is judged — because the
+// judgement depends on it. The document used to be opened only further down, at the point
+// of writing, so the unit was validated by a function that could not see that the unit had
+// already been resolved two turns earlier. One read, reused by the write below.
+let storedDoc = null;
+if (taskId) {
+  try {
+    storedDoc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
+  } catch (e) {
+    Log.warn({ message: "parseAgentJson: could not read the state of task " + taskId + ": " + e });
+  }
+}
+const known = (storedDoc && storedDoc.value && storedDoc.value.data) || {};
+
 // The unit must not depend on the model choosing to call a tool. The agent reports what
 // it heard in `unit` and the catalog value in `unitFullName`, and it is told to leave the
 // latter empty unless matchUnit filled it — which a flash model skips most turns. The
@@ -360,6 +374,23 @@ if (unitCandidate) {
     Log.warn({ message: "parseAgentJson: the agent names business \"" + parsed.business + "\" that the partner has not, ignored on task " + taskId });
   }
   parsed.unitFullName = validateUnit(unitCandidate, business, ambiguity);
+
+  // ── A point already resolved is not a question again ──
+  // The agent re-reports what it heard every turn, and what it heard is the bare name
+  // «Москва 0-22». A turn earlier the partner had answered «кофейня», the catalog value
+  // was resolved and written into the document — but the business is read from the CURRENT
+  // message, and that one no longer contains the word. So the same name turned ambiguous
+  // again and the bot went asking about a point it already knew, three times, until the
+  // loop guard handed the chat to an operator. What is stored was resolved against the
+  // catalog with the partner's own word, and it stays resolved: the agent repeating the
+  // short name is not new information, and it cannot take a decided fact back.
+  if (!parsed.unitFullName && known.unitFullName &&
+      normalize(nameOf(known.unitFullName)) === normalize(nameOf(unitCandidate))) {
+    parsed.unitFullName = known.unitFullName;
+    delete ambiguity.kind;
+    Log.info({ message: "parseAgentJson: unit \"" + unitCandidate + "\" is already resolved as " + known.unitFullName + " on task " + taskId + ", not asking again" });
+  }
+
   if (!parsed.unitFullName && ambiguity.kind) {
     // The next question is decided here, not by the agent: it is a fact about the catalog,
     // and the agent had to call a tool to learn it — which a flash model mostly skips.
@@ -390,7 +421,7 @@ const moreQuestions = String(stage || "") === "confirmation" &&
 
 if (taskId) {
   try {
-    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
+    const doc = storedDoc;
     const state = (doc && doc.value) || {};
     const documentExists = !!(doc && doc.value);
     const data = Object.assign({}, state.data);
@@ -404,6 +435,23 @@ if (taskId) {
         patch["data." + key] = parsed[key];
       }
     });
+
+    // ── A question with nothing left to ask ──
+    // Intake needs exactly two facts: the unit and the essence of the problem. When both
+    // are in the document there is nothing it may ask, and yet the agent answered
+    // `action: clarify` while its own `reason` field read «все данные для обработки запроса
+    // имеются» — three turns running. The partner got «Уточните, пожалуйста, детали
+    // вопроса» each time, because the question is composed from what is missing and nothing
+    // was; then the loop guard gave the chat to an operator. Whether the collected data is
+    // enough is a fact about the document, not an opinion of the model, so it is decided
+    // here: both facts present means the turn is a route.
+    if (String(stage || "") === "intake" && String(parsed.action || "") === "clarify" &&
+        data.unitFullName && data.problemSummary) {
+      parsed.action = "route";
+      delete parsed.clarifyKind;
+      delete parsed.clarifyingQuestion;
+      Log.warn({ message: "parseAgentJson: intake asked to clarify on task " + taskId + " while the unit and the problem are both known, routing instead" });
+    }
 
     // What the partner answered to the questions of a branching article. The names of
     // the fields come from the article and the values from the model, written one path

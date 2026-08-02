@@ -230,7 +230,12 @@ if (isClarify && !loopBroken) {
     if (!data.unitFullName) parts.push(UNIT_QUESTION[kind] || UNIT_QUESTION_DEFAULT);
     if (!data.problemSummary) parts.push(PROBLEM_QUESTION);
     if (parts.length) text = "Подскажите, " + parts.join(", а также ") + "?";
-    else Log.info({ message: "applyOutcome: intake asked '" + (kind || "?") + "' on task " + taskId + " while unit and problem are both known" });
+    // Nothing missing and still a question: the partner then got «Уточните, пожалуйста,
+    // детали вопроса» three turns running and a handover, while the note in front of the
+    // model read «Не хватает для продолжения: ничего, данных достаточно». That decision is
+    // now taken away from the model in parseAgentJson, which turns such a turn into a
+    // route, so reaching this line means the guard upstream has a hole — hence a warning.
+    else Log.warn({ message: "applyOutcome: intake asked '" + (kind || "?") + "' on task " + taskId + " while unit and problem are both known, nothing to ask" });
   }
 }
 

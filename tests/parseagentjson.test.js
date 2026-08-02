@@ -168,6 +168,52 @@ async function main() {
       !r.state.data.unitFullName, r.state.data);
   }
 
+  // ── The point that was answered for once and asked about three times ──
+  // The partner had answered «кофейня» a turn earlier and the catalog value was stored. On
+  // the next turn the agent re-reported the bare name it heard, the current message no
+  // longer contained the word «кофейня», and the same name went ambiguous again: the bot
+  // asked about a point it already knew until the loop guard handed the chat over.
+  const RESOLVED = {
+    stage: "gathering",
+    data: {
+      unitFullName: "[drinkit.ru] Москва-12 (Тверская, 1)",
+      problemSummary: "изменить фамилию сотрудника"
+    }
+  };
+  r = await run("intake", json({
+    action: "clarify", clarifyKind: "need_business", unit: "Москва-12",
+    unitFullName: null, business: "drinkit", problemSummary: "изменить фамилию сотрудника",
+    reason: "все данные для обработки запроса имеются"
+  }), RESOLVED, { incomingText: "изменить фамилию сотрудника Иванов Иван на Петров Иван" });
+  t.check("a unit already in the document is not asked about again",
+    r.result.unitFullName === "[drinkit.ru] Москва-12 (Тверская, 1)", r.result);
+  t.check("and no clarification kind survives",
+    !r.result.clarifyKind, r.result);
+  t.check("a clarify with nothing missing becomes a route",
+    r.result.action === "route", r.result);
+  t.check("the stored unit is left as it was",
+    r.state.data.unitFullName === "[drinkit.ru] Москва-12 (Тверская, 1)", r.state.data);
+
+  // The partner correcting himself must still be able to move the unit to the other
+  // business: his word decides, and it decides against what is already stored.
+  r = await run("intake", json({ action: "route", unit: "Москва-12" }),
+    RESOLVED, { incomingText: "вообще-то это пиццерия" });
+  t.check("the partner naming the other business moves the resolved unit",
+    r.result.unitFullName === "[dodopizza.ru] Москва-12 (Ленинский проспект, 5)", r.result);
+
+  // A different point in the same chat is a different question, and it gets asked about.
+  r = await run("intake", json({ action: "route", unit: "Тамбов-1" }),
+    RESOLVED, { incomingText: "а ещё по Тамбов-1" });
+  t.check("another point is resolved on its own merits",
+    r.result.unitFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", r.result);
+
+  // Nothing to route to: the problem is still missing, so the question is legitimate.
+  r = await run("intake", json({ action: "clarify", clarifyKind: "need_problem", unit: "Москва-12" }),
+    { stage: "gathering", data: { unitFullName: "[drinkit.ru] Москва-12 (Тверская, 1)" } },
+    { incomingText: "здравствуйте" });
+  t.check("a clarify about the problem still asks",
+    r.result.action === "clarify" && r.result.clarifyKind === "need_problem", r.result);
+
   // ── The point that was chosen FOR the partner ──
   // matchUnit found «Москва-12» in two businesses, refused to resolve it, and listed both;
   // the agent copied the first full name out of that list and it was accepted, because an
