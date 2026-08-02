@@ -151,6 +151,13 @@ function dialog(seed) {
     get state() { return db[KEY]; },
     get data() { return db[KEY].data || {}; },
     get notes() { return notes.join("\n"); },
+    // The routing agent's call: a free-text query and no topic key yet.
+    async find(query) {
+      const e = env();
+      const r = await searchKnowledge(e, [query, null, null, null]);
+      carry(e);
+      return r;
+    },
     async search(topicKey, branch, given) {
       const e = env();
       const r = await searchKnowledge(e, ["", topicKey, branch, given]);
@@ -183,6 +190,28 @@ function dialog(seed) {
 
 async function main() {
   const t = suite("knowledge tree");
+
+  // ── Поиск темы по свободному запросу ──
+  // The names of people and places used to count against the article that matched. The
+  // right article was found on every word that carries the request and still scored 0.30
+  // out of the ten words of the query — under the threshold — so the catalog reported
+  // nothing and the chat went to an operator with the article sitting in it.
+  let f = dialog();
+  let m = await f.find("нужно изменить фамилию сотрудника с Иванов Иван на Петров Иван в системе для кофейни");
+  t.check("a wordy query with names still finds the article",
+    m.found && m.topics[0].key === "profile_change", m);
+
+  m = await f.find("изменить данные сотрудника");
+  t.check("the bare description finds it too", m.found && m.topics[0].key === "profile_change", m);
+
+  // Two articles share «касса»; the one that also has «печатает» and «чек» must come first.
+  m = await f.find("касса не печатает чек");
+  t.check("the closer of two articles is ranked first",
+    m.found && m.topics[0].key === "printer_no_receipt", m.topics);
+
+  // Nothing in the catalog is about this, and inventing a topic is worse than escalating.
+  m = await f.find("хочу заказать доставку на день рождения");
+  t.check("a query the catalog knows nothing about finds nothing", !m.found, m);
 
   // ── Тема 1, ветка с подзадачей: что менять -> на какое значение -> причина -> подзадача ──
   let d = dialog();

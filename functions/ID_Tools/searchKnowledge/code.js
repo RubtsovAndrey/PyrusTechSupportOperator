@@ -651,11 +651,26 @@ if (!queryTokens.length) {
   return { found: false, topics: [], source: "empty-query" };
 }
 
+// ── What the score is allowed to be divided by ──
+// It used to be every word of the query, and that denominator counted words no article
+// can ever contain: the employee's name, the point, the numbers. «нужно изменить фамилию
+// сотрудника с Иванов Иван на Петров Иван в системе для кофейни» matched
+// employee_profile_change on all three words that carry the request — изменить, фамилию,
+// сотрудника — and scored 3/10 = 0.30 against a threshold of 0.34. The catalog answered
+// «ничего не нашлось» with the right article sitting in it, the RAG fallback then failed
+// with an empty body, and the chat went to an operator on the second turn. The more
+// precisely the partner described his problem, the lower the score of the article about
+// it: the metric ran backwards, and the names of people and places were what pushed it
+// down. Only words the catalog knows at all are counted now, so «Иванов» — a word no
+// article contains — no longer votes on how well an article matched.
+const haystacks = topics.map(t => tokenize([t.key, t.description, t.componentName].filter(Boolean).join(" ")));
+const known = queryTokens.filter(q => haystacks.some(h => hasToken(h, q)));
+const denominator = known.length || 1;
+
 const scored = topics
-  .map(t => {
-    const haystack = tokenize([t.key, t.description, t.componentName].filter(Boolean).join(" "));
-    const hits = queryTokens.filter(q => hasToken(haystack, q)).length;
-    return { topic: t, score: hits / queryTokens.length };
+  .map((t, i) => {
+    const hits = known.filter(q => hasToken(haystacks[i], q)).length;
+    return { topic: t, score: hits / denominator };
   })
   .filter(r => r.score >= MIN_SCORE)
   .sort((a, b) => b.score - a.score)
@@ -685,6 +700,17 @@ if (scored.length) {
 
 // No topic matched. Returning the whole catalog would invite the agent to guess, so
 // fall back to the knowledge base and let the caller decide (usually: escalate).
+//
+// This path ends in an operator, so it says WHY: the near miss above cost a chat, and
+// the log at the time showed only that the fallback had failed, not that the right
+// article had been half a hit away.
+const best = topics
+  .map((t, i) => ({ key: String(t.key || ""), score: known.filter(q => hasToken(haystacks[i], q)).length / denominator }))
+  .sort((a, b) => b.score - a.score)[0];
+Log.info({ message: "searchKnowledge: no topic reached " + MIN_SCORE + " for \"" + String(query).slice(0, 120) +
+  "\"; catalog knows " + known.length + " of " + queryTokens.length + " words, best is " +
+  (best ? best.key + " at " + best.score.toFixed(2) : "nothing") });
+
 let chunks = [];
 try {
   const rag = await Rag.retrieveChunks({ ragIntegration: RAG_KEY, query: String(query) });
