@@ -14,6 +14,19 @@
 
 $ErrorActionPreference = "Stop"
 
+# ── Why git is called through a wrapper ──
+# git writes progress to stderr even when it succeeds ("To https://github.com/…" on a push).
+# With ErrorActionPreference=Stop and a 2>&1 redirect PowerShell turns that into an
+# ErrorRecord, so a perfectly good deploy printed a wall of red NativeCommandError. A script
+# that cries wolf on success teaches people to ignore its output, which defeats the one job
+# it has. Exit codes are checked explicitly instead — they are the only honest signal here.
+function Git {
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try { & git @args 2>&1 | Out-Host } finally { $ErrorActionPreference = $prev }
+  return $LASTEXITCODE
+}
+
 # Directories the export deletes and we restore from our side. Adding a directory that is not
 # a project resource? Add it here AND to the table in docs/deploy.md — tests/run.js checks
 # that the two agree, because a directory named in the rule but missing from the script is
@@ -47,8 +60,7 @@ $before = git rev-parse HEAD
 
 # ── 2. What the platform has sent back ──
 Step "git fetch"
-git fetch origin | Out-Host
-if ($LASTEXITCODE -ne 0) { Fail "could not reach origin" }
+if ((Git fetch origin) -ne 0) { Fail "could not reach origin" }
 
 $incoming = @(git log --oneline HEAD..origin/main)
 $outgoing = @(git log --oneline origin/main..HEAD)
@@ -66,7 +78,7 @@ if ($incoming.Count -gt 0) {
   Step "Merging the platform's export"
   # modify/delete conflicts on the protected directories are expected here, not a failure,
   # so the exit code is deliberately not checked: they are resolved right below.
-  git merge --no-commit --no-ff origin/main 2>&1 | Out-Host
+  Git merge --no-commit --no-ff origin/main | Out-Null
   $merging = $true
 
   Step "Restoring the protected directories from our side"
@@ -107,14 +119,12 @@ if ($LASTEXITCODE -ne 0) {
 # ── 5. Commit the merge ──
 if ($merging) {
   Step "Committing the merge"
-  git commit -m "merge: keep docs, tests and tools, which the platform export deletes" | Out-Host
-  if ($LASTEXITCODE -ne 0) { Fail "could not commit the merge" }
+  if ((Git commit -m "merge: keep docs, tests and tools, which the platform export deletes") -ne 0) { Fail "could not commit the merge" }
 }
 
 # ── 6. Deploy ──
 Step "git push origin main - the platform takes it from there"
-git push origin main 2>&1 | Out-Host
-if ($LASTEXITCODE -ne 0) { Fail "could not push to origin" }
+if ((Git push origin main) -ne 0) { Fail "could not push to origin" }
 
 Write-Host ""
 Write-Host "Done. HEAD = $(git rev-parse --short HEAD), the deploy is running." -ForegroundColor Green
