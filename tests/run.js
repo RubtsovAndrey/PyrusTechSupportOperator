@@ -197,6 +197,37 @@ function checkPrelude() {
   return Object.keys(groups).map(k => groups[k]);
 }
 
+// ── Каталоги, которые стирает экспорт платформы ──
+// Экспорт владеет всем корнем репозитория и удаляет `docs/`, `tests/`, `tools/` целиком.
+// Список защищённых каталогов живёт в двух местах — в `tools/deploy.ps1`, который их
+// восстанавливает, и в `docs/deploy.md`, где записано правило. Разъедутся — и каталог,
+// добавленный в правило, но не в скрипт, потеряется на первом же деплое молча. Ровно тот же
+// класс расхождения, что у восьми копий writeState, и проверяется так же.
+function checkProtected() {
+  const problems = [];
+  const read = rel => {
+    try { return fs.readFileSync(path.join(ROOT, rel), "utf8"); }
+    catch (e) { problems.push(rel + " не читается: " + e.message); return null; }
+  };
+  const script = read("tools/deploy.ps1");
+  const doc = read("docs/deploy.md");
+  if (!script || !doc) return problems;
+
+  const m = /\$PROTECTED\s*=\s*@\(([^)]*)\)/.exec(script);
+  if (!m) return ["в tools/deploy.ps1 не найден список $PROTECTED"];
+  const dirs = m[1].split(",").map(s => s.trim().replace(/^"|"$/g, "")).filter(Boolean);
+  if (!dirs.length) return ["список $PROTECTED в tools/deploy.ps1 пуст"];
+
+  dirs.forEach(d => {
+    if (!fs.existsSync(path.join(ROOT, d))) problems.push("каталог " + d + "/ защищён скриптом, но его нет на диске");
+    // Незаписанное в правило не переживёт человека, который правило читает, а скрипт нет.
+    if (doc.indexOf("`" + d + "/`") < 0) problems.push("каталог " + d + "/ защищён скриптом, но не назван в docs/deploy.md");
+  });
+  // И наоборот: этот файл сам обязан быть под защитой, иначе проверка исчезнет вместе с ним.
+  if (dirs.indexOf("tests") < 0) problems.push("tests/ не в списке $PROTECTED — сама эта проверка не переживёт деплой");
+  return problems;
+}
+
 function checkGraph() {
   const ids = new Set();
   const refs = [];
@@ -257,6 +288,17 @@ function checkGraph() {
     catalog.forEach(p => console.log("        " + p));
   } else {
     console.log("  PASS  every article resolves its nodes, keys and exits");
+  }
+
+  console.log("\nprotected directories");
+  const protectedDirs = checkProtected();
+  total++;
+  if (protectedDirs.length) {
+    failed++;
+    console.log("  FAIL  " + protectedDirs.length + " проблем(а) с каталогами, которые стирает экспорт:");
+    protectedDirs.forEach(p => console.log("        " + p));
+  } else {
+    console.log("  PASS  the rule and the script that enforces it name the same directories");
   }
 
   console.log("\nwriteState copies");
