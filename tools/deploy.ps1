@@ -26,8 +26,16 @@ $ErrorActionPreference = "Stop"
 function RunGit {
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
-  try { & git.exe @args 2>&1 | Out-Host } finally { $ErrorActionPreference = $prev }
-  return $LASTEXITCODE
+  try {
+    # ToString() on every item is the point: with 2>&1 PowerShell wraps each stderr line in
+    # an ErrorRecord, and rendering one prints a red block with CategoryInfo and a stack —
+    # over «To https://github.com/…», which is git reporting success. Flattened to strings
+    # and written with Write-Host they are what they are: progress output.
+    $out = & git.exe @args 2>&1 | ForEach-Object { $_.ToString() }
+    $code = $LASTEXITCODE
+  } finally { $ErrorActionPreference = $prev }
+  if ($out) { $out | ForEach-Object { Write-Host "  $_" } }
+  return $code
 }
 
 # Directories the export deletes and we restore from our side. Adding a directory that is not
