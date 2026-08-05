@@ -1,11 +1,58 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
+
+// One read of `config` for everything this function takes from it. Two separate reads for
+// two settings would be two round trips on the hot path of every webhook.
+const CONFIG = (function () {
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "config" });
+    return (doc && doc.value) || {};
+  } catch (e) {
+    Log.warn({ message: "receiveWebhook: config read failed, falling back to built-in defaults: " + e });
+    return {};
+  }
+})();
+
 // Pyrus fires a webhook for every new comment INCLUDING the ones this bot posts
 // itself. Without this check the bot reads its own reply as the partner's message,
 // answers it, and the answer fires the next webhook: the partner receives the whole
 // knowledge base article in a few seconds and the task escalates without him saying
 // a word. author.type is not usable for this — for programmatic agents Pyrus often
 // reports "user" — so the numeric id is the only reliable signal.
-const BOT_AUTHOR_ID = 1314929;
+//
+// Read from the `config` document, with the current account as the default. This is the
+// single most expensive constant in the project to get wrong — a wrong value means the bot
+// answering itself in a loop — and it used to be a literal in two files at once, so a new
+// service account (a migration, a recreated integration) would be applied to one of them
+// and not the other. One extra Db.get per webhook buys the ability to fix that without a
+// deploy, and the default keeps the bot working on an empty database.
+const BOT_AUTHOR_ID = Number(CONFIG.botAuthorId || 0) || 1314929;
+
+// ── Which forms the bot works in, and as what ──
+// Until now there was no notion of a form at all: `runtime.formId` was written and never
+// read, so every webhook was treated as a chat. That is safe only while the webhook is
+// registered on exactly one form. It stops being safe the moment it is registered on the
+// ticket form, because THAT form is also the form the bot creates its own subtasks on
+// (`config.subtaskFormId`) — so the bot would start receiving events for the escalations it
+// had just handed to the first line, and answer a colleague as if he were the partner.
+//
+// Roles:
+//   chat   — the form the bot works today: a partner conversation from the first message.
+//   ticket — a task on the subtask/ticket form. Reached only through the gate below: the
+//            bot must be the current approver AND there must be somewhere to reply.
+//
+// `config.forms` is a map of form id to `{ role }`. While it is ABSENT every form counts as
+// a chat, which is exactly today's behaviour — a default of silence here would have taken
+// the live bot down the moment this was deployed without the document. Once the map exists
+// it becomes a whitelist, and an unlisted form is left alone. That is what makes turning the
+// webhook on for a new form a switch rather than an all-or-nothing bet.
+const FORM_ROLES = (CONFIG.forms && typeof CONFIG.forms === "object") ? CONFIG.forms : null;
+
+function roleOfForm(formId) {
+  if (!FORM_ROLES) return "chat";
+  const entry = FORM_ROLES[String(formId || "")];
+  const role = entry && entry.role ? String(entry.role) : null;
+  return (role === "chat" || role === "ticket") ? role : null;
+}
 // Ten lines used to cut the opening message, which is where the partner names the
 // unit — by the end of a dialog the model no longer saw where the unit came from.
 const HISTORY_LIMIT = 20;
@@ -47,8 +94,16 @@ function setPath(target, dotted, value) {
 // An array cannot be the value of a $set: the adapter converts every value into a BSON
 // document and answers 500 — «Failed to convert from ArrayNode to org.bson.Document».
 // Such a patch skips the point write and goes whole-document, where arrays are fine.
+//
+// Checked at every depth, not just at the top: the conversion walks the whole value, so an
+// array nested inside an object breaks it exactly the same way. While only the top level
+// was checked, a patch like { pendingOutcome: { fieldUpdates: [...] } } passed the guard,
+// failed on the platform and was rescued by the whole-document path — silently doing the
+// read-modify-write these point writes exist to avoid.
 function hasArrayValue(paths) {
-  return Object.keys(paths).some(p => Array.isArray(paths[p]));
+  const deep = v => Array.isArray(v) ||
+    (!!v && typeof v === "object" && Object.keys(v).some(k => deep(v[k])));
+  return Object.keys(paths).some(p => deep(paths[p]));
 }
 
 function writeState(taskId, paths, who) {
@@ -124,6 +179,84 @@ if (isBot(lastComment.author)) {
   return result(taskId, null, true, "last comment is the bot's own");
 }
 
+// ── Which form this is, and whether the bot has any business here ──
+const formId = task.form_id ? String(task.form_id) : null;
+const role = roleOfForm(formId);
+if (!role) {
+  return result(taskId, null, true, "form " + formId + " is not one the bot works in");
+}
+
+// ── Is it the bot's turn? ──
+// For a ticket the mandate comes from the workflow: the bot works only where it is the
+// current approver. That single fact separates every kind of ticket there is — a task that
+// arrived by email puts the bot on step 1, while a subtask made by a human, an ordinary task
+// made by a human, and the subtask the bot itself created a minute ago all put the first line
+// there instead. It is also the same fact that decides whether Pyrus will accept
+// `action: "finished"` later: a step can only be finished by its own approver, which is
+// exactly why posting it on a freshly created subtask always answered 400. Permission and
+// mandate are one signal, so they cannot drift apart.
+//
+// The shape of this in the webhook payload is NOT yet confirmed on a live ticket, so the
+// resolver reports three outcomes, not two, and «cannot tell» means silence. Guessing
+// «probably mine» here is the one error that ends with the bot answering a colleague in an
+// escalation it had handed over itself.
+function approvalEntries() {
+  const raw = task.approvals;
+  if (!Array.isArray(raw)) return null;
+  const out = [];
+  raw.forEach((group, i) => {
+    // Pyrus nests approvals one array per step; a flat array is accepted too, in which case
+    // the `step` of each entry is the only thing that can place it.
+    const list = Array.isArray(group) ? group : [group];
+    list.forEach(a => {
+      if (!a || typeof a !== "object") return;
+      out.push({ person: a.person || a.approver || null, step: Number(a.step || i + 1), choice: String(a.approval_choice || a.approvalChoice || "") });
+    });
+  });
+  return out.length ? out : null;
+}
+
+// Returns true / false / null, and null means «the payload does not say».
+function botIsCurrentApprover() {
+  const entries = approvalEntries();
+  if (!entries) return null;
+  const step = Number(task.current_step || task.currentStep || 0) || 1;
+  const atStep = entries.filter(a => a.step === step);
+  if (!atStep.length) return null;
+  return atStep.some(a => a.person && isBot(a.person) && a.choice !== "approved" && a.choice !== "rejected");
+}
+
+if (role === "ticket") {
+  // One line that answers, from the first real ticket, everything the code cannot know:
+  // whether the workflow reaches us at all and under which names. Ids only, no names or
+  // addresses of colleagues.
+  const entries = approvalEntries();
+  Log.info({
+    message: "receiveWebhook: ticket " + taskId + " on form " + formId +
+      " | task keys: " + Object.keys(task).join(",") +
+      " | current_step: " + JSON.stringify(task.current_step === undefined ? null : task.current_step) +
+      " | approvals: " + (entries
+        ? entries.map(a => "step" + a.step + ":" + ((a.person && a.person.id) || "?") + ":" + (a.choice || "-")).join(" ")
+        : JSON.stringify(task.approvals === undefined ? "absent" : typeof task.approvals)) +
+      " | bot id: " + BOT_AUTHOR_ID
+  });
+
+  const mine = botIsCurrentApprover();
+  if (mine !== true) {
+    return result(taskId, null, true, mine === null
+      ? "ticket " + taskId + ": the payload does not say who the current approver is, staying out"
+      : "ticket " + taskId + ": the current step belongs to someone else");
+  }
+  // The second condition, and the one that keeps the call-center tickets out: their tasks
+  // have no channel at all — colleagues and the bot share one internal correspondence — so
+  // there is no partner to answer and nothing this bot can usefully do. It also protects
+  // against the failure finalize used to have: with no channel a reply goes to the internal
+  // correspondence, Pyrus accepts it, and the partner hears nothing.
+  if (!comments.some(c => c.channel && c.channel.direction === "inbound")) {
+    return result(taskId, null, true, "ticket " + taskId + ": no inbound channel, there is nobody to reply to");
+  }
+}
+
 // Pyrus records a change of the base status on the comment that caused it: the
 // comment that closed the task carries action "finished", and the partner's reply
 // into a closed task carries action "reopened".
@@ -147,17 +280,37 @@ const threadComments = closedAt >= 0 ? comments.slice(closedAt + 1) : comments;
 // including the summaries the bot itself wrote for the operator. The opening message is
 // the exception: Pyrus reports the task body without a channel, and it is always the
 // partner's, so only later channel-less comments are read as internal.
-function speaker(c, index) {
+// The «index === 0» exception holds only for an UNCUT thread. After a close the slice starts
+// at the comment that reopened the task, and a reopen the bot acts on always carries the
+// partner's channel — so a channel-less comment first in a cut slice is an operator's note,
+// and calling it «Партнёр» is the very mislabelling this function was written to stop.
+function speaker(c, index, threadWasCut) {
   if (isBot(c.author)) return "Ассистент";
-  if (c.channel || index === 0) return "Партнёр";
+  if (c.channel || (index === 0 && !threadWasCut)) return "Партнёр";
   return "Оператор";
+}
+
+// ── Why the length is capped and not only the count ──
+// The limit used to be twenty comments of whatever length Pyrus sent. A partner pasting the
+// log of a till or a stack trace put the whole thing into the prompt — and, because notes
+// are rebuilt from the thread on every webhook, it stayed there for the next twenty turns,
+// paid for on every model call and crowding out the instructions that tell the bot what to
+// do. The substance of a support message is at its beginning; the tail of a log is not
+// something a flash model is going to use.
+// Only the copy that goes into the prompt is shortened. The full text still reaches the code
+// that has a use for it — the business words, the tokens searchKnowledge scores on.
+const MAX_HISTORY_LINE = 1200;
+
+function forPrompt(text, limit) {
+  const s = String(text || "");
+  return s.length > limit ? s.slice(0, limit) + " …[сообщение обрезано]" : s;
 }
 
 const history = [];
 threadComments
   .filter(c => c.text || c.formatted_text)
   .forEach((c, i) => {
-    const line = speaker(c, i) + ": " + (c.text || c.formatted_text);
+    const line = speaker(c, i, closedAt >= 0) + ": " + forPrompt(c.text || c.formatted_text, MAX_HISTORY_LINE);
     if (history[history.length - 1] !== line) history.push(line);
   });
 
@@ -203,6 +356,20 @@ const unitField = allFields.find(f => f.name === "Юнит");
 const componentField = allFields.find(f => f.name === "Компонент");
 const unitFieldId = unitField ? Number(unitField.id) : null;
 const componentFieldId = componentField ? Number(componentField.id) : null;
+
+// The fields are found by NAME, which is what makes the same code work on a form whose ids
+// differ. The cost is that a renamed field resolves to nothing and the Pyrus field is then
+// left empty — silently, because applyOutcome and finalize simply skip an id they do not
+// have. On a form the bot has not worked before that silence is the last thing anyone would
+// think to check, so on tickets it is said out loud once per turn.
+if (role === "ticket" && (!unitFieldId || !componentFieldId)) {
+  Log.warn({
+    message: "receiveWebhook: ticket " + taskId + " on form " + formId +
+      " — «Юнит» " + (unitFieldId ? "= " + unitFieldId : "НЕ НАЙДЕН") +
+      ", «Компонент» " + (componentFieldId ? "= " + componentFieldId : "НЕ НАЙДЕН") +
+      ". Поля формы: " + allFields.map(f => (f.name || "?") + ":" + (f.id || "?")).join(", ")
+  });
+}
 
 // ── Per-task state: the single source of truth, keyed by taskId ──
 const now = Date.now();
@@ -266,6 +433,12 @@ if (storedStage === "closed") stage = "reopened";               // bot had finis
 else if (storedStage === "escalated") stage = "escalated";      // operator owns the thread now
 else if (storedStage === "awaiting_confirmation") stage = "awaiting_confirmation";
 else if (storedStage === "awaiting_email") stage = "awaiting_email";
+// The article asked a question of its own and this is the answer to it. Straight back to
+// the solver, the way `awaiting_email` goes straight back to createSubtask: routed through
+// intake it cost two extra model calls per answer and let routing rewrite `topicKey` in the
+// middle of a tree walk. Needs a topic to return to — without one there is no article to
+// continue, and intake is always the safe fallback.
+else if (storedStage === "awaiting_answers") stage = data.topicKey ? "awaiting_answers" : "intake";
 // A message the bot cannot read at all goes to a human immediately: guessing what is
 // on a screenshot from an empty text is exactly the improvisation this bot must not do.
 // True on every working stage — a screenshot answering "Получилось?" is just as
@@ -301,9 +474,18 @@ const isFirstBotReply = newRequest || !(stored.botHasReplied === true || comment
 const runtimeValue = {
   apiUrl: apiUrl,
   token: token,
-  outboundChannel: outboundChannel,
+  // An address once known for a task does not stop being valid. Overwritten with null it
+  // could be lost mid-dialog: Pyrus may truncate `comments` from the tail, and if the
+  // truncation takes away every inbound comment there is nothing left to derive it from.
+  // With finalize now refusing to talk into a channel-less void, that loss would turn a
+  // healthy conversation into a handover.
+  outboundChannel: outboundChannel || (stored.runtime && stored.runtime.outboundChannel) || null,
   incomingCommentId: incomingCommentId,
-  formId: task.form_id ? String(task.form_id) : null,
+  formId: formId,
+  // What the rest of the graph is dealing with. `createSubtask` reads it to refuse creating
+  // a subtask of a ticket — a ticket already IS the subtask — and it belongs in the document
+  // rather than being re-derived, because only this function sees the webhook payload.
+  role: role,
   unitFieldId: unitFieldId,
   componentFieldId: componentFieldId,
   isFirstBotReply: isFirstBotReply,
@@ -326,7 +508,17 @@ const patch = {
   "taskId": Number(taskId),
   "updatedAt": now,
   "botHasReplied": !isFirstBotReply,
-  "runtime": runtimeValue
+  "runtime": runtimeValue,
+  // ── The decision of a turn belongs to that turn ──
+  // finalize consumes `pendingOutcome` only when it manages to post; a run that died on a
+  // missing token, on a Pyrus outage or on being superseded leaves it in the document. The
+  // next turn then has a decision in there that was made about a DIFFERENT message — and
+  // finalize is the `next-error-step` of nearly every node, so the path «this turn throws
+  // → finalize» is the most likely failure of all. It would post that stale text as the
+  // answer to the new message and act on its `action`, closing or escalating the task.
+  // Cleared here because this is the only function that knows a new turn has begun; the
+  // invariant becomes checkable in one line: pendingOutcome is non-empty ⇒ this turn set it.
+  "pendingOutcome": null
 };
 if (newRequest || !documentExists) {
   // The leftovers of the finished обращение must go, so here the whole subtree is
@@ -336,7 +528,6 @@ if (newRequest || !documentExists) {
   patch["stage"] = null;
   patch["clarifyStreak"] = 0;
   patch["subtaskId"] = null;
-  patch["pendingOutcome"] = null;
 } else if (emailHarvested) {
   patch["data.email"] = data.email;
 }
@@ -357,30 +548,52 @@ if (!data.problemSummary) missing.push("описание проблемы");
 
 const attemptsMade = Array.isArray(data.attempts) ? data.attempts.length : 0;
 
-AgentContext.addNote({
-  text: [
-    "Известные данные по обращению:",
-    "- Юнит: " + (data.unitFullName || "не определён"),
-    "- Проблема: " + (data.problemSummary || "не описана"),
-    "- Email: " + (data.email || "не указан"),
-    "- Тематика: " + (data.topicKey || "не определена"),
-    "- Уже предложено решений: " + attemptsMade,
-    "- Это первый ответ бота в диалоге: " + (isFirstBotReply ? "да" : "нет"),
-    "- Не хватает для продолжения: " + (missing.length ? missing.join(", ") : "ничего, данных достаточно")
-  ].join("\n")
-});
+const lines = [
+  "Известные данные по обращению:",
+  "- Юнит: " + (data.unitFullName || "не определён"),
+  "- Проблема: " + (data.problemSummary || "не описана"),
+  "- Email: " + (data.email || "не указан"),
+  "- Тематика: " + (data.topicKey || "не определена"),
+  "- Уже предложено решений: " + attemptsMade,
+  "- Это первый ответ бота в диалоге: " + (isFirstBotReply ? "да" : "нет"),
+  "- Не хватает для продолжения: " + (missing.length ? missing.join(", ") : "ничего, данных достаточно")
+];
+
+// What the article still wants to know, as parseAgentJson worked it out on the previous
+// turn. Carried in the document rather than recomputed here: reading it out of the catalog
+// would mean a fourth copy of the topic-walking helpers in this project, and the value is a
+// snapshot of exactly the right moment anyway — what is open BEFORE the tool is called.
+// It matters most on the `awaiting_answers` stage, where the turn goes straight to the
+// solver and no earlier stage has published this line into the prompt.
+const collected = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
+const collectedLine = Object.keys(collected).map(k => k + ": " + collected[k]).join("; ");
+if (collectedLine) lines.push("- Уже собрано по тематике: " + collectedLine);
+if (data.openAnswerPrompts) lines.push("- Ещё не отвечено (ключ — вопрос): " + data.openAnswerPrompts);
+
+AgentContext.addNote({ text: lines.join("\n") });
 
 if (incomingText) {
-  AgentContext.addNote({ text: "Текущее сообщение партнёра (отвечать нужно на него): " + incomingText });
+  AgentContext.addNote({
+    text: "Текущее сообщение партнёра (отвечать нужно на него): " + forPrompt(incomingText, MAX_HISTORY_LINE)
+  });
 }
 
 // Snapshot for the functions further down the graph (taskId lookup). Keep it free of
 // secrets: the platform copies these keys into the prompt.
+//
+// `incomingText` is capped far more generously than the history lines, because here the cap
+// is not only about the prompt: matchUnit, searchKnowledge and parseAgentJson read this
+// value to find the unit, the business and the branch in the partner's own words, and
+// cutting it at 1200 could cut off the very word being looked for. Four thousand characters
+// bound the worst case — one pasted log, not twenty — and no real support message that
+// names a point reaches them.
+const MAX_INCOMING_IN_CONTEXT = 4000;
+
 AgentContext.putValue({
   key: "dialog",
   value: {
     taskId: taskId,
-    incomingText: incomingText,
+    incomingText: forPrompt(incomingText, MAX_INCOMING_IN_CONTEXT),
     unitFullName: data.unitFullName || null,
     componentName: data.componentName || null,
     problemSummary: data.problemSummary || null,

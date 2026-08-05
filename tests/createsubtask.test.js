@@ -57,6 +57,26 @@ async function main() {
   t.check("nothing is sent to Pyrus", r.posts.length === 0 && r.gets.length === 0,
     { posts: r.posts.length, gets: r.gets.length });
 
+  // ── A ticket has no subtask to create: the ticket IS the subtask ──
+  // The article still routes here, because the catalog describes the problem and knows
+  // nothing about the form the dialog lives on. A plain failure is enough: the graph carries
+  // `success: false` without `action: "clarify"` through cond_subtask_created and
+  // cond_subtask_needs_email straight to the escalation, with no new node.
+  r = await run({ state: { runtime: { apiUrl: "https://api.pyrus.com/v4/", token: "t", role: "ticket" } } });
+  t.check("a ticket does not get a subtask of its own", r.result.success === false, r.result);
+  t.check("and nothing at all is sent to Pyrus", r.posts.length === 0 && r.gets.length === 0,
+    { posts: r.posts.length, gets: r.gets.length });
+  t.check("the reason says why, so the escalation summary is not a mystery",
+    /ticket/.test(r.result.reason), r.result.reason);
+  // Crucially it must NOT look like «ask the partner for an email», or the graph would ask
+  // for an address instead of handing the ticket over.
+  t.check("it is not mistaken for a request for the email", r.result.action !== "clarify", r.result);
+
+  // A chat on the very same form still creates its subtask: the role of the task decides,
+  // not the form the subtask is created on — during the tests those are the same form.
+  r = await run({ state: { runtime: { apiUrl: "https://api.pyrus.com/v4/", token: "t", role: "chat" } } });
+  t.check("a chat still creates its subtask", r.result.success === true && created(r.posts).length === 1, r.result);
+
   // ── The register is asked before creating ──
   // Two concurrent runs both read subtaskId as empty; only Pyrus can settle it.
   r = await run({ onGet: registerWith(90500) });

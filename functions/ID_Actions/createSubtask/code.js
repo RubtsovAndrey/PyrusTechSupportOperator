@@ -8,8 +8,14 @@ const DB_ID = "1000299722-pyrus_bot_database-hul";
 // that the form does not have fails the whole creation.
 // `subjectFieldId` and `messageFieldId` are the «Тема» and «Сообщение» fields of the section
 // «Входные данные»: that is where the first line looks for the request itself.
+// ── ВНИМАНИЕ: сейчас здесь ТЕСТОВАЯ форма ──
+// `subtaskFormId: 2454249` — копия продовой формы 1096731, на ней же идут тесты тикетов.
+// Перед выходом в прод заменить обратно на 1096731 (и форму чатов — на продовую).
+// Номера полей у копии формы могут отличаться от оригинала: если создание подзадачи
+// начнёт отвечать 400, в логе будет тело ответа Pyrus с именем неподошедшего поля —
+// см. `describe(e)` ниже. Правильные номера кладутся в документ `config` без деплоя.
 const DEFAULTS = {
-  subtaskFormId: 1096731, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5,
+  subtaskFormId: 2454249, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5,
   subjectFieldId: 1, messageFieldId: 2, parentLinkFieldId: null
 };
 
@@ -32,8 +38,16 @@ function setPath(target, dotted, value) {
 // An array cannot be the value of a $set: the adapter converts every value into a BSON
 // document and answers 500 — «Failed to convert from ArrayNode to org.bson.Document».
 // Such a patch skips the point write and goes whole-document, where arrays are fine.
+//
+// Checked at every depth, not just at the top: the conversion walks the whole value, so an
+// array nested inside an object breaks it exactly the same way. While only the top level
+// was checked, a patch like { pendingOutcome: { fieldUpdates: [...] } } passed the guard,
+// failed on the platform and was rescued by the whole-document path — silently doing the
+// read-modify-write these point writes exist to avoid.
 function hasArrayValue(paths) {
-  return Object.keys(paths).some(p => Array.isArray(paths[p]));
+  const deep = v => Array.isArray(v) ||
+    (!!v && typeof v === "object" && Object.keys(v).some(k => deep(v[k])));
+  return Object.keys(paths).some(p => deep(paths[p]));
 }
 
 function writeState(taskId, paths, who) {
@@ -190,6 +204,17 @@ const data = state.data || {};
 const runtime = state.runtime || {};
 const cfg = loadConfig();
 
+// ── A ticket has no subtask to create: the ticket IS the subtask ──
+// The article may still route here — `route: "subtask"`, `treeEnd: "subtask"`, an `onFail`
+// that says subtask — because the catalog describes the problem, not the form the dialog
+// happens to live on. Refusing with a plain failure is all that is needed: the graph already
+// carries `success: false` without `action: "clarify"` through `cond_subtask_created` and
+// `cond_subtask_needs_email` to the escalation. No new node, no change to the OUTCOMES table.
+if (String(runtime.role || "") === "ticket") {
+  Log.info({ message: "createSubtask: task " + taskId + " is a ticket, which already is the subtask — handing over to an operator instead" });
+  return { success: false, reason: "the task is a ticket: it already is the subtask", taskId: taskId };
+}
+
 if (!data.unitFullName || !data.componentName) {
   return { success: false, reason: "missing unit or component", taskId: taskId };
 }
@@ -205,8 +230,23 @@ if (!data.email) {
   };
 }
 
+// `apiUrl` comes from the document on purpose: receiveWebhook is the one place that checks
+// it against the host allowlist, and re-reading it from the payload here would mean either
+// duplicating that check or dropping it.
 const apiUrl = runtime.apiUrl || "https://api.pyrus.com/v4/";
-const token = runtime.token;
+// The token comes from the payload of THIS request first: everything that talks to Pyrus
+// runs inside the webhook that brought it, so the copy in the document — one per task, for
+// as long as the task lives — is never actually needed. It stays as a fallback for a turn
+// whose payload cannot be read, and finalize wipes it at the end of the turn.
+const token = (function () {
+  try {
+    const own = (Context.getMessageContent() || {}).payload || {};
+    if (own.access_token) return own.access_token;
+  } catch (e) {
+    Log.warn({ message: "createSubtask: own payload unreadable, taking the token from the document: " + e });
+  }
+  return runtime.token;
+})();
 if (!token) {
   return { success: false, reason: "no Pyrus token in task state", taskId: taskId };
 }

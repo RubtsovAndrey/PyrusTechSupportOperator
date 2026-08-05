@@ -1,7 +1,18 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
-// Same id as in receiveWebhook: needed to tell the bot's own replies from the
-// partner's messages when deciding whether a newer message has arrived.
-const BOT_AUTHOR_ID = 1314929;
+// Same id as in receiveWebhook, and from the same place: needed to tell the bot's own
+// replies from the partner's messages when deciding whether a newer message has arrived.
+// Kept in the `config` document precisely because it lives in two files — a literal here
+// and a literal there is how the two would come to disagree, and disagreement means either
+// the bot answering itself or the bot standing down forever.
+const BOT_AUTHOR_ID = (function () {
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "config" });
+    return Number((doc && doc.value && doc.value.botAuthorId) || 0) || 1314929;
+  } catch (e) {
+    Log.warn({ message: "finalize: config read failed, using the built-in bot id: " + e });
+    return 1314929;
+  }
+})();
 
 function isBot(author) {
   if (!author) return false;
@@ -28,8 +39,16 @@ function setPath(target, dotted, value) {
 // An array cannot be the value of a $set: the adapter converts every value into a BSON
 // document and answers 500 — «Failed to convert from ArrayNode to org.bson.Document».
 // Such a patch skips the point write and goes whole-document, where arrays are fine.
+//
+// Checked at every depth, not just at the top: the conversion walks the whole value, so an
+// array nested inside an object breaks it exactly the same way. While only the top level
+// was checked, a patch like { pendingOutcome: { fieldUpdates: [...] } } passed the guard,
+// failed on the platform and was rescued by the whole-document path — silently doing the
+// read-modify-write these point writes exist to avoid.
 function hasArrayValue(paths) {
-  return Object.keys(paths).some(p => Array.isArray(paths[p]));
+  const deep = v => Array.isArray(v) ||
+    (!!v && typeof v === "object" && Object.keys(v).some(k => deep(v[k])));
+  return Object.keys(paths).some(p => deep(paths[p]));
 }
 
 function writeState(taskId, paths, who) {
@@ -89,8 +108,28 @@ try {
 }
 
 const runtime = state.runtime || {};
+const data = state.data || {};
+// `apiUrl` deliberately still comes from the document: receiveWebhook is the one place
+// that checks it against the host allowlist, and re-reading it from the payload here
+// would mean either duplicating that check or losing it.
 const apiUrl = runtime.apiUrl || "https://api.pyrus.com/v4/";
-const token = runtime.token;
+
+// ── Where the token comes from ──
+// From the payload of THIS request first. Everything that talks to Pyrus runs inside the
+// webhook that brought the token, so the copy in the document is never needed — and that
+// copy used to live there for as long as the task did, one per task, forever. The document
+// remains a fallback for a turn whose payload cannot be read, and finalize wipes it at the
+// end of the turn, so the secret's lifetime is the request rather than the task's.
+function ownToken() {
+  try {
+    const own = (Context.getMessageContent() || {}).payload || {};
+    return own.access_token || null;
+  } catch (e) {
+    Log.warn({ message: "finalize: own payload unreadable, taking the token from the document: " + e });
+    return null;
+  }
+}
+const token = ownToken() || runtime.token;
 
 // applyOutcome and createSubtask record the decision in the task document, so it
 // is keyed by taskId and can never be crossed with another chat.
@@ -105,9 +144,31 @@ if (!outcome) {
     replyText: "Понадобится время на изучение вопроса, мы вернёмся с ответом.",
     action: null,
     approvalChoice: "approved",
-    fieldUpdates: null,
+    withFieldUpdates: false,
     nextStage: "escalated"
   };
+}
+
+// ── The Pyrus field updates ──
+// Built here rather than carried inside `pendingOutcome`: an array inside the value of a
+// `$set` is what the db adapter cannot convert, so carrying it forced applyOutcome's write
+// down the whole-document rescue path. Everything needed is in this document already —
+// the field ids in `runtime`, the values in `data` — so `withFieldUpdates` is a boolean and
+// the array is assembled at the moment of the request that uses it.
+// The old shape is still honoured: at the moment of a deploy there may be documents whose
+// `pendingOutcome` was written by the previous version, and losing the unit of one of them
+// would leave a Pyrus field empty with nobody to notice.
+function buildFieldUpdates() {
+  if (Array.isArray(outcome.fieldUpdates) && outcome.fieldUpdates.length) return outcome.fieldUpdates;
+  if (!outcome.withFieldUpdates) return null;
+  const updates = [];
+  if (runtime.unitFieldId && data.unitFullName) {
+    updates.push({ id: Number(runtime.unitFieldId), value: { item_name: String(data.unitFullName) } });
+  }
+  if (runtime.componentFieldId && data.componentName) {
+    updates.push({ id: Number(runtime.componentFieldId), value: { item_name: String(data.componentName) } });
+  }
+  return updates.length ? updates : null;
 }
 
 const hasSomethingToPost = !!(outcome.replyText || outcome.action || outcome.approvalChoice || outcome.internalNote);
@@ -130,8 +191,18 @@ try {
   Log.warn({ message: "finalize: task probe failed, sending anyway: " + e });
 }
 
+// ── What counts as «a newer message» ──
+// Only an inbound comment of the partner. It used to be any comment that was not the
+// bot's, and an operator's internal note is one: a note typed while the bot was thinking
+// made this run stand down — and nobody answered the partner, because a comment with no
+// channel produces no run that holds a `pendingOutcome` to speak with. The rule «of two
+// racing runs the one holding the newest message speaks» needs that message to have an
+// owner, and an internal note has none. A thread that genuinely belongs to a human is
+// already silenced a step earlier, by `stage === "escalated"` in receiveWebhook.
+const isPartnerMessage = c => !isBot(c.author) && !!(c.channel && c.channel.direction === "inbound");
+
 const currentLast = current
-  ? (current.comments || []).slice().reverse().find(c => !isBot(c.author))
+  ? (current.comments || []).slice().reverse().find(isPartnerMessage)
   : null;
 
 // Which comment THIS run is answering. It has to come from the request's own payload:
@@ -167,16 +238,46 @@ if (hasSomethingToPost) {
     ? { type: currentLast.channel.type, direction: "outbound", to: currentLast.channel.from }
     : null);
 
+  // ── A reply the partner cannot receive must not look like a delivered one ──
+  // `body.channel` is what carries a comment out of Pyrus. Without it the comment stays in
+  // the internal correspondence — and Pyrus answers 200, so `posted` stayed true, the stage
+  // advanced, and the bot went on believing it had asked a question the partner never saw.
+  // The next message was then read as the answer to it. This is the one silent failure left
+  // in the project, and the forms without a channel (the call-center tickets) are exactly
+  // where it would have surfaced.
+  // The turn becomes a handover: the operator gets the text the bot meant to send, so
+  // nothing is lost, and a human owns a conversation the bot has no way to continue.
+  if (outcome.replyText && !channel) {
+    Log.error({ message: "finalize: task " + taskId + " has no outbound channel, the partner cannot be reached — handing over to an operator" });
+    outcome = {
+      kind: "escalated",
+      replyText: null,
+      internalNote: "[Внутренняя переписка]\nБот не смог ответить партнёру: во входящих комментариях задачи нет канала связи, отправить сообщение наружу невозможно. Передаю обращение оператору.\n\nТекст, который бот собирался отправить:\n" + outcome.replyText,
+      action: null,
+      approvalChoice: "approved",
+      withFieldUpdates: true,
+      nextStage: "escalated"
+    };
+  }
+
   // A comment without `channel` stays in the internal correspondence: the partner
   // is never sent it. It goes first so the operator reads the summary above the
   // handover itself.
-  if (outcome.internalNote) {
+  //
+  // Sent once per answered comment. The summary used to go out before the reply and the
+  // reply could then fail, which keeps `pendingOutcome` so the turn is repeated — and the
+  // repeat posted the summary a second time. The operator got two copies of one document,
+  // the very defect the single summary form was introduced to end. There is no atomic
+  // operation to lean on here (the same reason there is no lock), so this only closes the
+  // repeat of a turn, which is the case that actually happened.
+  if (outcome.internalNote && String(state.internalNotePostedFor || "") !== String(processedId || "")) {
     try {
       await Http.post({
         url: apiUrl + "tasks/" + taskId + "/comments",
         headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
         body: { text: outcome.internalNote }
       });
+      writeState(taskId, { "internalNotePostedFor": processedId || null }, "finalize");
     } catch (e) {
       Log.warn({ message: "finalize: internal summary failed for task " + taskId + ": " + e });
     }
@@ -189,7 +290,8 @@ if (hasSomethingToPost) {
   }
   if (outcome.action) body.action = outcome.action;
   if (outcome.approvalChoice) body.approval_choice = outcome.approvalChoice;
-  if (outcome.fieldUpdates && outcome.fieldUpdates.length) body.field_updates = outcome.fieldUpdates;
+  const fieldUpdates = buildFieldUpdates();
+  if (fieldUpdates) body.field_updates = fieldUpdates;
 
   if (body.text || body.action || body.approval_choice) {
     try {
@@ -213,19 +315,26 @@ if (!posted) {
   return { success: false, reason: "post failed", taskId: taskId, kind: outcome.kind };
 }
 
-if (outcome.nextStage) {
-  // Only the paths this function owns: writing the whole document would resurrect the
-  // facts as they looked when this run started and undo whatever the agents of a
-  // concurrent turn have collected since.
-  writeState(taskId, {
-    "stage": outcome.nextStage,
-    "pendingOutcome": null,
-    // One comment is answered once: a redelivered webhook for it is dropped by
-    // receiveWebhook instead of producing a second reply.
-    "lastProcessedCommentId": processedId || state.lastProcessedCommentId || null,
-    "botHasReplied": state.botHasReplied === true || !!outcome.replyText,
-    "updatedAt": Date.now()
-  }, "finalize");
-}
+// Only the paths this function owns: writing the whole document would resurrect the
+// facts as they looked when this run started and undo whatever the agents of a
+// concurrent turn have collected since.
+//
+// Written whatever the outcome says about the stage. It used to be wrapped in
+// `if (outcome.nextStage)`, which tied idempotency — «one comment is answered once» — to a
+// field that has nothing to do with it: an outcome without a next stage would have been
+// posted and then answered again on the next delivery of the same webhook.
+const done = {
+  "pendingOutcome": null,
+  // One comment is answered once: a redelivered webhook for it is dropped by
+  // receiveWebhook instead of producing a second reply.
+  "lastProcessedCommentId": processedId || state.lastProcessedCommentId || null,
+  "botHasReplied": state.botHasReplied === true || !!outcome.replyText,
+  // The turn is over and so is the need for the token. Kept out of the document from here
+  // on, the secret lives as long as the request instead of as long as the task.
+  "runtime.token": null,
+  "updatedAt": Date.now()
+};
+if (outcome.nextStage) done["stage"] = outcome.nextStage;
+writeState(taskId, done, "finalize");
 
 return { success: true, taskId: taskId, kind: outcome.kind };

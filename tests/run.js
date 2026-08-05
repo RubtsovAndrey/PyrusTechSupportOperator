@@ -75,6 +75,128 @@ function checkYaml() {
   return rows;
 }
 
+// ── The knowledge catalog is code now ──
+// With branching articles `go`, `else`, `onFail`, `start`, `branchOn`, `end` and the answer
+// keys are executable. searchKnowledge handles a broken one gracefully — it turns it into
+// `treeEnd: "escalate"` — and that is right at runtime but wrong for us: a typo in an
+// article then looks exactly like «the bot handed this over to a human», and nobody ever
+// finds out. Articles are written by hand, so they are linted before the deploy instead.
+const END_KINDS = ["close", "subtask", "escalate"];
+
+function checkCatalog() {
+  const problems = [];
+  let catalog;
+  try {
+    catalog = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/knowledge_catalog.json"), "utf8"));
+  } catch (e) {
+    return ["docs/knowledge_catalog.json is not readable JSON: " + e.message];
+  }
+  const topics = Array.isArray(catalog.topics) ? catalog.topics : null;
+  if (!topics) return ["docs/knowledge_catalog.json has no topics array"];
+
+  topics.forEach(topic => {
+    const t = topic || {};
+    const say = m => problems.push("[" + (t.key || "?") + "] " + m);
+    if (!t.key) say("an article without a key cannot be routed to");
+
+    const nodes = t.nodes && typeof t.nodes === "object" ? t.nodes : null;
+    if (!nodes) {
+      // A linear article: its onFail names an exit, never a node.
+      const steps = (Array.isArray(t.steps) ? t.steps : []).filter(s => s && (typeof s === "string" || s.instruction));
+      if (!steps.length && !t.solverInstruction && String(t.route || "solver") === "solver") {
+        say("route is solver, but there is neither a step nor a solverInstruction to serve");
+      }
+      if (t.onFail && ["subtask", "escalate"].indexOf(String(t.onFail)) < 0) {
+        say("onFail=\"" + t.onFail + "\" is neither subtask nor escalate, and a linear article has no nodes to jump to");
+      }
+      return;
+    }
+
+    const ids = Object.keys(nodes);
+    // `end` values are legal targets too: that is how a branch leaves the article.
+    const ref = (v, where) => {
+      if (!v || END_KINDS.indexOf(String(v)) >= 0) return;
+      if (ids.indexOf(String(v)) < 0) say(where + " points at \"" + v + "\", which is not a node of this article");
+    };
+    if (!t.start) say("no start is declared: the entry point then depends on key order in the file");
+    else if (ids.indexOf(String(t.start)) < 0) say("start points at \"" + t.start + "\", which is not a node");
+    ref(t.onFail, "onFail of the article");
+
+    const reached = {};
+    ids.forEach(id => {
+      const n = nodes[id] || {};
+      const ask = Array.isArray(n.ask) ? n.ask : [];
+      const branches = Array.isArray(n.branches) ? n.branches : [];
+      ref(n.go, id + ".go");
+      ref(n["else"], id + ".else");
+      ref(n.onFail, id + ".onFail");
+      [n.go, n["else"], n.onFail].forEach(v => { if (v) reached[String(v)] = true; });
+      branches.forEach((b, i) => {
+        if (!b || !b.go) return say(id + ".branches[" + i + "] has no go, so it is not a branch at all");
+        ref(b.go, id + ".branches[" + i + "]");
+        reached[String(b.go)] = true;
+        if (!(Array.isArray(b.when) ? b.when : [b.when]).filter(Boolean).length) {
+          say(id + ".branches[" + i + "] declares no `when`, so nothing can ever choose it");
+        }
+      });
+      ask.forEach((q, i) => {
+        if (!q || !q.question) return say(id + ".ask[" + i + "] has no question text");
+        if (!q.key) return say(id + ".ask[" + i + "] has no key: its answer cannot be stored");
+        // A key with a dot or a $ addresses a different part of the document than it looks
+        // like — searchKnowledge refuses such a key, and a refused key is a lost answer.
+        if (/[.$]/.test(String(q.key))) say(id + ".ask key \"" + q.key + "\" contains . or $ and will be refused");
+        // Without a label the operator reads the raw key: «newValue: +79001234567».
+        if (!q.label) say(id + ".ask[" + q.key + "] has no label: the operator will see the bare key");
+      });
+      if (n.end && END_KINDS.indexOf(String(n.end)) < 0) {
+        say(id + ".end=\"" + n.end + "\" is not one of " + END_KINDS.join("/"));
+      }
+      if (n.branchOn && !ask.some(q => q && q.key === n.branchOn)) {
+        say(id + ".branchOn=\"" + n.branchOn + "\" is not one of the node's own ask keys");
+      }
+      if (branches.length && ask.length > 1 && !n.branchOn) {
+        say(id + " asks " + ask.length + " questions and branches, but does not say which one the branches read");
+      }
+      // The two states searchKnowledge has to rescue at runtime, as `tree-dead-end`.
+      if (!n.advice && !ask.length && !branches.length && !n.end && !n.go) {
+        say(id + " neither speaks, asks, branches nor ends: the dialog cannot leave it");
+      }
+    });
+    ids.forEach(id => {
+      if (id !== String(t.start) && !reached[id]) say(id + " is unreachable from anywhere");
+    });
+  });
+  return problems;
+}
+
+// ── The eight copies of writeState ──
+// The platform does not let functions import each other, so `setPath` + `hasArrayValue` +
+// `writeState` exist in every file that writes state. That is imposed, not chosen — but
+// nothing was watching the copies, and they had already drifted into four variants. A patch
+// like «check for arrays at every depth» has to land in all eight, and this is what says so.
+// Comments and log wording may differ (receiveWebhook reports a missed point write as info,
+// not a warning: on the first turn of a chat there is no document yet). The code may not.
+function checkPrelude() {
+  const RE = /function setPath\([\s\S]*?\n}\n[\s\S]*?function hasArrayValue\([\s\S]*?\n}\n[\s\S]*?function writeState\([\s\S]*?\n}\n/;
+  const groups = {};
+  walk(path.join(ROOT, "functions"), []).filter(f => f.endsWith("code.js")).forEach(file => {
+    const rel = path.relative(ROOT, file).split(path.sep).join("/");
+    const m = RE.exec(fs.readFileSync(file, "utf8"));
+    if (!m) return;
+    const code = m[0]
+      .replace(/\/\/[^\n]*/g, "")           // comments explain history and may differ
+      .replace(/"(?:[^"\\]|\\.)*"/g, '""')  // log wording may differ
+      // …and so may its level, for the same reason: in receiveWebhook a point write that
+      // matches nothing is expected — the first turn of a chat has no document yet — so it
+      // reports `info` where everyone else reports `warn`. That is a property of the
+      // message, not of the write, and the write is what must not diverge.
+      .replace(/\bLog\.\w+\b/g, "Log.log")
+      .replace(/\s+/g, " ").trim();
+    (groups[code] = groups[code] || []).push(rel);
+  });
+  return Object.keys(groups).map(k => groups[k]);
+}
+
 function checkGraph() {
   const ids = new Set();
   const refs = [];
@@ -124,6 +246,28 @@ function checkGraph() {
     graph.broken.forEach(([f, r]) => console.log("        " + f + " -> " + r));
   } else {
     console.log("  PASS  " + graph.nodes + " nodes, " + graph.refs + " references, all resolve");
+  }
+
+  console.log("\nknowledge catalog");
+  const catalog = checkCatalog();
+  total++;
+  if (catalog.length) {
+    failed++;
+    console.log("  FAIL  " + catalog.length + " problem(s) in docs/knowledge_catalog.json:");
+    catalog.forEach(p => console.log("        " + p));
+  } else {
+    console.log("  PASS  every article resolves its nodes, keys and exits");
+  }
+
+  console.log("\nwriteState copies");
+  const prelude = checkPrelude();
+  total++;
+  if (prelude.length > 1) {
+    failed++;
+    console.log("  FAIL  the copies of writeState have drifted into " + prelude.length + " versions:");
+    prelude.forEach((files, i) => console.log("        " + (i + 1) + ") " + files.join(", ")));
+  } else {
+    console.log("  PASS  " + (prelude[0] || []).length + " copies of writeState, all identical in code");
   }
 
   for (const s of SUITES) {

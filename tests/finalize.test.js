@@ -8,9 +8,13 @@ const finalize = loadFunction("functions/ID_Pyrus/finalize/code.js");
 // The decision and its delivery are two functions and two documents apart, so the
 // handover of state between them is tested end to end.
 const applyOutcome = loadFunction("functions/ID_Actions/applyOutcome/code.js", ["outcome", "replyText"]);
+// And the round trip needs the third: a stage is only real if the next webhook reads it back.
+const receiveWebhook = loadFunction("functions/ID_Pyrus/receiveWebhook/code.js");
 
 const BOT = { id: 1314929, name: "Бот" };
 const PARTNER = { id: 555, name: "Партнёр" };
+// An operator writes into the internal correspondence: a real person, but no channel.
+const OPERATOR = { id: 777, name: "Оператор" };
 const CHAN = { type: "email", direction: "inbound", from: "p@x.ru" };
 const KEY = "state:11613";
 
@@ -129,6 +133,35 @@ async function main() {
   t.check("the run holding the newest comment answers", r.posts.length === 1, r.posts);
   t.check("and records that comment as answered", r.state.lastProcessedCommentId === "43", r.state);
 
+  // ── An operator's internal note is not «a newer message» ──
+  // It has no channel, so it produces no run that holds a decision to speak with: treating
+  // it as a supersede made this run stand down and left the partner with no answer at all.
+  // A thread that really belongs to a human is silenced a step earlier, by the escalated
+  // stage in receiveWebhook — not here.
+  r = await run({
+    payload: ownPayload(42),
+    db: { [KEY]: state({ pendingOutcome: clarify }) },
+    onGet: threadWith([
+      { id: 42, author: PARTNER, text: "Не печатает чек", channel: CHAN },
+      { id: 43, author: OPERATOR, text: "смотрю, что там по кассе" }
+    ])
+  });
+  t.check("operator's internal note does not suppress the answer to the partner",
+    r.posts.length === 1 && r.result.kind !== "superseded", { posts: r.posts.length, result: r.result });
+
+  // But a real message of the partner still wins, even arriving after the operator's note.
+  r = await run({
+    payload: ownPayload(42),
+    db: { [KEY]: state({ pendingOutcome: clarify }) },
+    onGet: threadWith([
+      { id: 42, author: PARTNER, text: "Не печатает чек", channel: CHAN },
+      { id: 43, author: OPERATOR, text: "смотрю" },
+      { id: 44, author: PARTNER, text: "и ещё вот что", channel: CHAN }
+    ])
+  });
+  t.check("a newer message of the partner still supersedes the run",
+    r.posts.length === 0 && r.result.kind === "superseded", { posts: r.posts.length, result: r.result });
+
   // A failed probe must not swallow the answer: at worst we reply to a stale thread.
   r = await run({
     db: { [KEY]: state({ pendingOutcome: clarify }) },
@@ -180,6 +213,35 @@ async function main() {
   t.check("botHasReplied stays false when the partner heard nothing",
     r.state.botHasReplied === false, r.state.botHasReplied);
 
+  // ── A reply the partner cannot receive must not look like a delivered one ──
+  // `body.channel` is what carries a comment out of Pyrus. Without it the comment stays in
+  // the internal correspondence and Pyrus still answers 200, so the stage advanced and the
+  // bot believed it had asked a question the partner never saw — reading his next message as
+  // the answer to it. The only silent failure left in the project.
+  r = await run({
+    db: {
+      [KEY]: state({
+        pendingOutcome: clarify,
+        data: { unitFullName: "[dodopizza.ru] Тамбов-1" },
+        // No outboundChannel in the runtime, and no channel to derive one from in the thread.
+        runtime: { apiUrl: runtime.apiUrl, token: "t", incomingCommentId: "42", isFirstBotReply: false, unitFieldId: 97 }
+      })
+    },
+    onGet: threadWith([{ id: 42, author: PARTNER, text: "Не печатает чек" }])
+  });
+  t.check("nothing is sent to the partner when there is no way to reach him",
+    r.posts.every(p => p.body.channel === undefined), r.posts.map(p => p.body));
+  t.check("the operator is told, and gets the text the bot meant to send",
+    r.posts.some(p => /нет канала связи/.test(p.body.text || "") && /о какой точке/i.test(p.body.text || "")),
+    r.posts.map(p => p.body.text));
+  t.check("the turn becomes a handover instead of a delivered answer",
+    r.state.stage === "escalated" && r.result.kind === "escalated", { stage: r.state.stage, kind: r.result.kind });
+  t.check("and the bot is not recorded as having spoken to the partner",
+    r.state.botHasReplied === false, r.state.botHasReplied);
+  t.check("the Pyrus fields are still filled on the way out",
+    r.posts.some(p => Array.isArray(p.body.field_updates) && p.body.field_updates.length === 1),
+    r.posts.map(p => p.body.field_updates));
+
   // ── Closing the dialog ──
   const solved = {
     kind: "solved",
@@ -192,9 +254,78 @@ async function main() {
   };
   r = await run({ db: { [KEY]: state({ pendingOutcome: solved }) } });
   t.check("closing uses action finished", r.posts[0].body.action === "finished", r.posts[0].body);
-  t.check("field updates are sent with it",
+  // The pre-change shape of pendingOutcome: at the moment of a deploy documents written by
+  // the previous version are still in flight, and losing the unit of one of them would
+  // leave a Pyrus field empty with nobody to notice.
+  t.check("a fieldUpdates array left by the previous version is still sent",
     Array.isArray(r.posts[0].body.field_updates) && r.posts[0].body.field_updates.length === 1, r.posts[0].body);
   t.check("stage becomes closed", r.state.stage === "closed", r.state);
+
+  // ── Field updates are rebuilt here, not carried in the document ──
+  // Carried as a ready array they sat INSIDE the value of a $set, which the db adapter
+  // cannot convert — so applyOutcome's write silently took the whole-document rescue path.
+  // They are derived from facts this document already holds, so a boolean is enough.
+  r = await run({
+    db: {
+      [KEY]: state({
+        pendingOutcome: { kind: "solved", replyText: "Готово", action: "finished", withFieldUpdates: true, nextStage: "closed" },
+        data: { unitFullName: "[dodopizza.ru] Тамбов-1", componentName: "Касса" },
+        runtime: Object.assign({}, runtime, { unitFieldId: 97, componentFieldId: 36 })
+      })
+    }
+  });
+  const fu = r.posts[0].body.field_updates || [];
+  t.check("unit and component are rebuilt from the document", fu.length === 2, fu);
+  t.check("the unit goes into the field receiveWebhook found",
+    fu[0].id === 97 && fu[0].value.item_name === "[dodopizza.ru] Тамбов-1", fu[0]);
+  t.check("the component goes into its own field",
+    fu[1].id === 36 && fu[1].value.item_name === "Касса", fu[1]);
+
+  // Nothing to put in them: an empty field_updates must not be sent at all.
+  r = await run({
+    db: {
+      [KEY]: state({
+        pendingOutcome: { kind: "escalated", replyText: "Передаю специалисту", approvalChoice: "approved", withFieldUpdates: true, nextStage: "escalated" },
+        data: {},
+        runtime: Object.assign({}, runtime, { unitFieldId: 97, componentFieldId: 36 })
+      })
+    }
+  });
+  t.check("no known unit means no field_updates key at all",
+    r.posts[0].body.field_updates === undefined, r.posts[0].body);
+
+  // ── The summary reaches the operator once, not once per repeat of the turn ──
+  // It is posted before the reply, and the reply may fail — which keeps pendingOutcome so
+  // the turn is repeated. The repeat used to post the summary a second time.
+  const escalatedAgain = {
+    kind: "escalated",
+    replyText: "Передаю обращение специалисту.",
+    internalNote: "[Внутренняя переписка]\nБот передаёт обращение оператору.",
+    action: null,
+    approvalChoice: "approved",
+    withFieldUpdates: false,
+    nextStage: "escalated"
+  };
+  let env = makeEnv({
+    prev: { taskId: "11613" }, onGet: UNCHANGED, failPost: true,
+    db: { [KEY]: state({ pendingOutcome: escalatedAgain }) }
+  });
+  await finalize(env);
+  const afterFail = env.posts.length;
+  t.check("the summary goes out on the first attempt",
+    afterFail === 2 && /Внутренняя переписка/.test(env.posts[0].body.text), env.posts.map(p => p.body));
+  t.check("and the fact is recorded so a repeat can see it",
+    env.db[KEY].internalNotePostedFor === "42", env.db[KEY].internalNotePostedFor);
+
+  // The very same document, the very same comment: the turn runs again, this time Pyrus
+  // accepts the reply.
+  const retry = makeEnv({ prev: { taskId: "11613" }, onGet: UNCHANGED, db: env.db });
+  await finalize(retry);
+  t.check("the repeat does not send the operator a second copy",
+    retry.posts.length === 1 && !/Внутренняя переписка/.test(retry.posts[0].body.text),
+    retry.posts.map(p => p.body));
+  t.check("and the partner does get the answer on the repeat",
+    /специалисту/.test(retry.posts[0].body.text), retry.posts[0].body);
 
   // ── The write touches only the paths finalize owns ──
   // A full rewrite put back the facts as they were when this run started, undoing what
@@ -220,9 +351,13 @@ async function main() {
     r.state.pendingOutcome === null && r.puts.length === 0, [r.state.pendingOutcome, r.puts.length]);
 
   const paths = Object.keys(r.updates[0].operator.$set).sort().join(",");
+  // `runtime.token` is among them: the turn is over and the secret has no reason to outlive
+  // it in the document. Note it is a dotted path — the rest of `runtime` is untouched.
   t.check("only own paths are written",
-    paths === "botHasReplied,lastProcessedCommentId,pendingOutcome,stage,updatedAt",
+    paths === "botHasReplied,lastProcessedCommentId,pendingOutcome,runtime.token,stage,updatedAt",
     paths);
+  t.check("the token does not outlive the turn in the document",
+    r.state.runtime.token === null && r.state.runtime.apiUrl === runtime.apiUrl, r.state.runtime);
   t.check("facts collected during the turn survive the stage write",
     r.state.data.problemSummary === "не печатает чек" &&
     r.state.data.unitFullName === "[dodopizza.ru] Тамбов-1", r.state.data);
@@ -249,6 +384,67 @@ async function main() {
   t.check("and the chat is not handed to a human",
     r.posts[0].body.approval_choice !== "approved", r.posts[0].body);
   t.check("the stage follows the decision", r.state.stage === "gathering", r.state);
+
+  // ── A question asked by the article comes back to the article ──
+  // The same reason `clarify_email` exists. Sent as a plain clarify, the answer landed in
+  // `gathering` and travelled intake → routing → solver again.
+  const asked = makeEnv({
+    prev: { taskId: "11613", agentStage: "solver", kind: "questions", replyText: "На какое значение поменять?" },
+    db: { [KEY]: state({ stage: "awaiting_answers", pendingOutcome: null, data: { topicKey: "employee_change" } }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(asked, ["clarify_answers", null]);
+  t.check("the article's question waits on its own stage",
+    asked.db[KEY].pendingOutcome.nextStage === "awaiting_answers", asked.db[KEY].pendingOutcome);
+  t.check("and the question the solver wrote is what the partner is asked",
+    /На какое значение/.test(asked.db[KEY].pendingOutcome.replyText), asked.db[KEY].pendingOutcome.replyText);
+  // Exempting it from the loop guards would be exempting the one path that asks the most.
+  t.check("it still counts towards the loop guard", asked.db[KEY].clarifyStreak === 1, asked.db[KEY].clarifyStreak);
+
+  // Three of them in a row without the article moving on is still a handover.
+  const looping = makeEnv({
+    prev: { taskId: "11613", agentStage: "solver", kind: "questions", replyText: "И ещё раз?" },
+    db: { [KEY]: state({ stage: "awaiting_answers", pendingOutcome: null, clarifyStreak: 3, data: { topicKey: "employee_change" } }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(looping, ["clarify_answers", null]);
+  t.check("a looping article is handed to an operator",
+    looping.db[KEY].pendingOutcome.kind === "escalated" &&
+    looping.db[KEY].pendingOutcome.nextStage === "escalated", looping.db[KEY].pendingOutcome);
+
+  // ── The full round trip of an article's question ──
+  // Three functions and two webhooks: the solver asks, finalize delivers and records the
+  // stage, and the NEXT webhook has to read that stage back and return to the solver. Each
+  // half passes its own tests in isolation; this is the seam where a stage that nobody reads
+  // back would look perfectly healthy — the same class of defect as the point write that
+  // matched no document while both halves were green.
+  const round = makeEnv({
+    prev: { taskId: "11613", agentStage: "solver", kind: "questions", replyText: "На какое значение поменять?" },
+    db: { [KEY]: state({ stage: "gathering", pendingOutcome: null, data: { topicKey: "employee_change", unitFullName: "Москва 12" } }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(round, ["clarify_answers", null]);
+
+  const delivering = makeEnv({ prev: { taskId: "11613" }, onGet: UNCHANGED, payload: ownPayload(42), db: round.db });
+  const delivered = await finalize(delivering);
+  t.check("the article's question is delivered to the partner",
+    delivered.success === true && /На какое значение/.test(delivering.posts[0].body.text), delivering.posts.map(p => p.body));
+  t.check("and the stage recorded is the article's own",
+    delivering.db[KEY].stage === "awaiting_answers", delivering.db[KEY].stage);
+
+  // The partner answers. A fresh webhook, the same task document.
+  const answering = makeEnv({
+    payload: {
+      task_id: 11613, event: "comment", access_token: "t", api_url: "https://api.pyrus.com/v4/",
+      task: { id: 11613, form_id: 77, fields: [], comments: [{ id: 77, author: PARTNER, text: "фамилию", channel: CHAN }] }
+    },
+    db: delivering.db
+  });
+  const back = await receiveWebhook(answering);
+  t.check("the answer goes back to the solver, not through intake",
+    back.stage === "awaiting_answers" && back.skip === false, back);
+  t.check("and the decision of the previous turn is not lying in wait",
+    answering.db[KEY].pendingOutcome === null, answering.db[KEY].pendingOutcome);
 
   // ── Nothing decided: the partner must never be left unanswered ──
   r = await run({ db: { [KEY]: state({ stage: "intake", pendingOutcome: null }) } });

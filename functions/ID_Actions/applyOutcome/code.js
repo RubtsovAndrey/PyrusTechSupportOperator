@@ -19,8 +19,16 @@ function setPath(target, dotted, value) {
 // An array cannot be the value of a $set: the adapter converts every value into a BSON
 // document and answers 500 — «Failed to convert from ArrayNode to org.bson.Document».
 // Such a patch skips the point write and goes whole-document, where arrays are fine.
+//
+// Checked at every depth, not just at the top: the conversion walks the whole value, so an
+// array nested inside an object breaks it exactly the same way. While only the top level
+// was checked, a patch like { pendingOutcome: { fieldUpdates: [...] } } passed the guard,
+// failed on the platform and was rescued by the whole-document path — silently doing the
+// read-modify-write these point writes exist to avoid.
 function hasArrayValue(paths) {
-  return Object.keys(paths).some(p => Array.isArray(paths[p]));
+  const deep = v => Array.isArray(v) ||
+    (!!v && typeof v === "object" && Object.keys(v).some(k => deep(v[k])));
+  return Object.keys(paths).some(p => deep(paths[p]));
 }
 
 function writeState(taskId, paths, who) {
@@ -161,6 +169,21 @@ const OUTCOMES = {
     withFieldUpdates: false,
     defaultReply: "Укажите, пожалуйста, ваш email — на него придёт ответ по обращению."
   },
+  // A question asked by the ARTICLE, not by intake. Same reason `clarify_email` exists: the
+  // answer has to come back to where the question was asked from. Sent as a plain `clarify`
+  // it landed in the `gathering` stage, and the partner's «фамилию» then travelled intake →
+  // routing → solver again — two extra model calls per answer on an article that legitimately
+  // asks up to a dozen questions, and, far worse, routing was free to overwrite `topicKey`
+  // in the middle of a tree walk: `treeNode` then names a node the new article does not have,
+  // the walk silently restarts from the root, and the answers already collected stay behind
+  // under the keys of the article that is no longer in play.
+  clarify_answers: {
+    nextStage: "awaiting_answers",
+    action: null,
+    approvalChoice: null,
+    withFieldUpdates: false,
+    defaultReply: "Уточните, пожалуйста, детали вопроса."
+  },
   reply: {
     nextStage: "awaiting_confirmation",
     action: null,
@@ -239,7 +262,11 @@ const MAX_CLARIFY_STREAK = 3;
 // dialog, and the partner must not pay for it.
 const MAX_TREE_QUESTIONS = 12;
 const isClarify = String(outcome || "") === "clarify";
-const asksSomething = isClarify || String(outcome || "") === "clarify_email";
+// Every outcome that ends the turn waiting for the partner to say something. All of them
+// have to count towards the loop guards, or an article asking its questions through its own
+// stage would be exempt from the very limits that exist to stop it looping.
+const ASKING = ["clarify", "clarify_email", "clarify_answers"];
+const asksSomething = ASKING.indexOf(String(outcome || "")) >= 0;
 let clarifyStreak = asksSomething ? (Number(state.clarifyStreak) || 0) + 1 : 0;
 let loopBroken = false;
 let overrun = false;
@@ -267,19 +294,6 @@ if (clarifyStreak > MAX_CLARIFY_STREAK || overrun) {
   spec = OUTCOMES.escalated;
   loopBroken = true;
   clarifyStreak = 0;
-}
-
-// Pyrus field updates are built here only, instead of being repeated in every action.
-let fieldUpdates = null;
-if (spec.withFieldUpdates) {
-  const updates = [];
-  if (runtime.unitFieldId && data.unitFullName) {
-    updates.push({ id: Number(runtime.unitFieldId), value: { item_name: String(data.unitFullName) } });
-  }
-  if (runtime.componentFieldId && data.componentName) {
-    updates.push({ id: Number(runtime.componentFieldId), value: { item_name: String(data.componentName) } });
-  }
-  if (updates.length) fieldUpdates = updates;
 }
 
 let text = spec.silent ? null : (replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply);
@@ -366,13 +380,24 @@ if (spec.nextStage === "escalated") {
   });
 }
 
+// ── Why the Pyrus field updates are NOT built here ──
+// They used to be, as a ready `fieldUpdates` array inside `pendingOutcome` — and that put
+// an array INSIDE the value of a `$set`, which is the one thing the db adapter cannot
+// convert («Failed to convert from ArrayNode to org.bson.Document»). The guard below only
+// looked at the top level, so this write passed the guard, failed on the platform and was
+// rescued by the whole-document path — the exact read-modify-write every point write here
+// exists to avoid, on the busiest branch of all (any escalation with a known unit).
+// The array is not needed: it is derived from facts that are already in this document, so
+// finalize rebuilds it from them. `withFieldUpdates` is a boolean, and a boolean fits in a
+// point write. It also puts the construction of a Pyrus payload in the only function that
+// talks to Pyrus, which is where the rest of it already lives.
 const pendingOutcome = {
   kind: loopBroken ? "escalated" : String(outcome || "escalated"),
   replyText: text,
   internalNote: internalNote,
   action: spec.action,
   approvalChoice: spec.approvalChoice,
-  fieldUpdates: fieldUpdates,
+  withFieldUpdates: !!spec.withFieldUpdates,
   nextStage: spec.nextStage
 };
 

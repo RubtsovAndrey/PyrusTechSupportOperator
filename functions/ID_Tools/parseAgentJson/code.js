@@ -162,8 +162,16 @@ function setPath(target, dotted, value) {
 // An array cannot be the value of a $set: the adapter converts every value into a BSON
 // document and answers 500 — «Failed to convert from ArrayNode to org.bson.Document».
 // Such a patch skips the point write and goes whole-document, where arrays are fine.
+//
+// Checked at every depth, not just at the top: the conversion walks the whole value, so an
+// array nested inside an object breaks it exactly the same way. While only the top level
+// was checked, a patch like { pendingOutcome: { fieldUpdates: [...] } } passed the guard,
+// failed on the platform and was rescued by the whole-document path — silently doing the
+// read-modify-write these point writes exist to avoid.
 function hasArrayValue(paths) {
-  return Object.keys(paths).some(p => Array.isArray(paths[p]));
+  const deep = v => Array.isArray(v) ||
+    (!!v && typeof v === "object" && Object.keys(v).some(k => deep(v[k])));
+  return Object.keys(paths).some(p => deep(paths[p]));
 }
 
 function writeState(taskId, paths, who) {
@@ -502,6 +510,23 @@ if (taskId) {
         data.topicRoute = route;
         patch["data.topicRoute"] = route;
       }
+      // ── A different article means a different walk ──
+      // `treeNode`, `treeAnswers` and the rest are named in the vocabulary of ONE article.
+      // Left in place across a change of topic they do not fail loudly: searchKnowledge
+      // looks up `topic.nodes[treeNode]`, finds nothing, and quietly restarts the article
+      // from its root — while the answers collected under the previous article's keys stay
+      // in the document and end up in the subtask of the new one. The question budget did
+      // not reset either, so the new article started with the score of the old one.
+      if (parsed.topicKey && known.topicKey && parsed.topicKey !== known.topicKey) {
+        ["treeNode", "treeAnswers", "treeEnd", "treeNext", "treeAskedNode",
+         "treeHandoverAsked", "offeredStep", "openAnswerPrompts"].forEach(k => {
+          delete data[k];
+          patch["data." + k] = null;
+        });
+        patch["treeQuestions"] = 0;
+        patch["treeStreakNode"] = null;
+        Log.warn({ message: "parseAgentJson: topic changed " + known.topicKey + " -> " + parsed.topicKey + " on task " + taskId + ", the tree walk of the previous article is reset" });
+      }
     }
 
     // The partner confirms the old problem is gone and asks about something else. Left
@@ -516,7 +541,7 @@ if (taskId) {
        // The tree has to start from its root for the new question, and the answers to
        // the old one must not end up in the subtask of the new one.
        "treeNode", "treeAnswers", "treeEnd", "treeHandoverAsked", "treeNext",
-       "treeAskedNode"].forEach(k => {
+       "treeAskedNode", "openAnswerPrompts"].forEach(k => {
         delete data[k];
         patch["data." + k] = null;
       });
@@ -568,6 +593,20 @@ if (taskId) {
     // point write matched nothing and creates it, so the facts are not lost either way.
     // A document being created gets the whole facts subtree, so every reader can rely on
     // it being there even when this turn collected nothing.
+    // The keys the article can still fill, worked out here and STORED, not only printed.
+    // The stage that needs this line most is `awaiting_answers`, where the turn goes
+    // straight from the webhook to the solver and no agent stage runs in front of it to
+    // publish anything. receiveWebhook prints it back from here rather than reading the
+    // catalog itself: that would be a fourth copy of the topic-walking helpers, and a
+    // snapshot taken before the tool was called is exactly what is wanted anyway.
+    // A joined string, never an array — an array cannot be the value of a point write.
+    // Written only when it actually changed: an unconditional path in every patch would
+    // make «this turn collected nothing» indistinguishable from «this turn collected
+    // something» in the write, and that distinction is what the tests of this function rest on.
+    const open = answerPromptsOfTopic(data.topicKey, data.treeAnswers);
+    const openLine = open.length ? open.join("; ") : null;
+    if ((known.openAnswerPrompts || null) !== openLine) patch["data.openAnswerPrompts"] = openLine;
+
     if (!documentExists) patch["data"] = data;
     writeState(taskId, patch, "parseAgentJson");
     // The facts this stage just resolved are republished as a note so the agents that
@@ -582,6 +621,9 @@ if (taskId) {
      // the graph. Naming them in the prompt only invites the model to reason about the
      // article's internals instead of answering the partner.
      "treeNode", "treeEnd", "treeHandoverAsked", "treeNext", "treeAskedNode",
+     // Printed as a labelled line in the note below; as a second copy inside the serialised
+     // `dialog` value it would only say the same thing in a worse format.
+     "openAnswerPrompts",
      "treeAnswers"].forEach(k => { delete published[k]; });
     AgentContext.putValue({ key: "dialog", value: published });
     // The answers already collected are named explicitly: without them the model asked
@@ -600,9 +642,29 @@ if (taskId) {
     // The keys the article can store, named BEFORE the solver calls the tool: the facts
     // the partner volunteered in his first message are worth most on the very first turn,
     // and until the tool answers there is nothing to read them into.
-    const open = answerPromptsOfTopic(data.topicKey, data.treeAnswers);
     if (open.length) lines.push("- Ещё не отвечено (ключ — вопрос): " + open.join("; "));
-    AgentContext.addNote({ text: lines.join("\n") });
+
+    // ── One block of facts in the prompt, not four ──
+    // This function runs once per agent stage, so a turn that goes intake → routing → solver
+    // used to append this block three times, on top of the one receiveWebhook had already
+    // written — four blocks naming the same fields with DIFFERENT values, the earliest of
+    // them saying «Проблема: не описана» about a problem the later ones describe. Deciding
+    // which of four contradictory notes is the freshest is not work a flash model should be
+    // given, and it is the same mechanism that sent the cleared facts of a solved problem
+    // into intake after `more_questions`. Identical blocks are not repeated; a block that
+    // genuinely changed is appended, and being last it is the one that reads as current.
+    // `getNotes` hands back ONE string — every note so far, newline-separated by time of
+    // addition — so an already-present block is found by searching that text, not by walking
+    // a list.
+    const block = lines.join("\n");
+    let alreadyThere = false;
+    try {
+      alreadyThere = String(AgentContext.getNotes({}) || "").indexOf(block) >= 0;
+    } catch (e) {
+      // No access to the notes: adding it is the behaviour we had before, and it is safe.
+      Log.warn({ message: "parseAgentJson: notes unreadable, the facts block is appended as before: " + e });
+    }
+    if (!alreadyThere) AgentContext.addNote({ text: block });
   } catch (e) {
     Log.warn({ message: "parseAgentJson: state write failed: " + e });
   }

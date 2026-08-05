@@ -291,6 +291,41 @@ async function main() {
   r = await run("routing", json({ route: "мимо", topicKey: "printer_no_receipt" }));
   t.check("unknown route value is not recorded", !r.state.data.topicRoute, r.state.data);
 
+  // ── A different article means a different walk ──
+  // `treeNode` and `treeAnswers` speak the vocabulary of ONE article. Carried across a
+  // change of topic they fail silently: searchKnowledge looks up a node the new article does
+  // not have, quietly restarts it from the root, and the answers collected under the old
+  // article's keys end up in the subtask of the new one.
+  const midWalk = {
+    taskId: 11613,
+    stage: "awaiting_answers",
+    treeQuestions: 4,
+    treeStreakNode: "ask_what",
+    data: {
+      topicKey: "printer_no_receipt",
+      treeNode: "ask_what",
+      treeAnswers: { whatToChange: "фамилию" },
+      treeAskedNode: "ask_what",
+      treeHandoverAsked: true,
+      offeredStep: { topicKey: "printer_no_receipt", stepNumber: 1 },
+      openAnswerPrompts: "whatToChange — что менять"
+    }
+  };
+  r = await run("routing", json({ route: "subtask", topicKey: "access_request" }), midWalk);
+  t.check("changing the topic resets the tree walk",
+    !r.state.data.treeNode && !r.state.data.treeAnswers && !r.state.data.treeAskedNode &&
+    !r.state.data.treeHandoverAsked && !r.state.data.offeredStep, r.state.data);
+  t.check("and the new article gets its full question budget",
+    r.state.treeQuestions === 0 && r.state.treeStreakNode === null,
+    { q: r.state.treeQuestions, n: r.state.treeStreakNode });
+  t.check("the new topic itself is recorded", r.state.data.topicKey === "access_request", r.state.data);
+
+  // The same topic confirmed again is not a change and must not throw the walk away.
+  r = await run("routing", json({ route: "solver", topicKey: "printer_no_receipt" }), midWalk);
+  t.check("re-routing to the same article keeps the walk",
+    r.state.data.treeNode === "ask_what" && r.state.data.treeAnswers.whatToChange === "фамилию",
+    r.state.data);
+
   // ── A new question in the same task must not inherit the solved problem ──
   const afterSolved = {
     stage: "awaiting_confirmation",

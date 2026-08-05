@@ -4,7 +4,7 @@ name: solver asked questions?
 position:
   x: 4790
   y: -1420
-next-step: func_clarify
+next-step: func_clarify_answers
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).kind === 'questions'"

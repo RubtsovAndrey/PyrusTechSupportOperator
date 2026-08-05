@@ -1,0 +1,11 @@
+---
+id: cond_stage_answers
+name: answering the article?
+position:
+  x: 1512
+  y: -520
+next-step: agent_solver
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).stage === 'awaiting_answers'"
+  false-step: cond_stage_confirmation

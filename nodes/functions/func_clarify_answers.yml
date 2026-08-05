@@ -1,0 +1,25 @@
+---
+id: func_clarify_answers
+name: Outcome - clarify (article questions)
+position:
+  x: 5102
+  y: -1420
+next-step: func_finalize_p1x9k
+next-error-step: func_finalize_p1x9k
+parameters:
+  type: USER
+  collection: ID_Actions
+  function: applyOutcome
+  is-tool: false
+  parameters:
+    outcome:
+      type: STRING
+      value: clarify_answers
+      filled-ai: false
+    replyText:
+      type: STRING
+      value: null
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

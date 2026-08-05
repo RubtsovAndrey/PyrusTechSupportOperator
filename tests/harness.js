@@ -75,6 +75,11 @@ function makeEnv(options) {
     AgentContext: {
       clearContext: () => {},
       addNote: a => notes.push(a.text),
+      // The platform returns the notes as ONE string, newline-separated by time of
+      // addition — not as a list (.agent/system-functions/AgentContext/getNotes.json:
+      // output type is `string`). Modelled that way so code reading them cannot pass a
+      // test on a shape the platform never produces.
+      getNotes: () => notes.join("\n"),
       putValue: a => { values[a.key] = a.value; },
       getValue: a => values[a.key]
     },
@@ -107,8 +112,16 @@ function makeEnv(options) {
         // An array as a $set value makes the live adapter answer 500 while converting it
         // into a BSON document. Thrown here so no test can rely on a write the platform
         // refuses to perform.
+        //
+        // At every depth, not just at the top. Checking only the top level is how this stub
+        // was milder than the platform: `$set: { pendingOutcome: { fieldUpdates: [...] } }`
+        // was recorded here as a successful point write while the platform answers 500 —
+        // green tests over a write that never lands, the same class of false pass as the
+        // `documentKey` filter above.
+        const deepArray = v => Array.isArray(v) ||
+          (!!v && typeof v === "object" && Object.keys(v).some(k => deepArray(v[k])));
         Object.keys($set).forEach(p => {
-          if (Array.isArray($set[p])) {
+          if (deepArray($set[p])) {
             throw new Error("db 500: cannot convert ArrayNode to org.bson.Document for " + p);
           }
         });

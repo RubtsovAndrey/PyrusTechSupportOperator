@@ -158,8 +158,16 @@ function setPath(target, dotted, value) {
 // An array cannot be the value of a $set: the adapter converts every value into a BSON
 // document and answers 500 — «Failed to convert from ArrayNode to org.bson.Document».
 // Such a patch skips the point write and goes whole-document, where arrays are fine.
+//
+// Checked at every depth, not just at the top: the conversion walks the whole value, so an
+// array nested inside an object breaks it exactly the same way. While only the top level
+// was checked, a patch like { pendingOutcome: { fieldUpdates: [...] } } passed the guard,
+// failed on the platform and was rescued by the whole-document path — silently doing the
+// read-modify-write these point writes exist to avoid.
 function hasArrayValue(paths) {
-  return Object.keys(paths).some(p => Array.isArray(paths[p]));
+  const deep = v => Array.isArray(v) ||
+    (!!v && typeof v === "object" && Object.keys(v).some(k => deep(v[k])));
+  return Object.keys(paths).some(p => deep(paths[p]));
 }
 
 function writeState(taskId, paths, who) {
@@ -767,6 +775,18 @@ const scored = topics
 // every solution text into the routing prompt, which both bloated it and tempted the
 // router to answer instead of routing.
 if (scored.length) {
+  // ── How much the score is actually worth ──
+  // The denominator is the number of query words the catalog knows at all, so a query it
+  // knows ONE word of gives every article containing that word a perfect 1.00, and several
+  // articles can tie at the top with nothing to tell them apart. Whether that happens often
+  // enough to be worth changing the metric for is not something the code can know, so it is
+  // measured rather than guessed at: this line says how thin the evidence behind a routing
+  // decision was. Read it before touching MIN_SCORE or the denominator.
+  if (known.length < 2 && scored.length > 1) {
+    Log.warn({ message: "searchKnowledge: " + scored.length + " articles tie at " +
+      scored[0].score.toFixed(2) + " on a single known word for \"" + String(query).slice(0, 120) +
+      "\" (" + scored.map(r => String(r.topic.key || "")).join(", ") + ") — the router is choosing on the description alone" });
+  }
   return {
     found: true,
     source: "catalog",

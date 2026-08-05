@@ -62,6 +62,79 @@ async function main() {
   r = await run([{ id: 9, author: { id: 4242, type: "bot", email: "real@person.ru" }, text: "..." }], {});
   t.check("author.type is not trusted: a real person is not a bot", r.result.skip === false, r.result);
 
+  // The id of the service account is configuration, not a literal: a migration or a
+  // recreated integration changes it, and a stale value means the bot answering itself in
+  // a loop. It used to be hardcoded in two files, which is how the two would disagree.
+  r = await run([{ id: 9, author: { id: 999001, name: "Новый бот" }, text: "..." }],
+    { config: { botAuthorId: 999001 } });
+  t.check("a bot id taken from config is recognised", r.result.skip === true && /own/.test(r.result.reason), r.result);
+  r = await run([{ id: 9, author: BOT, text: "..." }], { config: { botAuthorId: 999001 } });
+  t.check("and the previous account is then no longer the bot", r.result.skip === false, r.result);
+
+  // ── Which form the bot works in ──
+  // `runtime.formId` was written and never read, so every webhook was a chat. Safe with the
+  // webhook on one form; not safe the moment it is registered on the ticket form, because
+  // that is also the form the bot creates its own subtasks on.
+  const CHAT_FORM = 77;
+  const TICKET_FORM = 2454249;
+  const BOT_APPROVER = { current_step: 1, approvals: [[{ person: BOT, step: 1, approval_choice: "waiting" }]] };
+  const FIRST_LINE_APPROVER = { current_step: 1, approvals: [[{ person: OPERATOR, step: 1, approval_choice: "waiting" }]] };
+
+  // A ticket, as Pyrus reports it: the task lives on the ticket form and carries approvals.
+  async function ticket(comments, extraTask, forms) {
+    const env = makeEnv({
+      payload: {
+        task_id: 11613, event: "comment", access_token: "t", api_url: "https://api.pyrus.com/v4/",
+        task: Object.assign({ id: 11613, form_id: TICKET_FORM, fields: [], comments: comments }, extraTask || {})
+      },
+      db: {
+        config: {
+          forms: forms || { [CHAT_FORM]: { role: "chat" }, [TICKET_FORM]: { role: "ticket" } }
+        }
+      }
+    });
+    return { result: await receiveWebhook(env), state: env.db[KEY], notes: env.notes };
+  }
+
+  // Absent `config.forms` must mean «behave exactly as before»: a default of silence here
+  // would have taken the live bot down on the deploy that introduced this.
+  r = await run([{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }], {});
+  t.check("with no forms configured every form is still a chat",
+    r.result.skip === false && r.result.stage === "intake", r.result);
+  t.check("and the role is recorded for the rest of the graph", r.state.runtime.role === "chat", r.state.runtime);
+
+  // Once the map exists it is a whitelist. An unlisted form is left completely alone.
+  let k = await ticket([{ id: 61, author: PARTNER, text: "вопрос", channel: CHAN }], BOT_APPROVER,
+    { [CHAT_FORM]: { role: "chat" } });
+  t.check("a form absent from the whitelist is left alone",
+    k.result.skip === true && /not one the bot works in/.test(k.result.reason), k.result);
+
+  // ── The gate: is it the bot's turn? ──
+  k = await ticket([{ id: 62, author: PARTNER, text: "не приходят отчёты", channel: CHAN }], BOT_APPROVER);
+  t.check("an email ticket where the bot is the current approver is worked",
+    k.result.skip === false && k.result.stage === "intake", k.result);
+  t.check("and it is recorded as a ticket, not a chat", k.state.runtime.role === "ticket", k.state.runtime);
+
+  // The case that would have hurt most: the subtask the bot itself created a minute ago. The
+  // first line owns step 1 there — which is also why posting action:"finished" on a fresh
+  // subtask always answered 400. Permission and mandate are the same fact.
+  k = await ticket([{ id: 63, author: OPERATOR, text: "смотрю обращение" }], FIRST_LINE_APPROVER);
+  t.check("a ticket whose step belongs to the first line is left alone",
+    k.result.skip === true && /belongs to someone else/.test(k.result.reason), k.result);
+
+  // «Cannot tell» must mean silence, not «probably mine».
+  k = await ticket([{ id: 64, author: PARTNER, text: "вопрос", channel: CHAN }], { current_step: 1 });
+  t.check("a payload that does not say who approves keeps the bot out",
+    k.result.skip === true && /does not say/.test(k.result.reason), k.result);
+  t.check("and it logs what it did find, so one real ticket answers the question",
+    true, k.result.reason);
+
+  // Call-center tickets: no channel at all, colleagues and the bot share one internal
+  // correspondence. There is no partner to answer, so there is nothing to do.
+  k = await ticket([{ id: 65, author: PARTNER, text: "заявка из колл-центра" }], BOT_APPROVER);
+  t.check("a ticket with no inbound channel is left alone",
+    k.result.skip === true && /nobody to reply to/.test(k.result.reason), k.result);
+
   // ── Idempotency: one comment is answered once ──
   r = await run([{ id: 7, author: PARTNER, text: "Повтор", channel: CHAN }],
     { [KEY]: { lastProcessedCommentId: "7" } });
@@ -81,6 +154,16 @@ async function main() {
   t.check("first reply is marked for the greeting", r.state.runtime.isFirstBotReply === true, r.state.runtime);
   t.check("token is not written into the agent context",
     JSON.stringify(r.values).indexOf("\"t\"") < 0, r.values);
+
+  // An address once known for a task stays known. Pyrus may truncate `comments` from the
+  // tail, and if the truncation takes away every inbound comment there is nothing left to
+  // derive the channel from — with finalize now refusing to talk into a channel-less void,
+  // that loss would turn a healthy conversation into a handover.
+  r = await run([{ id: 55, author: OPERATOR, text: "внутренняя заметка" }],
+    { [KEY]: { taskId: 11613, runtime: { outboundChannel: { type: "email", direction: "outbound", to: "p@x.ru" } } } });
+  t.check("a known reply address survives a thread with no inbound comment left",
+    r.state.runtime.outboundChannel && r.state.runtime.outboundChannel.to === "p@x.ru",
+    r.state.runtime.outboundChannel);
 
   // Greeting must not repeat when Pyrus truncates comments from the tail.
   r = await run([{ id: 5, author: PARTNER, text: "и ещё", channel: CHAN }],
@@ -106,8 +189,9 @@ async function main() {
   t.check("the write is aimed at this task, not at the document key",
     r.updates[0].filters.taskId === 11613 && r.updates[0].filters.key === undefined,
     r.updates[0].filters);
+  // `pendingOutcome` is among them on purpose: the decision of a turn must not outlive it.
   t.check("only own paths are written",
-    setPaths(r.updates[0]).join(",") === "botHasReplied,runtime,taskId,updatedAt",
+    setPaths(r.updates[0]).join(",") === "botHasReplied,pendingOutcome,runtime,taskId,updatedAt",
     setPaths(r.updates[0]));
   t.check("a point write that finds its document needs no whole-document rescue",
     r.puts.length === 0, r.puts);
@@ -115,6 +199,29 @@ async function main() {
   t.check("facts of the current turn survive",
     r.state.data.problemSummary === "не печатает чек", r.state.data);
   t.check("subtaskId survives", r.state.subtaskId === 777, r.state);
+
+  // ── The decision of a turn must not outlive that turn ──
+  // finalize consumes `pendingOutcome` only when it manages to post. A run that died on a
+  // Pyrus outage, on a missing token or on being superseded leaves it behind — and finalize
+  // is the `next-error-step` of nearly every node, so the next turn that throws anywhere
+  // reaches finalize, finds a decision made about a DIFFERENT message and posts it to the
+  // partner, acting on its `action`: closing or escalating the task on a stale verdict.
+  r = await run([{ id: 12, author: PARTNER, text: "новое сообщение", channel: CHAN }], {
+    [KEY]: {
+      taskId: 11613,
+      stage: "gathering",
+      lastProcessedCommentId: "11",
+      data: { unitFullName: "[dodopizza.ru] Тамбов-1", problemSummary: "не печатает чек" },
+      pendingOutcome: {
+        kind: "escalated", replyText: "Ответ на ПРОШЛОЕ сообщение",
+        action: null, approvalChoice: "approved", nextStage: "escalated"
+      }
+    }
+  });
+  t.check("a stale decision is cleared at the start of a turn", r.state.pendingOutcome === null, r.state.pendingOutcome);
+  t.check("and clearing it costs no whole-document rescue", r.puts.length === 0, r.puts);
+  t.check("clearing the decision does not touch the collected facts",
+    r.state.data.problemSummary === "не печатает чек" && r.state.stage === "gathering", r.state);
 
   // The web widget reports the sender as an object, not a string. Concatenated into the
   // operator's summary it read «Кто обращается: [object Object]».
@@ -179,6 +286,20 @@ async function main() {
   r = await run([{ id: 4, author: PARTNER, text: "вот скриншот", attachments: [{ id: 1 }], channel: CHAN }], {});
   t.check("attachment WITH text is handled normally", r.result.stage === "intake", r.result);
 
+  // ── A pasted log must not sit in the prompt for the next twenty turns ──
+  // Notes are rebuilt from the thread on every webhook, so an unbounded comment was paid
+  // for on every model call until it fell out of the window — crowding out the instructions.
+  const hugeLog = "ERROR ".repeat(2000);
+  r = await run([{ id: 50, author: PARTNER, text: hugeLog, channel: CHAN }], {});
+  const longest = r.notes.reduce((m, n) => Math.max(m, n.length), 0);
+  t.check("a pasted log is cut down for the prompt", longest < 2000, longest);
+  t.check("and the cut is visible rather than silent",
+    r.notes.some(n => /сообщение обрезано/.test(n)), r.notes.map(n => n.slice(0, 60)));
+  // The code that looks for the unit, the business and the branch reads the value from the
+  // context, so it is capped far more generously than the history lines.
+  t.check("the text the tools read is kept much longer than a history line",
+    r.values.dialog.incomingText.length > 2000, r.values.dialog.incomingText.length);
+
   // ── Stage resolution ──
   r = await run([{ id: 5, author: PARTNER, text: "Ну что там?", channel: CHAN }], { [KEY]: { stage: "escalated" } });
   t.check("operator owns the thread: bot stays quiet", r.result.skip === true && r.result.stage === "escalated", r.result);
@@ -190,6 +311,38 @@ async function main() {
   r = await run([{ id: 21, author: PARTNER, text: "Ещё вопрос", action: "reopened", channel: CHAN }],
     { [KEY]: { stage: "closed", data: { unitFullName: "Москва 12" } } });
   t.check("chat closed by the bot goes to the operator silently", r.result.stage === "reopened", r.result);
+
+  // ── The answer to a question the ARTICLE asked goes straight back to the solver ──
+  // Through the gathering stage it cost intake and routing on every answer — two extra model
+  // calls on an article that legitimately asks up to a dozen questions — and routing was
+  // free to rewrite topicKey in the middle of the walk.
+  r = await run([{ id: 40, author: PARTNER, text: "фамилию", channel: CHAN }],
+    { [KEY]: { stage: "awaiting_answers", data: { topicKey: "employee_change", unitFullName: "Москва 12" } } });
+  t.check("an answer to the article returns to the solver, not to intake",
+    r.result.stage === "awaiting_answers" && r.result.skip === false, r.result);
+
+  // No topic means no article to return to, and intake is always the safe fallback.
+  r = await run([{ id: 41, author: PARTNER, text: "фамилию", channel: CHAN }],
+    { [KEY]: { stage: "awaiting_answers", data: { unitFullName: "Москва 12" } } });
+  t.check("without a topic the stage falls back to intake", r.result.stage === "intake", r.result);
+
+  // What the article still wants to know has to be IN the prompt on that stage: nothing
+  // runs in front of the solver there to publish it, so it is carried in the document.
+  r = await run([{ id: 42, author: PARTNER, text: "фамилию", channel: CHAN }], {
+    [KEY]: {
+      stage: "awaiting_answers",
+      data: {
+        topicKey: "employee_change",
+        treeAnswers: { whatToChange: "фамилию" },
+        openAnswerPrompts: "newValue — на какое значение менять"
+      }
+    }
+  });
+  const factsNote = r.notes.filter(n => /Известные данные/.test(n))[0] || "";
+  t.check("the open questions of the article reach the prompt",
+    /Ещё не отвечено \(ключ — вопрос\): newValue — на какое значение менять/.test(factsNote), factsNote);
+  t.check("and so does what has already been collected",
+    /Уже собрано по тематике: whatToChange: фамилию/.test(factsNote), factsNote);
 
   // ── Email is only harvested where it is expected ──
   r = await run([{ id: 30, author: PARTNER, text: "письмо от noreply@pyrus.com не пришло", channel: CHAN }], {});
