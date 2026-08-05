@@ -25,7 +25,19 @@ const CONFIG = (function () {
 // service account (a migration, a recreated integration) would be applied to one of them
 // and not the other. One extra Db.get per webhook buys the ability to fix that without a
 // deploy, and the default keeps the bot working on an empty database.
-const BOT_AUTHOR_ID = Number(CONFIG.botAuthorId || 0) || 1314929;
+// ── Наши аккаунты, и только наши ──
+// Раньше здесь был ещё резервный признак `/^bot@/i` по email автора — «для сервисных
+// аккаунтов, чей id нам не сообщили». В этой организации Pyrus у КАЖДОГО бота email вида
+// `bot@<uuid>`, поэтому резерв признавал своим любого чужого бота: `bot techSupport
+// Supervisor`, `bot techSupport Approver`, `bot techSupport Chat Test`. Последствия видны в
+// логах: виток был отброшен как «последний комментарий — мой собственный», хотя его написал
+// Supervisor, а в истории для промпта его сообщения подписывались «Ассистент» — модель
+// считала своими словами то, чего не говорила.
+// Список, а не одно значение: своих аккаунтов может быть несколько (тест и прод).
+const BOT_AUTHOR_IDS = (Array.isArray(CONFIG.botAuthorIds) && CONFIG.botAuthorIds.length
+  ? CONFIG.botAuthorIds
+  : [CONFIG.botAuthorId || 1314929]).map(Number).filter(Boolean);
+const BOT_AUTHOR_ID = BOT_AUTHOR_IDS[0];
 
 // ── Which forms the bot works in, and as what ──
 // Until now there was no notion of a form at all: `runtime.formId` was written and never
@@ -70,9 +82,15 @@ function hostOf(url) {
 
 function isBot(author) {
   if (!author) return false;
-  if (Number(author.id) === BOT_AUTHOR_ID) return true;
-  // Fallback for service accounts whose id we have not been told about.
-  return /^bot@/i.test(String(author.email || ""));
+  return BOT_AUTHOR_IDS.indexOf(Number(author.id)) >= 0;
+}
+
+// Чужой бот — не мы и не партнёр. Признаётся только для того, чтобы сказать о нём в лог:
+// если в треде появился сервисный аккаунт, о котором мы не знаем, это стоит увидеть до
+// того, как кто-то начнёт разбираться, почему бот повёл себя странно.
+function looksLikeForeignBot(author) {
+  return !!author && !isBot(author) &&
+    (String(author.type || "") === "bot" || /^bot@/i.test(String(author.email || "")));
 }
 
 // ── How a point write addresses its document ──
@@ -177,6 +195,28 @@ if (!lastComment) return result(taskId, null, true, "comment event without comme
 // The recursion breaker. Must come before anything that costs money or writes state.
 if (isBot(lastComment.author)) {
   return result(taskId, null, true, "last comment is the bot's own");
+}
+
+// ── Отвечаем только на то, что пришло СНАРУЖИ ──
+// Комментарий без входящего канала — внутренняя переписка: заметка оператора или сообщение
+// служебного бота. Отвечать на него нечем и незачем, а стоит это витка из трёх вызовов
+// модели и реплики партнёру, которой он не ждал.
+// Раньше такие комментарии отбрасывались случайно — резервным признаком `bot@` в isBot,
+// который заодно признавал своим любого чужого бота. Признак убран, и теперь фильтр нужен
+// по-настоящему: в логах видно, что `bot techSupport Supervisor` пишет в тред сам, на каждый
+// вебхук, и без этой проверки бот принялся бы отвечать на его сообщения об ошибках.
+// Для чатов это безопасно: в живом треде КАЖДЫЙ комментарий партнёра приходит с
+// `channel.direction: "inbound"`.
+// Исключение — САМОЕ первое сообщение задачи: Pyrus отдаёт тело задачи без канала, и оно
+// всегда принадлежит партнёру. Ровно то же исключение уже сделано в `speaker()`, и по той же
+// причине; распространять его на переоткрытый тред нельзя — там первым идёт как раз
+// комментарий человека.
+const isOpeningMessage = comments.length === 1;
+if (!isOpeningMessage && !(lastComment.channel && lastComment.channel.direction === "inbound")) {
+  if (looksLikeForeignBot(lastComment.author)) {
+    Log.info({ message: "receiveWebhook: task " + taskId + " — внутреннее сообщение служебного аккаунта " + (lastComment.author && lastComment.author.id) + ", бот не вмешивается" });
+  }
+  return result(taskId, null, true, "last comment is internal, not a message from the partner");
 }
 
 // ── Which form this is, and whether the bot has any business here ──

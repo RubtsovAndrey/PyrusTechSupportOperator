@@ -25,11 +25,55 @@ function state(over) {
 }
 
 // The subtask form knows which parent chat it belongs to only if that field is configured.
-const CONFIG = { subtaskFormId: 1096731, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5, parentLinkFieldId: LINK_FIELD };
+// Field ids are NOT pinned here: they differ from form to form — a copy of the production
+// form renumbered every one of them — so they are resolved by name, and that is the path
+// worth testing.
+const CONFIG = { subtaskFormId: 1096731, parentLinkFieldId: LINK_FIELD };
+
+// ── The real shape of the form, taken from a live payload ──
+// Every trap in it is one the bot walked into: on this form 1 and 2 are notes, 5 is the
+// «Открыта / Завершена» status, 36 is a title, and 97 does not exist at all — which is what
+// the hardcoded 97/36/5/1/2 turned into a 400 on every attempt. «Тема обращения» and «Тема
+// обращения (вручную)» sit next to «Тема», so a search by substring picks the wrong one.
+const FORM_FIELDS = [
+  { id: 1, type: "note", name: "ㅤ" },
+  { id: 2, type: "note", name: "❗Инструкция по работе с задачами❗" },
+  { id: 4, type: "title", name: "Системные поля", fields: [
+    { id: 5, type: "status", name: "Открыта / Завершена" },
+    { id: 7, type: "step", name: "Этап" },
+    { id: 9, type: "number", name: "Id задачи из КЦ" }
+  ] },
+  { id: 25, type: "catalog", name: "Тема обращения" },
+  { id: 26, type: "text", name: "Тема обращения (вручную)" },
+  { id: 28, type: "catalog", name: "Компонент" },
+  { id: 35, type: "catalog", name: "Юнит" },
+  { id: 36, type: "title", name: "Время юнита", fields: [
+    { id: 37, type: "text", name: "Локальное время юнита" }
+  ] },
+  { id: 41, type: "title", name: "Контактная информация", fields: [
+    { id: 42, type: "text", name: "Имя" },
+    { id: 44, type: "email", name: "Эл. почта" }
+  ] },
+  { id: 46, type: "title", name: "Входные данные", fields: [
+    { id: 47, type: "text", name: "Тема" },
+    { id: 48, type: "text", name: "Сообщение" }
+  ] }
+];
+// What the form resolves to, so the expectations below read as the answer and not as magic.
+const UNIT = 35, COMPONENT = 28, EMAIL = 44, SUBJECT = 47, MESSAGE = 48;
 
 const CREATED = { body: { task: { id: 90001 } } };
 const emptyRegister = () => ({ body: { tasks: [] } });
 const registerWith = id => () => ({ body: { tasks: [{ id: id }] } });
+
+// The same URL prefix serves the register and the form definition, so the stub routes by
+// path the way Pyrus does: the register is the longer one and must be matched first.
+function router(o) {
+  const register = o.onGet || emptyRegister;
+  return a => (/\/register/.test(a.url)
+    ? register(a)
+    : (o.formFields === null ? { body: {} } : { body: { fields: o.formFields || FORM_FIELDS } }));
+}
 
 async function run(options) {
   const o = options || {};
@@ -37,7 +81,7 @@ async function run(options) {
     prev: { taskId: "11613" },
     db: Object.assign({ config: o.config === null ? undefined : (o.config || CONFIG), [KEY]: state(o.state) }, o.db),
     contextValues: { dialog: { taskId: "11613" } },
-    onGet: o.onGet || emptyRegister,
+    onGet: router(o),
     onPost: o.onPost || (a => (/\/tasks$/.test(a.url) ? CREATED : { body: {} })),
     failPostWhen: o.failPostWhen
   });
@@ -95,8 +139,11 @@ async function main() {
   t.check("subtask id is persisted", r.state.subtaskId === 90001, r.state);
 
   // ── Without the field configured the check is impossible, not silently wrong ──
-  r = await run({ config: { subtaskFormId: 1096731, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5 } });
-  t.check("no link field: register is not queried", r.gets.length === 0, r.gets);
+  r = await run({ config: { subtaskFormId: 1096731 } });
+  // The form definition is still read — that is where the field ids come from — so the
+  // question is whether the REGISTER was asked, not whether anything was.
+  t.check("no link field: register is not queried",
+    !r.gets.some(g => /\/register/.test(g.url)), r.gets.map(g => g.url));
   t.check("no link field: the subtask is still created", created(r.posts).length === 1, r.posts);
   t.check("no link field: nothing is written to it", fieldUpdates(r.posts).length === 0, r.posts);
 
@@ -131,11 +178,25 @@ async function main() {
   // A comment is correspondence; the first line reads «Входные данные».
   r = await run({});
   const field = id => (created(r.posts)[0].body.fields.find(f => Number(f.id) === id) || {}).value;
-  t.check("the summary is a field of the created task", typeof field(2) === "string", created(r.posts)[0].body.fields);
-  t.check("the summary names the parent task", /№11613/.test(field(2)), field(2));
+  // ── The ids are the form's own, found by name ──
+  // Hardcoded 97/36/5 were the production form's, and a copy of that form renumbered
+  // everything: Pyrus answered 400 to the creation and to the retry without the optional
+  // fields, because the mandatory three were wrong too. A field id cannot have a default.
+  t.check("field ids are resolved from the form, not assumed",
+    created(r.posts)[0].body.fields.map(f => Number(f.id)).sort((a, b) => a - b).join(",") ===
+      [UNIT, COMPONENT, EMAIL, SUBJECT, MESSAGE].sort((a, b) => a - b).join(","),
+    created(r.posts)[0].body.fields);
+  t.check("«Тема» is the input-data field, not «Тема обращения» next to it",
+    created(r.posts)[0].body.fields.some(f => Number(f.id) === SUBJECT) &&
+    !created(r.posts)[0].body.fields.some(f => Number(f.id) === 25 || Number(f.id) === 26),
+    created(r.posts)[0].body.fields);
+  t.check("nested fields are found too, not only top-level ones",
+    !!field(EMAIL) && !!field(SUBJECT), created(r.posts)[0].body.fields);
+  t.check("the summary is a field of the created task", typeof field(MESSAGE) === "string", created(r.posts)[0].body.fields);
+  t.check("the summary names the parent task", /№11613/.test(field(MESSAGE)), field(MESSAGE));
   t.check("the summary carries unit, component and email",
-    /Тамбов-1/.test(field(2)) && /Доступы/.test(field(2)) && /p@x\.ru/.test(field(2)), field(2));
-  t.check("the subject line says what the problem is", /отчёт/.test(field(1)), field(1));
+    /Тамбов-1/.test(field(MESSAGE)) && /Доступы/.test(field(MESSAGE)) && /p@x\.ru/.test(field(MESSAGE)), field(MESSAGE));
+  t.check("the subject line says what the problem is", /отчёт/.test(field(SUBJECT)), field(SUBJECT));
   t.check("and no summary comment is posted at all",
     !r.posts.some(p => p.body && p.body.text), r.posts.map(p => p.body));
 
@@ -147,22 +208,65 @@ async function main() {
 
   // A rejected optional field must cost the description, never the ticket.
   r = await run({
-    failPostWhen: a => /\/tasks$/.test(a.url) && a.body.fields.some(f => Number(f.id) === 2)
+    failPostWhen: a => /\/tasks$/.test(a.url) && a.body.fields.some(f => Number(f.id) === MESSAGE)
   });
   t.check("creation is retried without the input-data fields", created(r.posts).length === 2, r.posts);
   t.check("the retry keeps unit, component and email",
-    created(r.posts)[1].body.fields.map(f => Number(f.id)).sort((a, b) => a - b).join(",") === "5,36,97",
+    created(r.posts)[1].body.fields.map(f => Number(f.id)).sort((a, b) => a - b).join(",") ===
+      [UNIT, COMPONENT, EMAIL].sort((a, b) => a - b).join(","),
     created(r.posts)[1].body.fields);
   t.check("the subtask still exists", r.result.success === true && r.result.subtaskId === 90001, r.result);
   const rescued = r.posts.find(p => p.body && p.body.text);
   t.check("and the summary falls back to an internal comment",
     !!rescued && !rescued.body.channel && /№11613/.test(rescued.body.text), rescued && rescued.body);
 
-  // Nothing to fall back to when the fields are not configured either.
-  r = await run({ config: { subtaskFormId: 1096731, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5, subjectFieldId: null, messageFieldId: null } });
+  // ── A number pinned in config wins over the name ──
+  // The escape hatch for a form whose field is named unexpectedly.
+  r = await run({ config: { subtaskFormId: 1096731, unitFieldId: 777 } });
+  t.check("a pinned field id overrides the one found by name",
+    created(r.posts)[0].body.fields.some(f => Number(f.id) === 777) &&
+    !created(r.posts)[0].body.fields.some(f => Number(f.id) === UNIT),
+    created(r.posts)[0].body.fields);
+
+  // The nesting of a form definition is documented worse than that of a task, so both
+  // plausible shapes are accepted rather than guessed at.
+  r = await run({
+    formFields: [
+      { id: 35, type: "catalog", name: "Юнит" },
+      { id: 28, type: "catalog", name: "Компонент" },
+      { id: 41, type: "title", name: "Контакты", value: { fields: [{ id: 44, type: "email", name: "Эл. почта" }] } }
+    ]
+  });
+  t.check("a form that nests under value.fields resolves just as well",
+    created(r.posts)[0].body.fields.some(f => Number(f.id) === EMAIL), created(r.posts)[0].body.fields);
+
+  // Nothing to fall back to when the optional fields are not on the form at all.
+  r = await run({
+    formFields: [
+      { id: 35, type: "catalog", name: "Юнит" },
+      { id: 28, type: "catalog", name: "Компонент" },
+      { id: 44, type: "email", name: "Эл. почта" }
+    ]
+  });
   const commented = r.posts.find(p => p.body && p.body.text);
-  t.check("no message field configured: the summary goes into a comment",
+  t.check("no message field on the form: the summary goes into a comment",
     !!commented && /Доступы/.test(commented.body.text), commented && commented.body);
+
+  // ── The mandatory three cannot be guessed ──
+  // Pyrus rejects a creation with a wrong field id whole, not partially, so sending «what we
+  // have» would cost the request. The graph turns this failure into a handover, and the log
+  // above has already listed every field of the form.
+  r = await run({ formFields: [{ id: 1, type: "note", name: "ㅤ" }] });
+  t.check("a form without the mandatory fields creates nothing",
+    r.result.success === false && created(r.posts).length === 0, r.result);
+  t.check("and says which form could not be read",
+    /1096731/.test(String(r.result.reason)), r.result.reason);
+  t.check("it is not mistaken for a request for the email", r.result.action !== "clarify", r.result);
+
+  // The form request itself failing must not look like «no such field».
+  r = await run({ formFields: null });
+  t.check("an unreadable form definition also refuses instead of guessing",
+    r.result.success === false && created(r.posts).length === 0, r.result);
 
   // ── Missing facts ──
   r = await run({ state: { data: { unitFullName: facts.unitFullName, componentName: facts.componentName } } });

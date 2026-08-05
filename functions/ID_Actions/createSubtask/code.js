@@ -11,12 +11,33 @@ const DB_ID = "1000299722-pyrus_bot_database-hul";
 // ── ВНИМАНИЕ: сейчас здесь ТЕСТОВАЯ форма ──
 // `subtaskFormId: 2454249` — копия продовой формы 1096731, на ней же идут тесты тикетов.
 // Перед выходом в прод заменить обратно на 1096731 (и форму чатов — на продовую).
-// Номера полей у копии формы могут отличаться от оригинала: если создание подзадачи
-// начнёт отвечать 400, в логе будет тело ответа Pyrus с именем неподошедшего поля —
-// см. `describe(e)` ниже. Правильные номера кладутся в документ `config` без деплоя.
+//
+// ── Почему номеров полей здесь больше нет ──
+// Раньше здесь стояли `unitFieldId: 97, componentFieldId: 36, emailFieldId: 5,
+// subjectFieldId: 1, messageFieldId: 2` — номера продовой формы. Копия формы
+// ПЕРЕНУМЕРОВАЛА поля: «Юнит» стал 35, «Компонент» 28, «Эл. почта» 44, «Тема» 47,
+// «Сообщение» 48, а поля 97 не существует вовсе, 1 и 2 оказались заметками, 5 — статусом
+// «Открыта / Завершена». Pyrus отвечал 400 на создание подзадачи, оба раза — и с полями
+// «Входных данных», и без них, потому что неверна была и обязательная тройка.
+// Номер поля не может иметь значения по умолчанию: он свой у каждой формы. Поля ищутся
+// ПО ИМЕНИ в описании формы — тем же способом, которым `receiveWebhook` уже находит
+// «Юнит» и «Компонент» в отвечаемой задаче. Номер в `config` по-прежнему побеждает, если
+// поле придётся приколотить вручную.
 const DEFAULTS = {
-  subtaskFormId: 2454249, unitFieldId: 97, componentFieldId: 36, emailFieldId: 5,
-  subjectFieldId: 1, messageFieldId: 2, parentLinkFieldId: null
+  subtaskFormId: 2454249,
+  unitFieldId: null, componentFieldId: null, emailFieldId: null,
+  subjectFieldId: null, messageFieldId: null, parentLinkFieldId: null
+};
+
+// Имена полей формы подзадачи. Переопределяются через `config.fieldNames`, если на другой
+// форме они называются иначе. Сравнение ТОЧНОЕ: на форме есть и «Тема» (47), и «Тема
+// обращения» (25), и «Тема обращения (вручную)» (26) — поиск по вхождению взял бы не то.
+const FIELD_NAMES = {
+  unitFieldId: ["Юнит"],
+  componentFieldId: ["Компонент"],
+  emailFieldId: ["Эл. почта", "Электронная почта", "Email", "E-mail", "Почта"],
+  subjectFieldId: ["Тема"],
+  messageFieldId: ["Сообщение"]
 };
 
 // ── How a point write addresses its document ──
@@ -252,9 +273,60 @@ if (!token) {
 }
 
 const headers = { "Authorization": "Bearer " + token, "Content-Type": "application/json" };
+
+// ── Номера полей целевой формы, по именам ──
+// Описание формы — единственный источник, который знает их для ЭТОЙ формы. Один лишний GET
+// на создание подзадачи, а подзадача создаётся раз на обращение.
+// Вложенность в описании формы задокументирована у нас хуже, чем в задаче (там это
+// `f.value.fields`), поэтому принимаются все правдоподобные варианты, а если ничего не
+// нашлось — печатается то, что нашлось, чтобы один прогон закрыл вопрос.
+function flattenFormFields(fields, out) {
+  (Array.isArray(fields) ? fields : []).forEach(f => {
+    if (!f || typeof f !== "object") return;
+    out.push(f);
+    const nested = (f.value && f.value.fields) || f.fields || (f.info && f.info.fields);
+    if (Array.isArray(nested)) flattenFormFields(nested, out);
+  });
+  return out;
+}
+
+async function resolveFieldIds() {
+  const wanted = Object.keys(FIELD_NAMES);
+  const names = Object.assign({}, FIELD_NAMES, (cfg.fieldNames && typeof cfg.fieldNames === "object") ? cfg.fieldNames : {});
+  const ids = {};
+  // A number pinned in `config` wins: it is the escape hatch for a form whose field is
+  // named unexpectedly, and asking Pyrus about it would be pointless work.
+  wanted.forEach(k => { const v = Number(cfg[k] || 0) || null; if (v) ids[k] = v; });
+  if (wanted.every(k => ids[k])) return ids;
+
+  let formFields = [];
+  try {
+    const resp = await Http.get({ url: apiUrl + "forms/" + Number(cfg.subtaskFormId), headers: headers });
+    const body = (resp && resp.body) || resp || {};
+    const raw = body.fields || (body.form && body.form.fields) || [];
+    formFields = flattenFormFields(raw, []);
+  } catch (e) {
+    Log.error({ message: "createSubtask: could not read form " + cfg.subtaskFormId + ": " + describe(e) });
+    return ids;
+  }
+
+  wanted.forEach(k => {
+    if (ids[k]) return;
+    const candidates = Array.isArray(names[k]) ? names[k] : [names[k]];
+    const hit = formFields.find(f => candidates.some(n => String(f.name || "").trim() === String(n)));
+    if (hit) ids[k] = Number(hit.id);
+  });
+
+  const missing = wanted.filter(k => !ids[k]);
+  if (missing.length) {
+    Log.error({
+      message: "createSubtask: на форме " + cfg.subtaskFormId + " не нашлись поля " + missing.join(", ") +
+        ". Поля формы: " + formFields.map(f => (f.name || "?") + ":" + (f.id || "?") + ":" + (f.type || "?")).join(", ")
+    });
+  }
+  return ids;
+}
 const linkFieldId = Number(cfg.parentLinkFieldId || 0) || null;
-const subjectFieldId = Number(cfg.subjectFieldId || 0) || null;
-const messageFieldId = Number(cfg.messageFieldId || 0) || null;
 
 // ── Ask Pyrus, not the database ──
 // `state.subtaskId` above only catches a retry that runs after the first one finished.
@@ -309,14 +381,28 @@ const summaryText = requestSummary({
   tail: ["Компонент: " + data.componentName, "Родительская задача: №" + taskId]
 });
 
+const fieldIds = await resolveFieldIds();
+
+// Без обязательной тройки подзадачу создавать нечем: неверный номер поля Pyrus отвергает
+// целиком, а не частично, так что попытка «отправим что есть» стоила бы обращения. Ошибка
+// уходит в граф, и он существующей цепочкой условий передаёт обращение оператору — а лог
+// выше уже перечислил все поля формы, так что чинится это одной правкой `config`.
+if (!fieldIds.unitFieldId || !fieldIds.componentFieldId || !fieldIds.emailFieldId) {
+  return {
+    success: false,
+    reason: "на форме " + cfg.subtaskFormId + " не найдены обязательные поля подзадачи (Юнит / Компонент / Эл. почта)",
+    taskId: taskId
+  };
+}
+
 const requiredFields = [
-  { id: Number(cfg.unitFieldId), value: { item_name: String(data.unitFullName) } },
-  { id: Number(cfg.componentFieldId), value: { item_name: String(data.componentName) } },
-  { id: Number(cfg.emailFieldId), value: String(data.email) }
+  { id: fieldIds.unitFieldId, value: { item_name: String(data.unitFullName) } },
+  { id: fieldIds.componentFieldId, value: { item_name: String(data.componentName) } },
+  { id: fieldIds.emailFieldId, value: String(data.email) }
 ];
 const inputFields = [];
-if (subjectFieldId) inputFields.push({ id: subjectFieldId, value: String(data.problemSummary || data.componentName) });
-if (messageFieldId) inputFields.push({ id: messageFieldId, value: summaryText });
+if (fieldIds.subjectFieldId) inputFields.push({ id: fieldIds.subjectFieldId, value: String(data.problemSummary || data.componentName) });
+if (fieldIds.messageFieldId) inputFields.push({ id: fieldIds.messageFieldId, value: summaryText });
 
 async function create(fields) {
   const resp = await Http.post({

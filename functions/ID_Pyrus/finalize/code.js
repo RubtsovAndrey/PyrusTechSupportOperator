@@ -4,20 +4,27 @@ const DB_ID = "1000299722-pyrus_bot_database-hul";
 // Kept in the `config` document precisely because it lives in two files — a literal here
 // and a literal there is how the two would come to disagree, and disagreement means either
 // the bot answering itself or the bot standing down forever.
-const BOT_AUTHOR_ID = (function () {
+// Список, а не одно значение, и без резервного признака по email: в этой организации Pyrus
+// у каждого бота email вида `bot@<uuid>`, так что резерв признавал своим любого чужого бота —
+// Supervisor, Approver, бот другого проекта. Здесь это решало, считать ли чужую реплику
+// «более свежим сообщением», то есть молчать ли боту.
+const BOT_AUTHOR_IDS = (function () {
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: "config" });
-    return Number((doc && doc.value && doc.value.botAuthorId) || 0) || 1314929;
+    const cfg = (doc && doc.value) || {};
+    const list = Array.isArray(cfg.botAuthorIds) && cfg.botAuthorIds.length
+      ? cfg.botAuthorIds
+      : [cfg.botAuthorId || 1314929];
+    return list.map(Number).filter(Boolean);
   } catch (e) {
     Log.warn({ message: "finalize: config read failed, using the built-in bot id: " + e });
-    return 1314929;
+    return [1314929];
   }
 })();
 
 function isBot(author) {
   if (!author) return false;
-  if (Number(author.id) === BOT_AUTHOR_ID) return true;
-  return /^bot@/i.test(String(author.email || ""));
+  return BOT_AUTHOR_IDS.indexOf(Number(author.id)) >= 0;
 }
 
 // ── How a point write addresses its document ──

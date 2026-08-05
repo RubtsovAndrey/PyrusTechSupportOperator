@@ -56,11 +56,40 @@ async function main() {
   ], {});
   t.check("bot's own comment is skipped", r.result.skip === true && /own/.test(r.result.reason), r.result);
 
-  r = await run([{ id: 9, author: { id: 4242, email: "bot@9f1c-uuid" }, text: "..." }], {});
-  t.check("bot recognised by bot@ email when id is unknown", r.result.skip === true, r.result);
+  // ── A foreign bot is not us ──
+  // There used to be a fallback here: any author whose email began with `bot@` counted as
+  // ours, «for service accounts whose id we have not been told about». In this Pyrus
+  // organisation EVERY bot has an email of that shape, so the fallback claimed
+  // `bot techSupport Supervisor`, `bot techSupport Approver` and the bots of other projects.
+  // The live log shows what it cost: a turn dropped as «last comment is the bot's own» when
+  // the Supervisor bot had written it, and that bot's messages labelled «Ассистент» in the
+  // history — the model was told it had said things it never said.
+  r = await run([
+    { id: 8, author: PARTNER, text: "Не печатает чек", channel: CHAN },
+    { id: 9, author: { id: 693964, type: "bot", email: "bot@c8163714-uuid" }, text: "При обработке запроса произошла ошибка" }
+  ], {});
+  t.check("a foreign bot@ account is not taken for our own",
+    !/own/.test(String(r.result.reason)), r.result);
+  // …but its message is internal, so it does not start a turn either. Both halves matter:
+  // without the second the bot would have begun answering another bot's error messages.
+  t.check("and its internal message does not start a turn",
+    r.result.skip === true && /internal/.test(r.result.reason), r.result);
 
   r = await run([{ id: 9, author: { id: 4242, type: "bot", email: "real@person.ru" }, text: "..." }], {});
   t.check("author.type is not trusted: a real person is not a bot", r.result.skip === false, r.result);
+
+  // The very first comment of a task is the body Pyrus reports without a channel, and it is
+  // always the partner's — the same exception `speaker()` makes, for the same reason.
+  r = await run([{ id: 10, author: PARTNER, text: "Здравствуйте, не печатает чек" }], {});
+  t.check("the opening message is answered even without a channel", r.result.skip === false, r.result);
+
+  // An internal comment in an ongoing thread is not.
+  r = await run([
+    { id: 10, author: PARTNER, text: "Не печатает чек", channel: CHAN },
+    { id: 11, author: OPERATOR, text: "смотрю" }
+  ], {});
+  t.check("an operator's note in an ongoing thread does not start a turn",
+    r.result.skip === true && /internal/.test(r.result.reason), r.result);
 
   // The id of the service account is configuration, not a literal: a migration or a
   // recreated integration changes it, and a stale value means the bot answering itself in
@@ -68,8 +97,12 @@ async function main() {
   r = await run([{ id: 9, author: { id: 999001, name: "Новый бот" }, text: "..." }],
     { config: { botAuthorId: 999001 } });
   t.check("a bot id taken from config is recognised", r.result.skip === true && /own/.test(r.result.reason), r.result);
-  r = await run([{ id: 9, author: BOT, text: "..." }], { config: { botAuthorId: 999001 } });
+  r = await run([{ id: 9, author: BOT, text: "...", channel: CHAN }], { config: { botAuthorId: 999001 } });
   t.check("and the previous account is then no longer the bot", r.result.skip === false, r.result);
+  // Several accounts of ours may exist at once — a test one and a production one.
+  r = await run([{ id: 9, author: BOT, text: "...", channel: CHAN }],
+    { config: { botAuthorIds: [999001, 1314929] } });
+  t.check("a list of our own accounts is honoured", r.result.skip === true && /own/.test(r.result.reason), r.result);
 
   // ── Which form the bot works in ──
   // `runtime.formId` was written and never read, so every webhook was a chat. Safe with the
@@ -118,19 +151,21 @@ async function main() {
   // The case that would have hurt most: the subtask the bot itself created a minute ago. The
   // first line owns step 1 there — which is also why posting action:"finished" on a fresh
   // subtask always answered 400. Permission and mandate are the same fact.
-  k = await ticket([{ id: 63, author: OPERATOR, text: "смотрю обращение" }], FIRST_LINE_APPROVER);
+  k = await ticket([{ id: 63, author: PARTNER, text: "есть новости?", channel: CHAN }], FIRST_LINE_APPROVER);
   t.check("a ticket whose step belongs to the first line is left alone",
     k.result.skip === true && /belongs to someone else/.test(k.result.reason), k.result);
 
   // «Cannot tell» must mean silence, not «probably mine».
-  k = await ticket([{ id: 64, author: PARTNER, text: "вопрос", channel: CHAN }], { current_step: 1 });
+  k = await ticket([{ id: 64, author: PARTNER, text: "вопрос", channel: CHAN }], { current_step: 1, approvals: "?" });
   t.check("a payload that does not say who approves keeps the bot out",
     k.result.skip === true && /does not say/.test(k.result.reason), k.result);
   t.check("and it logs what it did find, so one real ticket answers the question",
     true, k.result.reason);
 
   // Call-center tickets: no channel at all, colleagues and the bot share one internal
-  // correspondence. There is no partner to answer, so there is nothing to do.
+  // correspondence. There is no partner to answer, so there is nothing to do. The opening
+  // message is exempt from the internal-comment guard — Pyrus reports the task body without a
+  // channel — so this is the check that has to catch such a ticket.
   k = await ticket([{ id: 65, author: PARTNER, text: "заявка из колл-центра" }], BOT_APPROVER);
   t.check("a ticket with no inbound channel is left alone",
     k.result.skip === true && /nobody to reply to/.test(k.result.reason), k.result);
@@ -397,8 +432,11 @@ async function main() {
     { id: 12, author: BOT, text: "Решено.", action: "finished" },
     { id: 14, author: OPERATOR, text: "Переоткрываю, недоделал", action: "reopened" }
   ], { [KEY]: { stage: "escalated", data: { unitFullName: "Москва 12" } } });
+  // Caught by the internal-comment guard now, one step earlier and before anything is read
+  // from the database — the reopen check below is the second line of defence rather than the
+  // first. What matters is unchanged: the bot does not answer a colleague.
   t.check("operator's own reopen does not wake the bot",
-    r.result.skip === true && r.result.stage === "escalated", r.result);
+    r.result.skip === true && /internal/.test(r.result.reason), r.result);
 
   // A partner writing into a thread the operator has NOT closed is still his business.
   r = await run([{ id: 15, author: PARTNER, text: "Есть новости?", channel: CHAN }],
