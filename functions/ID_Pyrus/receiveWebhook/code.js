@@ -59,6 +59,13 @@ const BOT_AUTHOR_ID = BOT_AUTHOR_IDS[0];
 // webhook on for a new form a switch rather than an all-or-nothing bet.
 const FORM_ROLES = (CONFIG.forms && typeof CONFIG.forms === "object") ? CONFIG.forms : null;
 
+// Поле, заполненность которого означает «заявка пришла из колл-центра»: партнёра в такой
+// задаче нет, переписка только внутренняя. Признак с самой формы, а не догадка о воркфлоу.
+// Переопределяется через `config.kcFieldNames`.
+const KC_FIELD_NAMES = (Array.isArray(CONFIG.kcFieldNames) && CONFIG.kcFieldNames.length)
+  ? CONFIG.kcFieldNames.map(String)
+  : ["Id задачи из КЦ"];
+
 function roleOfForm(formId) {
   if (!FORM_ROLES) return "chat";
   const entry = FORM_ROLES[String(formId || "")];
@@ -219,6 +226,20 @@ if (!isOpeningMessage && !(lastComment.channel && lastComment.channel.direction 
   return result(taskId, null, true, "last comment is internal, not a message from the partner");
 }
 
+// ── Pyrus field parsing ──
+// Разбирается до решения о том, работать ли: поля задачи — часть этого решения, «Id задачи
+// из КЦ» опознаёт заявку колл-центра. Поля вложены в разделы, поэтому обход рекурсивный.
+function flattenFields(fields, out = []) {
+  if (!Array.isArray(fields)) return out;
+  fields.forEach(f => {
+    out.push(f);
+    if (f.value && Array.isArray(f.value.fields)) flattenFields(f.value.fields, out);
+    else if (Array.isArray(f.fields)) flattenFields(f.fields, out);
+  });
+  return out;
+}
+const allFields = flattenFields(task.fields || []);
+
 // ── Which form this is, and whether the bot has any business here ──
 const formId = task.form_id ? String(task.form_id) : null;
 const role = roleOfForm(formId);
@@ -226,20 +247,14 @@ if (!role) {
   return result(taskId, null, true, "form " + formId + " is not one the bot works in");
 }
 
-// ── Is it the bot's turn? ──
-// For a ticket the mandate comes from the workflow: the bot works only where it is the
-// current approver. That single fact separates every kind of ticket there is — a task that
-// arrived by email puts the bot on step 1, while a subtask made by a human, an ordinary task
-// made by a human, and the subtask the bot itself created a minute ago all put the first line
-// there instead. It is also the same fact that decides whether Pyrus will accept
-// `action: "finished"` later: a step can only be finished by its own approver, which is
-// exactly why posting it on a freshly created subtask always answered 400. Permission and
-// mandate are one signal, so they cannot drift apart.
-//
-// The shape of this in the webhook payload is NOT yet confirmed on a live ticket, so the
-// resolver reports three outcomes, not two, and «cannot tell» means silence. Guessing
-// «probably mine» here is the one error that ends with the bot answering a colleague in an
-// escalation it had handed over itself.
+// ── Чей это этап ──
+// Идея была в том, что мандат даёт сам воркфлоу: бот работает там, где он текущий
+// утверждающий. На проде это верно — первым этапом подзадачи владеет «бот Approver» /
+// «[support] Первая линия», и именно поэтому попытка закрыть свежесозданную подзадачу
+// отвечала 400. Но на тестовой копии формы 2454249 бот стоит на первом этапе у ЛЮБОЙ задачи,
+// включая созданную оператором вручную, — признак там не разграничивает ничего.
+// Поэтому он больше не блокирует виток по умолчанию: он печатается в лог (полезно и на проде,
+// и при разборе), а требовать его можно формой — `config.forms.<id>.requireApprover: true`.
 function approvalEntries() {
   const raw = task.approvals;
   if (!Array.isArray(raw)) return null;
@@ -282,10 +297,30 @@ if (role === "ticket") {
   });
 
   const mine = botIsCurrentApprover();
-  if (mine !== true) {
+  // Требуется только если форма об этом просит: на тестовой копии бот стоит на первом этапе
+  // у любой задачи, и жёсткая проверка не пропустила бы ни один тест.
+  if ((FORM_ROLES && FORM_ROLES[formId] && FORM_ROLES[formId].requireApprover) && mine !== true) {
     return result(taskId, null, true, mine === null
       ? "ticket " + taskId + ": the payload does not say who the current approver is, staying out"
       : "ticket " + taskId + ": the current step belongs to someone else");
+  }
+
+  // ── Тикет колл-центра ──
+  // Заполненное «Id задачи из КЦ» — это заявка, пришедшая из колл-центра: партнёра в задаче
+  // нет, переписка только внутренняя, отвечать некому. Признак с самой формы, а не догадка о
+  // воркфлоу, и его невозможно спутать.
+  const kcField = allFields.find(f => KC_FIELD_NAMES.indexOf(String(f.name || "").trim()) >= 0);
+  const kcValue = kcField ? kcField.value : undefined;
+  if (kcValue !== undefined && kcValue !== null && String(kcValue).trim() !== "") {
+    return result(taskId, null, true, "ticket " + taskId + ": заявка из колл-центра (" + kcField.name + " = " + kcValue + ")");
+  }
+
+  // ── Задача, которую создал сам бот ──
+  // Подзадачу-эскалацию бот создаёт на этой же форме. Если в ней включена почтовая переписка,
+  // ответ партнёра придёт с входящим каналом — и без этой проверки бот принялся бы вести
+  // обращение, которое сам же передал первой линии. Автор задачи это решает наверняка.
+  if (isBot(task.author)) {
+    return result(taskId, null, true, "ticket " + taskId + ": задачу создал сам бот, её ведёт первая линия");
   }
   // The second condition, and the one that keeps the call-center tickets out: their tasks
   // have no channel at all — colleagues and the bot share one internal correspondence — so
@@ -381,17 +416,6 @@ const partnerName = lastInbound
   ? (personName(lastInbound.author) || personName(lastInbound.channel.from))
   : null;
 
-// ── Pyrus field parsing ──
-function flattenFields(fields, out = []) {
-  if (!Array.isArray(fields)) return out;
-  fields.forEach(f => {
-    out.push(f);
-    if (f.value && Array.isArray(f.value.fields)) flattenFields(f.value.fields, out);
-    else if (Array.isArray(f.fields)) flattenFields(f.fields, out);
-  });
-  return out;
-}
-const allFields = flattenFields(task.fields || []);
 const unitField = allFields.find(f => f.name === "Юнит");
 const componentField = allFields.find(f => f.name === "Компонент");
 const unitFieldId = unitField ? Number(unitField.id) : null;

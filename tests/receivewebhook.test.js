@@ -151,16 +151,54 @@ async function main() {
   // The case that would have hurt most: the subtask the bot itself created a minute ago. The
   // first line owns step 1 there — which is also why posting action:"finished" on a fresh
   // subtask always answered 400. Permission and mandate are the same fact.
-  k = await ticket([{ id: 63, author: PARTNER, text: "есть новости?", channel: CHAN }], FIRST_LINE_APPROVER);
-  t.check("a ticket whose step belongs to the first line is left alone",
+  // ── The step is only required where the form says so ──
+  // The idea was that the workflow grants the mandate, and on production it does: step 1 of a
+  // subtask belongs to «бот Approver» / «[support] Первая линия», which is also why finishing
+  // a freshly created subtask always answered 400. But on the test copy of the form the bot
+  // sits on step 1 of EVERY task, including one an operator made by hand — there the signal
+  // separates nothing. So by default it is logged, not enforced.
+  const STRICT = { [CHAT_FORM]: { role: "chat" }, [TICKET_FORM]: { role: "ticket", requireApprover: true } };
+
+  k = await ticket([{ id: 63, author: PARTNER, text: "есть новости?", channel: CHAN }], FIRST_LINE_APPROVER, STRICT);
+  t.check("with requireApprover a step that belongs to the first line is left alone",
     k.result.skip === true && /belongs to someone else/.test(k.result.reason), k.result);
 
-  // «Cannot tell» must mean silence, not «probably mine».
-  k = await ticket([{ id: 64, author: PARTNER, text: "вопрос", channel: CHAN }], { current_step: 1, approvals: "?" });
-  t.check("a payload that does not say who approves keeps the bot out",
+  // «Cannot tell» must mean silence, not «probably mine» — again, only where required.
+  k = await ticket([{ id: 64, author: PARTNER, text: "вопрос", channel: CHAN }], { current_step: 1, approvals: "?" }, STRICT);
+  t.check("with requireApprover a payload that does not say who approves keeps the bot out",
     k.result.skip === true && /does not say/.test(k.result.reason), k.result);
-  t.check("and it logs what it did find, so one real ticket answers the question",
-    true, k.result.reason);
+
+  // Without it the same ticket is worked, which is what makes the test form usable at all.
+  k = await ticket([{ id: 64, author: PARTNER, text: "вопрос", channel: CHAN }], FIRST_LINE_APPROVER);
+  t.check("without requireApprover the step does not block the turn",
+    k.result.skip === false && k.result.stage === "intake", k.result);
+
+  // ── A call-center ticket is named by the form itself ──
+  // «Id задачи из КЦ» filled means the request came from the call center: there is no partner
+  // in the task, the correspondence is internal only. A field, not a guess about a workflow.
+  k = await ticket([{ id: 66, author: PARTNER, text: "заявка", channel: CHAN }],
+    Object.assign({}, BOT_APPROVER, {
+      fields: [{ id: 4, type: "title", name: "Системные поля", value: { fields: [{ id: 9, type: "number", name: "Id задачи из КЦ", value: 778899 }] } }]
+    }));
+  t.check("a filled «Id задачи из КЦ» keeps the bot out",
+    k.result.skip === true && /колл-центра/.test(k.result.reason), k.result);
+
+  // The same field present but empty is an ordinary ticket.
+  k = await ticket([{ id: 67, author: PARTNER, text: "заявка", channel: CHAN }],
+    Object.assign({}, BOT_APPROVER, {
+      fields: [{ id: 4, type: "title", name: "Системные поля", value: { fields: [{ id: 9, type: "number", name: "Id задачи из КЦ" }] } }]
+    }));
+  t.check("an empty «Id задачи из КЦ» does not keep the bot out",
+    k.result.skip === false && k.result.stage === "intake", k.result);
+
+  // ── The subtask the bot created itself ──
+  // It is created on this very form. If email correspondence is enabled on it, the partner's
+  // reply arrives with an inbound channel — and without this check the bot would take over a
+  // request it had handed to the first line a minute earlier. The task author settles it.
+  k = await ticket([{ id: 68, author: PARTNER, text: "а что с моим обращением?", channel: CHAN }],
+    Object.assign({}, BOT_APPROVER, { author: BOT }));
+  t.check("a task the bot itself created is left to the first line",
+    k.result.skip === true && /создал сам бот/.test(k.result.reason), k.result);
 
   // Call-center tickets: no channel at all, colleagues and the bot share one internal
   // correspondence. There is no partner to answer, so there is nothing to do. The opening
