@@ -2,8 +2,8 @@
 id: cond_subtask_created
 name: subtask created?
 position:
-  x: 5466
-  y: -912
+  x: 5548
+  y: -916
 next-step: func_subtask_done
 next-error-step: null
 parameters:

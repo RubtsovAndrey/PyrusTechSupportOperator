@@ -2,8 +2,8 @@
 id: agent_intake
 name: Intake Agent
 position:
-  x: 2074
-  y: -612
+  x: 1964
+  y: -654
 next-step: func_parsejson_intake
 next-error-step: func_escalate_m9k4j
 parameters:
