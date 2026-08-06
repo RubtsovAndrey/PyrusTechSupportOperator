@@ -237,6 +237,39 @@ function checkRoutingCases() {
   return problems;
 }
 
+// ── Документы базы знаний собраны из каталога и не разошлись с ним ──
+// Их загружают в базу знаний руками, и разойтись они могут молча: статью переименовали, а
+// документ остался — обращения по нему находятся и тут же отбрасываются, то есть уходят
+// оператору без объяснения. Проверяется то же, что делает tools/build-rag.js, но со стороны
+// результата: у каждой статьи есть документ, лишних документов нет, и в каждом стоит верный
+// `topicKey` — второй носитель ключа на случай переименования файла.
+function checkRagDocuments() {
+  const problems = [];
+  const dir = path.join(ROOT, "docs", "rag");
+  if (!fs.existsSync(dir)) return ["docs/rag/ нет — соберите: node tools/build-rag.js"];
+  let topics;
+  try {
+    topics = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/knowledge_catalog.json"), "utf8")).topics || [];
+  } catch (e) { return ["каталог не читается: " + e.message]; }
+
+  const files = fs.readdirSync(dir).filter(f => f.endsWith(".md"));
+  const expected = {};
+  topics.forEach(t => { if (t.key) expected[String(t.key)] = true; });
+
+  Object.keys(expected).forEach(key => {
+    const file = path.join(dir, key + ".md");
+    if (!fs.existsSync(file)) return problems.push("у статьи " + key + " нет документа — пересоберите: node tools/build-rag.js");
+    const text = fs.readFileSync(file, "utf8");
+    const m = /topicKey\s*:\s*(\S+)/.exec(text);
+    if (!m) problems.push(key + ".md: нет строки topicKey — второй носитель ключа потерян");
+    else if (m[1] !== key) problems.push(key + ".md: внутри стоит topicKey " + m[1]);
+  });
+  files.forEach(f => {
+    if (!expected[f.replace(/\.md$/, "")]) problems.push("лишний документ " + f + " — такой статьи в каталоге нет");
+  });
+  return problems;
+}
+
 // ── Каталоги, которые стирает экспорт платформы ──
 // Экспорт владеет всем корнем репозитория и удаляет `docs/`, `tests/`, `tools/` целиком.
 // Список защищённых каталогов живёт в двух местах — в `tools/deploy.ps1`, который их
@@ -339,6 +372,17 @@ function checkGraph() {
     routing.forEach(p => console.log("        " + p));
   } else {
     console.log("  PASS  every case names a topic that exists, and every topic has a case");
+  }
+
+  console.log("\nknowledge base documents");
+  const ragDocs = checkRagDocuments();
+  total++;
+  if (ragDocs.length) {
+    failed++;
+    console.log("  FAIL  " + ragDocs.length + " проблем(а) в docs/rag/:");
+    ragDocs.forEach(p => console.log("        " + p));
+  } else {
+    console.log("  PASS  every article has its document, and every document its article");
   }
 
   console.log("\nprotected directories");

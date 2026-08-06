@@ -29,6 +29,31 @@ const DEFAULT_CATALOG = path.join(ROOT, "docs", "knowledge_catalog.json");
 const CATALOG = process.argv[2] ? path.resolve(process.argv[2]) : DEFAULT_CATALOG;
 const OUT = path.join(ROOT, "docs", "rag");
 
+// ── Слова, которые нельзя писать в документ ──
+// Они называют, КТО пишет, а не ЧТО случилось, и потому встречаются почти в каждом
+// обращении. В документе такое слово превращает статью в магнит для всего подряд.
+// Измерено на живом запросе «нужен стол для раскатки пиццы для пиццерии Додо»: победил
+// `no_internet` со счётом 3.87 против 2.46 у верного `equipment_request` — просто потому,
+// что в его тексте стояло «нет интернета В ПИЦЦЕРИИ» и «не открывается ДОДО ИС», а
+// содержательные слова запроса («стол», «раскатки») не встречались нигде.
+// Отсюда правило: документ должен быть не подробнее, а специфичнее.
+const UBIQUITOUS = [
+  "пиццер", "кофейн", "додо", "dodo", "дринкит", "drinkit",
+  "точк", "юнит", "партнёр", "партнер", "заведени"
+];
+
+function ubiquitousIn(text) {
+  const words = String(text || "").toLowerCase().replace(/ё/g, "е").split(/[^0-9a-zа-я]+/).filter(Boolean);
+  const hit = [];
+  words.forEach(w => {
+    UBIQUITOUS.forEach(stem => {
+      const s = stem.replace(/ё/g, "е");
+      if (w.indexOf(s) === 0 && hit.indexOf(w) < 0) hit.push(w);
+    });
+  });
+  return hit;
+}
+
 function main() {
   if (!fs.existsSync(CATALOG)) {
     console.error("Каталог не найден: " + CATALOG);
@@ -52,12 +77,16 @@ function main() {
 
   const written = [];
   const noPhrasings = [];
+  const magnets = [];
 
   topics.forEach(topic => {
     const key = String(topic.key || "").trim();
     if (!key) return;
     const phrasings = Array.isArray(topic.phrasings) ? topic.phrasings.filter(Boolean).map(String) : [];
     if (!phrasings.length) noPhrasings.push(key);
+
+    const found = ubiquitousIn([topic.description].concat(phrasings).join(" "));
+    if (found.length) magnets.push({ key: key, words: found });
 
     // `topicKey` первой строкой — второй, независимый носитель ключа: имя документа может
     // не пережить переименование при загрузке, а эта строка переживёт.
@@ -99,6 +128,17 @@ function main() {
     console.log("");
     console.log("Без `phrasings` (найдутся только по описанию, то есть заметно хуже):");
     noPhrasings.forEach(k => console.log("  " + k));
+  }
+  if (magnets.length) {
+    console.log("");
+    console.log("Слова, которые обычно называют КТО пишет, а не ЧТО случилось. Они есть почти в");
+    console.log("каждом обращении и делают статью магнитом для чужих запросов — проверьте, несут");
+    console.log("ли они смысл именно здесь. Бывает, что несут: у статьи про «Додо ИС тормозит»");
+    console.log("слово «Додо» — это и есть суть, а не лишний контекст.");
+    magnets.forEach(m => console.log("  " + m.key + ": " + m.words.join(", ")));
+    console.log("  (замер: «нужен стол для раскатки пиццы для пиццерии Додо» отдал первое место");
+    console.log("   статье no_internet — 3.87 против 2.46 у верной, — потому что в её тексте были");
+    console.log("   «в пиццерии» и «Додо ИС», а «стол» и «раскатки» не встречались нигде)");
   }
   console.log("");
   console.log("Дальше: загрузите содержимое docs/rag/ в базу знаний. Имя файла = имя источника,");
