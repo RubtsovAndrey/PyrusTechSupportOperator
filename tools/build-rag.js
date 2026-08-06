@@ -11,15 +11,36 @@
 //
 // Что делать с результатом: загрузить содержимое docs/rag/ в базу знаний на платформе.
 // Имя файла станет именем источника — по нему `searchKnowledge` и узнаёт статью.
+//
+// ── КАКОЙ каталог читается ──
+// По умолчанию — `docs/knowledge_catalog.json`, а это ОБРАЗЕЦ: рабочий каталог живёт
+// документом `knowledge_catalog` в БД проекта и правится вручную. Их легко спутать, и цена
+// путаницы измерена на живом логе: `phrasings`, добавленные в образец, в проде не появились,
+// и подбор по словам продолжал промахиваться ровно так же.
+// Поэтому путь можно передать: выгрузите документ из БД в файл и укажите его.
+//     node tools/build-rag.js                          — образец из репозитория
+//     node tools/build-rag.js C:\путь\prod-catalog.json — то, что реально развёрнуто
 
 const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
-const CATALOG = path.join(ROOT, "docs", "knowledge_catalog.json");
+const DEFAULT_CATALOG = path.join(ROOT, "docs", "knowledge_catalog.json");
+const CATALOG = process.argv[2] ? path.resolve(process.argv[2]) : DEFAULT_CATALOG;
 const OUT = path.join(ROOT, "docs", "rag");
 
 function main() {
+  if (!fs.existsSync(CATALOG)) {
+    console.error("Каталог не найден: " + CATALOG);
+    process.exit(1);
+  }
+  console.log("Читаю каталог: " + CATALOG);
+  if (CATALOG === DEFAULT_CATALOG) {
+    console.log("  ВНИМАНИЕ: это ОБРАЗЕЦ из репозитория, а не рабочий каталог.");
+    console.log("  Рабочий лежит документом `knowledge_catalog` в БД проекта. Если статьи в нём");
+    console.log("  другие, выгрузите его в файл и передайте путь: node tools/build-rag.js <файл>");
+  }
+  console.log("");
   const catalog = JSON.parse(fs.readFileSync(CATALOG, "utf8"));
   const topics = Array.isArray(catalog.topics) ? catalog.topics : [];
   if (!topics.length) {
