@@ -319,6 +319,30 @@ try {
   Log.warn({ message: "searchKnowledge: catalog read failed: " + e });
 }
 
+// ── Как подбирается тема ──
+// `rag.mode`: off — только по словам; shadow — RAG спрашиваем и печатаем в лог, решает
+// подбор по словам; on — решает RAG. По умолчанию shadow: шкала счёта у каждой базы знаний
+// своя, порог наугад не ставится, а выкладка этой правки не должна менять поведение.
+// `rag.minScore` — ниже этого счёта кандидат не рассматривается. Порог обязателен:
+// семантический поиск всегда возвращает ближайшее, «ничего не нашлось» у него нет, и без
+// порога любое постороннее обращение уедет в ближайшую статью вместо оператора.
+const RAG_SETTINGS = (function () {
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "config" });
+    const rag = (doc && doc.value && doc.value.rag) || {};
+    const mode = String(rag.mode || "shadow");
+    return {
+      mode: ["off", "shadow", "on"].indexOf(mode) >= 0 ? mode : "shadow",
+      minScore: Number(rag.minScore) >= 0 ? Number(rag.minScore) : 0
+    };
+  } catch (e) {
+    Log.warn({ message: "searchKnowledge: config read failed, RAG stays in shadow: " + e });
+    return { mode: "shadow", minScore: 0 };
+  }
+})();
+const RAG_MODE = RAG_SETTINGS.mode;
+const RAG_MIN_SCORE = RAG_SETTINGS.minScore;
+
 if (!topics.length) {
   Log.error({ message: "searchKnowledge: knowledge_catalog is empty or unavailable" });
   return { found: false, topics: [], source: "catalog-empty" };
@@ -758,65 +782,150 @@ if (!queryTokens.length) {
 // it: the metric ran backwards, and the names of people and places were what pushed it
 // down. Only words the catalog knows at all are counted now, so «Иванов» — a word no
 // article contains — no longer votes on how well an article matched.
-const haystacks = topics.map(t => tokenize([t.key, t.description, t.componentName].filter(Boolean).join(" ")));
+// ── Подбор темы по словам ──
+// Совпадение токенов по префиксу. Синонимы и словоформы автор обязан перечислить в статье
+// сам; «нужен» не совпадает с «нужно», «обновиться» с «обновление». На близких соседях это
+// заметно ошибается: в замере на кластере из семи статей про кассу — 5 верных из 7, причём
+// «касса пишет что нужно обновиться» уверенно уходило в статью про заказ оборудования.
+// Поэтому основной подбор теперь семантический (`topicsFromRag`), а этот остаётся запасным
+// на случай, когда RAG недоступен или ещё не наполнен.
+//
+// Знаменатель — только те слова запроса, которые каталог вообще знает. Раньше делили на все,
+// и знаменатель считал имена людей и адреса, которых ни в одной статье быть не может: чем
+// точнее партнёр описывал проблему, тем ниже был счёт статьи о ней.
+const haystacks = topics.map(t => tokenize([
+  t.key, t.description, t.componentName,
+  // Переформулировки партнёра, из которых собираются документы для RAG, помогают и здесь:
+  // запасной подбор получает те же синонимы бесплатно.
+  Array.isArray(t.phrasings) ? t.phrasings.join(" ") : null
+].filter(Boolean).join(" ")));
 const known = queryTokens.filter(q => haystacks.some(h => hasToken(h, q)));
 const denominator = known.length || 1;
 
-const scored = topics
-  .map((t, i) => {
-    const hits = known.filter(q => hasToken(haystacks[i], q)).length;
-    return { topic: t, score: hits / denominator };
-  })
-  .filter(r => r.score >= MIN_SCORE)
-  .sort((a, b) => b.score - a.score)
-  .slice(0, MAX_TOPICS);
+function topicsFromWords() {
+  return topics
+    .map((t, i) => ({ topic: t, score: known.filter(q => hasToken(haystacks[i], q)).length / denominator }))
+    .filter(r => r.score >= MIN_SCORE)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_TOPICS);
+}
+
+// ── Подбор темы по смыслу ──
+// Документы базы знаний называются по `key` статьи, поэтому ключ приходит в `source.path`
+// каждого фрагмента. Это важнее, чем кажется: RAG режет документ на фрагменты, и ключ,
+// написанный строкой внутри текста, попал бы только в один из них. Имя источника есть у
+// всех. Строка `topicKey:` в теле остаётся вторым, независимым носителем — на случай, если
+// документ когда-нибудь переименуют.
+// Ключ в любом случае сверяется с каталогом: несуществующего не бывает, как и везде здесь.
+function keyOfChunk(chunk) {
+  const known = {};
+  topics.forEach(t => { if (t.key) known[String(t.key).toLowerCase()] = String(t.key); });
+
+  const path = String((chunk.source && chunk.source.path) || "");
+  // Имя файла без пути и расширения: платформа называет источник по загруженному файлу.
+  const base = path.split(/[\\/]/).pop().replace(/\.[^.]+$/, "").trim().toLowerCase();
+  if (known[base]) return known[base];
+
+  const m = /topickey\s*:\s*([A-Za-z0-9_-]+)/i.exec(String(chunk.content || ""));
+  if (m && known[String(m[1]).toLowerCase()]) return known[String(m[1]).toLowerCase()];
+
+  return null;
+}
+
+async function topicsFromRag() {
+  let chunks = [];
+  try {
+    const rag = await Rag.retrieveChunks({ ragIntegration: RAG_KEY, query: String(query) });
+    chunks = (rag && Array.isArray(rag.chunks)) ? rag.chunks : [];
+  } catch (e) {
+    Log.warn({ message: "searchKnowledge: RAG недоступен, остаётся подбор по словам: " + e });
+    return null;
+  }
+  if (!chunks.length) return [];
+
+  // У одной статьи фрагментов много, а кандидат из неё один — берётся лучший счёт.
+  const best = {};
+  const refused = [];
+  chunks.forEach(c => {
+    const key = keyOfChunk(c);
+    if (!key) {
+      const p = String((c.source && c.source.path) || "?");
+      if (refused.indexOf(p) < 0) refused.push(p);
+      return;
+    }
+    const score = Number(c.score) || 0;
+    if (!(key in best) || score > best[key]) best[key] = score;
+  });
+  if (refused.length) {
+    Log.warn({ message: "searchKnowledge: фрагменты из источников " + refused.join(", ") +
+      " не удалось связать ни с одной статьёй каталога — имя документа должно совпадать с key статьи" });
+  }
+
+  return Object.keys(best)
+    .map(key => ({ topic: topics.filter(t => String(t.key) === key)[0], score: best[key] }))
+    .filter(r => r.topic && r.score >= RAG_MIN_SCORE)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_TOPICS);
+}
 
 // Only the fields the router decides on. Shipping whole articles here used to put
 // every solution text into the routing prompt, which both bloated it and tempted the
 // router to answer instead of routing.
-if (scored.length) {
-  // ── How much the score is actually worth ──
-  // The denominator is the number of query words the catalog knows at all, so a query it
-  // knows ONE word of gives every article containing that word a perfect 1.00, and several
-  // articles can tie at the top with nothing to tell them apart. Whether that happens often
-  // enough to be worth changing the metric for is not something the code can know, so it is
-  // measured rather than guessed at: this line says how thin the evidence behind a routing
-  // decision was. Read it before touching MIN_SCORE or the denominator.
-  if (known.length < 2 && scored.length > 1) {
-    Log.warn({ message: "searchKnowledge: " + scored.length + " articles tie at " +
-      scored[0].score.toFixed(2) + " on a single known word for \"" + String(query).slice(0, 120) +
-      "\" (" + scored.map(r => String(r.topic.key || "")).join(", ") + ") — the router is choosing on the description alone" });
-  }
-  return {
-    found: true,
-    source: "catalog",
-    topics: scored.map(r => ({
-      score: Number(r.score.toFixed(2)),
-      key: String(r.topic.key || ""),
-      description: r.topic.description ? String(r.topic.description) : null,
-      // A tree article is always entered through the solver, whatever the catalog says:
-      // its route is decided by the branch the partner ends up in, and jumping straight
-      // to a subtask would skip every question the tree exists to ask.
-      route: r.topic.nodes && typeof r.topic.nodes === "object"
-        ? "solver"
-        : (r.topic.route ? String(r.topic.route) : "solver"),
-      componentName: r.topic.componentName ? String(r.topic.componentName) : null
-    }))
-  };
+function asCandidates(scored) {
+  return scored.map(r => ({
+    score: Number(r.score.toFixed(2)),
+    key: String(r.topic.key || ""),
+    description: r.topic.description ? String(r.topic.description) : null,
+    // A tree article is always entered through the solver, whatever the catalog says:
+    // its route is decided by the branch the partner ends up in, and jumping straight
+    // to a subtask would skip every question the tree exists to ask.
+    route: r.topic.nodes && typeof r.topic.nodes === "object"
+      ? "solver"
+      : (r.topic.route ? String(r.topic.route) : "solver"),
+    componentName: r.topic.componentName ? String(r.topic.componentName) : null
+  }));
 }
 
-// No topic matched. Returning the whole catalog would invite the agent to guess, so
-// fall back to the knowledge base and let the caller decide (usually: escalate).
-//
-// This path ends in an operator, so it says WHY: the near miss above cost a chat, and
-// the log at the time showed only that the fallback had failed, not that the right
-// article had been half a hit away.
+const shown = scored => scored.length
+  ? scored.map(r => String(r.topic.key) + "=" + Number(r.score).toFixed(2)).join(" ")
+  : "ничего";
+// Отрыв первого кандидата от второго. Ничья — это не решение: она означает, что выбирать
+// будет модель по описаниям, и по этой цифре потом видно, стоит ли трогать порог.
+const margin = scored => (scored.length > 1 ? (scored[0].score - scored[1].score).toFixed(2) : "—");
+
+// ── Кто принимает решение ──
+// `off` — только по словам, RAG не трогаем.
+// `shadow` — RAG спрашиваем и печатаем, но решает по-прежнему подбор по словам. Значение по
+//   умолчанию, и оно выбрано намеренно: шкала счёта у RAG своя, порог наугад поставить нельзя,
+//   а деплой этой правки не должен менять поведение. Читаете логи, видите шкалу, ставите
+//   `rag.minScore`, переключаете на `on`.
+// `on` — решает RAG, подбор по словам остаётся страховкой на случай пустого ответа.
+const byWords = topicsFromWords();
+// `null` из topicsFromRag означает «спросили, но не смогли» — это не то же самое, что
+// «не спрашивали», и в логе их путать нельзя: одно чинят порогом, другое — интеграцией.
+const byRag = RAG_MODE === "off" ? undefined : await topicsFromRag();
+
+Log.info({ message: "searchKnowledge: маршрут \"" + String(query).slice(0, 120) + "\"" +
+  " | по словам: " + shown(byWords) + " (отрыв " + margin(byWords) + ")" +
+  " | RAG: " + (byRag === undefined ? "не спрашивали" : byRag === null ? "недоступен"
+    : shown(byRag) + " (отрыв " + margin(byRag) + ")") +
+  " | режим: " + RAG_MODE });
+
+const chosen = (RAG_MODE === "on" && byRag && byRag.length) ? byRag : byWords;
+const chosenBy = chosen === byRag ? "rag" : "catalog";
+
+if (chosen.length) {
+  return { found: true, source: chosenBy, topics: asCandidates(chosen) };
+}
+
+// Не нашлось ничего. Отдавать каталог целиком нельзя — агент начнёт угадывать; выдержки из
+// базы знаний нужны только чтобы оператор видел, что рядом вообще было.
 const best = topics
   .map((t, i) => ({ key: String(t.key || ""), score: known.filter(q => hasToken(haystacks[i], q)).length / denominator }))
   .sort((a, b) => b.score - a.score)[0];
-Log.info({ message: "searchKnowledge: no topic reached " + MIN_SCORE + " for \"" + String(query).slice(0, 120) +
-  "\"; catalog knows " + known.length + " of " + queryTokens.length + " words, best is " +
-  (best ? best.key + " at " + best.score.toFixed(2) : "nothing") });
+Log.info({ message: "searchKnowledge: ни одна статья не подошла под \"" + String(query).slice(0, 120) +
+  "\"; каталог знает " + known.length + " слов из " + queryTokens.length + ", ближайшая — " +
+  (best ? best.key + " с " + best.score.toFixed(2) : "ничего") });
 
 let chunks = [];
 try {

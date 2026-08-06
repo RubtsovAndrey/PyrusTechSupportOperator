@@ -15,11 +15,11 @@ function loadFunction(relPath, paramNames) {
   const src = fs.readFileSync(path.join(ROOT, relPath), "utf8");
   const names = paramNames || [];
   const factory = new Function(
-    "Context", "AgentContext", "Db", "Log", "Http", ...names,
+    "Context", "AgentContext", "Db", "Log", "Http", "Rag", ...names,
     "return (async function(){\n" + src + "\n})();"
   );
   return (env, args) => factory(
-    env.Context, env.AgentContext, env.Db, env.Log, env.Http, ...(args || [])
+    env.Context, env.AgentContext, env.Db, env.Log, env.Http, env.Rag, ...(args || [])
   );
 }
 
@@ -64,9 +64,11 @@ function makeEnv(options) {
   // Whole-document writes are recorded separately: they are the fallback path, and a test
   // must be able to tell a point write that worked from one that missed and was rescued.
   const puts = [];
+  // Каждый запрос к RAG, чтобы тест мог проверить и то, что его НЕ делали.
+  const rags = [];
 
   const env = {
-    db, notes, values, posts, gets, updates, puts,
+    db, notes, values, posts, gets, updates, puts, rags,
     prev: clone(o.prev) || {},
     Context: {
       getMessageContent: () => ({ payload: o.payload }),
@@ -136,6 +138,12 @@ function makeEnv(options) {
       }
     },
     Log: { info() {}, warn() {}, error() {}, debug() {}, trace() {} },
+    // Chunks come back sorted by descending score, each with `content` and a `source` whose
+    // `path` is the name of the document in the knowledge base — the platform names a source
+    // after the file it was uploaded from, which is what carries the topic key.
+    Rag: {
+      retrieveChunks: async a => { rags.push(a); return o.onRag ? o.onRag(a) : { chunks: [] }; }
+    },
     Http: {
       get: async a => { gets.push(a); return o.onGet ? o.onGet(a) : { body: {} }; },
       post: async a => {

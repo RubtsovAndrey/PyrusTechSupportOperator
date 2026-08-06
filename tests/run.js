@@ -8,7 +8,7 @@ const { ROOT } = require("./harness");
 
 const SUITES = [
   "./receivewebhook.test.js", "./finalize.test.js", "./parseagentjson.test.js",
-  "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js"
+  "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js", "./routing.test.js"
 ];
 
 // Function parameters declared in schema.yml, needed to wrap the source exactly as the
@@ -197,6 +197,46 @@ function checkPrelude() {
   return Object.keys(groups).map(k => groups[k]);
 }
 
+// ── Набор запросов, которые каталог обязан находить ──
+// Сам подбор проверяется на платформе: перечислить содержимое базы знаний из кода нельзя.
+// Но проверить, что спецификация не разошлась с каталогом, можно и здесь — и именно это
+// ломается тихо: тему переименовали, случай в наборе продолжает ссылаться на старый ключ, и
+// человек, прогоняющий набор, ищет ошибку в поиске, которой там нет.
+// Заодно требуется, чтобы у каждой статьи был хотя бы один случай: статья, которую никто не
+// пробовал найти, — это статья, про которую неизвестно, находится ли она вообще.
+function checkRoutingCases() {
+  const problems = [];
+  let cases, topics;
+  try {
+    cases = JSON.parse(fs.readFileSync(path.join(ROOT, "tests/routing.cases.json"), "utf8")).cases;
+  } catch (e) { return ["tests/routing.cases.json не читается: " + e.message]; }
+  try {
+    topics = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/knowledge_catalog.json"), "utf8")).topics || [];
+  } catch (e) { return ["каталог не читается: " + e.message]; }
+
+  if (!Array.isArray(cases) || !cases.length) return ["в routing.cases.json нет случаев"];
+  const keys = {};
+  topics.forEach(t => { if (t.key) keys[String(t.key)] = 0; });
+
+  cases.forEach((c, i) => {
+    if (!c || typeof c.query !== "string" || !c.query.trim()) {
+      return problems.push("случай " + i + ": пустой запрос");
+    }
+    if (!("expect" in c)) return problems.push("«" + c.query + "»: нет поля expect (ключ статьи или null)");
+    if (c.expect === null) return;
+    if (!(c.expect in keys)) problems.push("«" + c.query + "» ждёт статью " + c.expect + ", которой нет в каталоге");
+    else keys[c.expect]++;
+  });
+
+  Object.keys(keys).forEach(k => {
+    if (!keys[k]) problems.push("у статьи " + k + " нет ни одного запроса в наборе — неизвестно, находится ли она");
+  });
+  if (!cases.some(c => c && c.expect === null)) {
+    problems.push("в наборе нет отрицательных примеров: без них порог настроится в ноль и найдётся всё");
+  }
+  return problems;
+}
+
 // ── Каталоги, которые стирает экспорт платформы ──
 // Экспорт владеет всем корнем репозитория и удаляет `docs/`, `tests/`, `tools/` целиком.
 // Список защищённых каталогов живёт в двух местах — в `tools/deploy.ps1`, который их
@@ -288,6 +328,17 @@ function checkGraph() {
     catalog.forEach(p => console.log("        " + p));
   } else {
     console.log("  PASS  every article resolves its nodes, keys and exits");
+  }
+
+  console.log("\nrouting cases");
+  const routing = checkRoutingCases();
+  total++;
+  if (routing.length) {
+    failed++;
+    console.log("  FAIL  " + routing.length + " проблем(а) в наборе запросов:");
+    routing.forEach(p => console.log("        " + p));
+  } else {
+    console.log("  PASS  every case names a topic that exists, and every topic has a case");
   }
 
   console.log("\nprotected directories");
