@@ -326,22 +326,28 @@ try {
 // `rag.minScore` — ниже этого счёта кандидат не рассматривается. Порог обязателен:
 // семантический поиск всегда возвращает ближайшее, «ничего не нашлось» у него нет, и без
 // порога любое постороннее обращение уедет в ближайшую статью вместо оператора.
-const RAG_SETTINGS = (function () {
+//
+// Читается ЛЕНИВО и только на ветке подбора темы. Безусловное чтение стоило лишнего обращения
+// к БД на каждом витке солвера — а солвер работает в разы чаще маршрутизатора, и настройки
+// подбора ему не нужны вовсе. Видно это стало по логу: `searchKnowledge` читал три документа
+// там, где хватает двух.
+let RAG_SETTINGS = null;
+function ragSettings() {
+  if (RAG_SETTINGS) return RAG_SETTINGS;
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: "config" });
     const rag = (doc && doc.value && doc.value.rag) || {};
     const mode = String(rag.mode || "shadow");
-    return {
+    RAG_SETTINGS = {
       mode: ["off", "shadow", "on"].indexOf(mode) >= 0 ? mode : "shadow",
       minScore: Number(rag.minScore) >= 0 ? Number(rag.minScore) : 0
     };
   } catch (e) {
     Log.warn({ message: "searchKnowledge: config read failed, RAG stays in shadow: " + e });
-    return { mode: "shadow", minScore: 0 };
+    RAG_SETTINGS = { mode: "shadow", minScore: 0 };
   }
-})();
-const RAG_MODE = RAG_SETTINGS.mode;
-const RAG_MIN_SCORE = RAG_SETTINGS.minScore;
+  return RAG_SETTINGS;
+}
 
 if (!topics.length) {
   Log.error({ message: "searchKnowledge: knowledge_catalog is empty or unavailable" });
@@ -863,7 +869,7 @@ async function topicsFromRag() {
 
   return Object.keys(best)
     .map(key => ({ topic: topics.filter(t => String(t.key) === key)[0], score: best[key] }))
-    .filter(r => r.topic && r.score >= RAG_MIN_SCORE)
+    .filter(r => r.topic && r.score >= ragSettings().minScore)
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_TOPICS);
 }
@@ -900,6 +906,7 @@ const margin = scored => (scored.length > 1 ? (scored[0].score - scored[1].score
 //   а деплой этой правки не должен менять поведение. Читаете логи, видите шкалу, ставите
 //   `rag.minScore`, переключаете на `on`.
 // `on` — решает RAG, подбор по словам остаётся страховкой на случай пустого ответа.
+const RAG_MODE = ragSettings().mode;
 const byWords = topicsFromWords();
 // `null` из topicsFromRag означает «спросили, но не смогли» — это не то же самое, что
 // «не спрашивали», и в логе их путать нельзя: одно чинят порогом, другое — интеграцией.

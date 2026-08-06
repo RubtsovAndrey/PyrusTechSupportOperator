@@ -208,16 +208,23 @@ function writeState(taskId, paths, who) {
 // makes searchKnowledge fall back to a blind text search, and an invented component is
 // written straight into the Pyrus field Компонент — the same argument that already
 // guards the unit: a wrong value in a catalog field is worse than an empty one.
+// Читается один раз за виток. Помощников, которым нужен каталог, здесь несколько —
+// `validateTopicKey`, `topicByKey`, `validateComponent`, `answerKeysOfTopic`,
+// `answerPromptsOfTopic` — и каждый вызов раньше означал отдельное обращение к БД: в логе
+// видно по два чтения `knowledge_catalog` за виток. Каталог за виток не меняется.
+let TOPICS = null;
 function loadTopics() {
+  if (TOPICS) return TOPICS;
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: "knowledge_catalog" });
     const list = doc && doc.value && Array.isArray(doc.value.topics) ? doc.value.topics : null;
     if (!list) Log.warn({ message: "parseAgentJson: knowledge_catalog missing, cannot validate topic" });
-    return list || [];
+    TOPICS = list || [];
   } catch (e) {
     Log.warn({ message: "parseAgentJson: knowledge_catalog read failed: " + e });
-    return [];
+    TOPICS = [];
   }
+  return TOPICS;
 }
 
 function validateTopicKey(candidate) {

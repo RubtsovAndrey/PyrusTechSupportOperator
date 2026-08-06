@@ -27,10 +27,11 @@ const CATALOG = {
 // имени источника — платформа называет источник по загруженному файлу.
 const chunk = (path, score, content) => ({ score: score, content: content || "текст статьи", source: { id: 1, path: path } });
 
-async function route(query, options) {
+function envFor(query, options) {
   const o = options || {};
   const db = { knowledge_catalog: JSON.parse(JSON.stringify(o.catalog || CATALOG)) };
   if (o.config) db.config = o.config;
+  if (o.state) db["state:1"] = o.state;
   const env = makeEnv({
     db: db,
     contextValues: { dialog: { taskId: "1", incomingText: query } },
@@ -39,8 +40,23 @@ async function route(query, options) {
   const logs = [];
   env.Log.info = a => logs.push(String(a.message));
   env.Log.warn = a => logs.push(String(a.message));
+  env.logs = () => logs.join("\n");
+  return env;
+}
+
+async function route(query, options) {
+  const env = envFor(query, options);
   const result = await searchKnowledge(env, [query, null, null, "{}"]);
-  return { result, rags: env.rags, logs: logs.join("\n") };
+  return { result, rags: env.rags, logs: env.logs(), reads: env.gets, env };
+}
+
+// Какие документы функция прочитала из БД. Заглушка `Db.get` их не записывает, поэтому
+// считаются они по самому хранилищу — обёрткой вокруг него.
+function countReads(env) {
+  const reads = [];
+  const real = env.Db.get;
+  env.Db.get = a => { reads.push(a.documentKey); return real(a); };
+  return reads;
 }
 
 const keys = r => (r.result.topics || []).map(t => t.key);
@@ -149,6 +165,25 @@ async function main() {
   r = await route("касса не включается", { config: on(), onRag: () => ({ chunks: [] }) });
   t.check("пустой ответ базы знаний — тоже откат на слова",
     r.result.source === "catalog" && keys(r)[0] === "pos_down", r.result);
+
+  // ── Настройки читаются только там, где нужны ──
+  // Солвер вызывает searchKnowledge с готовым `topicKey` и работает в разы чаще
+  // маршрутизатора, а настройки подбора темы ему не нужны вовсе. Безусловное чтение `config`
+  // стоило лишнего обращения к БД на каждом таком витке — это было видно по логу с платформы.
+  let env = envFor("", { config: { rag: { mode: "on" } }, state: { taskId: 1, data: {} } });
+  let reads = countReads(env);
+  await searchKnowledge(env, ["", "pos_down", null, "{}"]);
+  t.check("на витке солвера настройки подбора не читаются",
+    reads.indexOf("config") < 0, reads);
+  t.check("а каталог и состояние — читаются",
+    reads.indexOf("knowledge_catalog") >= 0 && reads.some(k => /^state:/.test(k)), reads);
+
+  env = envFor("касса не включается", { config: { rag: { mode: "on" } } });
+  reads = countReads(env);
+  await searchKnowledge(env, ["касса не включается", null, null, "{}"]);
+  t.check("на витке маршрутизации — читаются", reads.indexOf("config") >= 0, reads);
+  t.check("и каталог читается один раз, а не по разу на помощника",
+    reads.filter(k => k === "knowledge_catalog").length === 1, reads);
 
   // ── Переформулировки помогают и запасному подбору ──
   const withPhrasings = JSON.parse(JSON.stringify(CATALOG));

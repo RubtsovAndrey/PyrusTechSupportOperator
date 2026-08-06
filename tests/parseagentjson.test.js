@@ -448,6 +448,23 @@ async function main() {
   t.check("missing taskId does not break the parse", r.result.action === "clarify", r.result);
   t.check("stage is reported back for applyOutcome", r.result.agentStage === "intake", r.result);
 
+  // ── Каталог читается один раз за виток ──
+  // Помощников, которым он нужен, здесь пять — validateTopicKey, topicByKey,
+  // validateComponent, answerKeysOfTopic, answerPromptsOfTopic — и каждый вызов означал
+  // отдельное обращение к БД: в логе с платформы видно по два чтения knowledge_catalog за
+  // виток. За виток каталог не меняется.
+  const counted = makeEnv({
+    prev: json({ route: "solver", topicKey: "printer_no_receipt", componentName: "касса" }),
+    db: db({ taskId: 11613, data: { topicKey: "printer_no_receipt" } }),
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  const reads = [];
+  const realGet = counted.Db.get;
+  counted.Db.get = a => { reads.push(a.documentKey); return realGet(a); };
+  await parseAgentJson(counted, ["routing"]);
+  t.check("каталог читается один раз за виток",
+    reads.filter(k => k === "knowledge_catalog").length === 1, reads);
+
   return t.report();
 }
 
