@@ -270,6 +270,34 @@ function checkRagDocuments() {
   return problems;
 }
 
+// ── Снимок состояния не должен врать про временные настройки ──
+// `docs/status.md` существует ради возврата к проекту после перерыва, и главное в нём —
+// список того, что стоит временно и что надо вернуть перед продом. Тестовая форма подзадачи
+// оттуда — единственное такое значение, живущее в коде: поменяют его и забудут документ, и
+// человек, вернувшийся через полгода, будет возвращать в прод форму, которая уже в проде.
+function checkStatusDoc() {
+  const problems = [];
+  let status, code;
+  try { status = fs.readFileSync(path.join(ROOT, "docs/status.md"), "utf8"); }
+  catch (e) { return ["docs/status.md не читается: " + e.message]; }
+  try { code = fs.readFileSync(path.join(ROOT, "functions/ID_Actions/createSubtask/code.js"), "utf8"); }
+  catch (e) { return ["createSubtask не читается: " + e.message]; }
+
+  const inCode = /subtaskFormId:\s*(\d+)/.exec(code);
+  if (!inCode) return ["в createSubtask не найден subtaskFormId"];
+  // Именно «сейчас в коде **N**», а не просто присутствие числа: в документе названы обе
+  // формы — временная и продовая, — и проверка на упоминание проходила бы всегда.
+  const inDoc = /сейчас в коде \*\*(\d+)\*\*/.exec(status);
+  if (!inDoc) {
+    problems.push("в docs/status.md нет строки «сейчас в коде **N**» — по ней сверяется, " +
+      "какая форма подзадачи стоит на самом деле");
+  } else if (inDoc[1] !== inCode[1]) {
+    problems.push("в коде subtaskFormId = " + inCode[1] + ", а docs/status.md говорит «сейчас в коде " +
+      inDoc[1] + "» — поправьте раздел «Временное, что надо вернуть перед продом»");
+  }
+  return problems;
+}
+
 // ── Каталоги, которые стирает экспорт платформы ──
 // Экспорт владеет всем корнем репозитория и удаляет `docs/`, `tests/`, `tools/` целиком.
 // Список защищённых каталогов живёт в двух местах — в `tools/deploy.ps1`, который их
@@ -383,6 +411,17 @@ function checkGraph() {
     ragDocs.forEach(p => console.log("        " + p));
   } else {
     console.log("  PASS  every article has its document, and every document its article");
+  }
+
+  console.log("\nstatus snapshot");
+  const statusDoc = checkStatusDoc();
+  total++;
+  if (statusDoc.length) {
+    failed++;
+    console.log("  FAIL  docs/status.md разошёлся с кодом:");
+    statusDoc.forEach(p => console.log("        " + p));
+  } else {
+    console.log("  PASS  the snapshot still names the temporary settings the code actually has");
   }
 
   console.log("\nprotected directories");
