@@ -10,18 +10,17 @@ response-description: "В ответе всегда есть turnKind — он �
   адай preQuestions и ничего кроме них), solution (выдай solverInstruction), handover\
   \ (не говори ничего, передачей занимается сценарий). При questions может прийти\
   \ reasked: true — эти вопросы уже задавались, а партнёр ответил не на них; повто\
-  рять их слово в слово нельзя. На query: { found, source,\
-  \ topics: [{ score, key, description, route, componentName }], chunks }. На topicKey\
-  \ ветвящаяся статья возвращает один узел: { turnKind, treeNode, preQuestions, answerKeys,\
-  \ branchOptions, solverInstruction, treeEnd }. Линейная статья возвращает либо с\
-  вои вопросы — { needsPreQuestions: true, preQuestions, answerKeys }, и если answerKeys\
-  \ непусты, ответы на эти вопросы верни в поле answers следующим витком, как и дл\
-  я ветвящейся статьи; либо один шаг, который надо выдать сейчас — { solverInstruction,\
-  \ followUpQuestion, stepNumber, stepCount, isLastStep, onFail }; либо то, что пр\
-  обовать больше нечего — { found: false, stepsExhausted: true, onFail }. При prose:\
-  \ true в solverInstruction лежит статья целиком, возможно с условиями внутри: вы\
-  бери подходящую партнёру часть, а если выбрать нельзя — задай один различающий в\
-  опрос и верни kind: questions"
+  рять их слово в слово нельзя. На query: { found, source, topics: [{ score, key,\
+  \ description, route, componentName }], chunks }. На topicKey ветвящаяся статья\
+  \ возвращает один узел: { turnKind, treeNode, preQuestions, answerKeys, branchOptions,\
+  \ solverInstruction, treeEnd }. Линейная статья возвращает либо свои вопросы — {\
+  \ needsPreQuestions: true, preQuestions, answerKeys }, и если answerKeys непусты\
+  , ответы на эти вопросы верни в поле answers следующим витком, как и для ветвяще\
+  йся статьи; либо один шаг, который надо выдать сейчас — { solverInstruction, followUpQuestion,\
+  \ stepNumber, stepCount, isLastStep, onFail }; либо то, что пробовать больше неч\
+  его — { found: false, stepsExhausted: true, onFail }. При prose: true в solverInstruction\
+  \ лежит статья целиком, возможно с условиями внутри: выбери подходящую партнёру\
+  \ часть, а если выбрать нельзя — задай один различающий вопрос и верни kind: questions"
 parameters:
 - name: query
   type: STRING

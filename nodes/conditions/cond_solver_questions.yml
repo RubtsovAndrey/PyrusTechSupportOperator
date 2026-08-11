@@ -2,8 +2,8 @@
 id: cond_solver_questions
 name: solver asked questions?
 position:
-  x: 4790
-  y: -1420
+  x: 4894
+  y: -1378
 next-step: func_clarify_answers
 next-error-step: null
 parameters:
