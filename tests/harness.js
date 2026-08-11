@@ -111,6 +111,17 @@ function makeEnv(options) {
       updateByFilters: a => {
         updates.push(a);
         const $set = (a.operator && a.operator.$set) || {};
+        // MongoDB error 40: one update cannot write a path and one of its descendants at
+        // the same time (`data` together with `data.handoverReason`). The live adapter
+        // validates this even when the filter would match no document, so do it before
+        // matching here as well. Without this rule the first webhook looked green locally
+        // and produced an avoidable error plus a whole-document rescue on the platform.
+        const paths = Object.keys($set);
+        paths.forEach((p, i) => paths.slice(i + 1).forEach(q => {
+          if (p.indexOf(q + ".") === 0 || q.indexOf(p + ".") === 0) {
+            throw new Error("db 40: conflicting update paths " + p + " and " + q);
+          }
+        }));
         // An array as a $set value makes the live adapter answer 500 while converting it
         // into a BSON document. Thrown here so no test can rely on a write the platform
         // refuses to perform.

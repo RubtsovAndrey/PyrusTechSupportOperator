@@ -699,23 +699,26 @@ const patch = {
   // answer to the new message and act on its `action`, closing or escalating the task.
   // Cleared here because this is the only function that knows a new turn has begun; the
   // invariant becomes checkable in one line: pendingOutcome is non-empty ⇒ this turn set it.
-  "pendingOutcome": null,
-  // Почему обращение уходит человеку — словами того, кто это решил. Обнуляется здесь по
-  // той же причине, что и `pendingOutcome`: причина, записанная об одной передаче, не
-  // должна быть зачитана оператору о другой. Кроме этой функции его пишет searchKnowledge,
-  // когда статья дважды не получила ответа, — и всегда позже, уже внутри витка.
-  "data.handoverReason": handoverReason
+  "pendingOutcome": null
 };
 if (newRequest || !documentExists) {
   // The leftovers of the finished обращение must go, so here the whole subtree is
   // replaced by the carried-over facts on purpose. A document being created needs the
   // subtree too, or the facts of the very first turn would have nowhere to land.
+  // `data.handoverReason` must be folded into that subtree rather than added as a second
+  // dotted path: MongoDB rejects one $set that updates both `data` and its child.
+  data.handoverReason = handoverReason;
   patch["data"] = data;
   patch["stage"] = null;
   patch["clarifyStreak"] = 0;
   patch["subtaskId"] = null;
-} else if (emailHarvested) {
-  patch["data.email"] = data.email;
+} else {
+  // Почему обращение уходит человеку — словами того, кто это решил. Обнуляется здесь по
+  // той же причине, что и `pendingOutcome`: причина, записанная об одной передаче, не
+  // должна быть зачитана оператору о другой. Кроме этой функции его пишет searchKnowledge,
+  // когда статья дважды не получила ответа, — и всегда позже, уже внутри витка.
+  patch["data.handoverReason"] = handoverReason;
+  if (emailHarvested) patch["data.email"] = data.email;
 }
 
 // A missing document is handled by writeState itself: the point write matches nothing,

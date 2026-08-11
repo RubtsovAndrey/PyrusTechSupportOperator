@@ -320,6 +320,9 @@ async function main() {
   // as count 0 instead of failing. The fallback is what makes the first turn persist.
   r = await run([{ id: 1, author: PARTNER, text: "первое обращение", channel: CHAN }], {});
   t.check("missing document is created after the point write misses", !!r.state, r.state);
+  const firstTurnPaths = setPaths(r.updates[0]);
+  t.check("a new document never updates data together with one of its child paths",
+    firstTurnPaths.indexOf("data") >= 0 && !firstTurnPaths.some(p => /^data\./.test(p)), firstTurnPaths);
   t.check("the created document carries the facts subtree", !!r.state.data, r.state);
   t.check("and the runtime of this request", !!r.state.runtime.token, r.state.runtime);
 
