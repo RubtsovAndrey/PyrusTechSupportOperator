@@ -208,7 +208,7 @@
   поэтому тесты были зелёными, пока бот молча терял всё. Проверяются синтаксис
   всех функций, кавычки в YAML, связность графа, поведение `receiveWebhook`, `finalize`,
   `parseAgentJson`, `createSubtask`, `matchUnit`, весь обход дерева БЗ вместе с формой
-  сводки и связка `applyOutcome` → `finalize` — 584 проверки. Кроме кода проверяется то,
+  сводки и связка `applyOutcome` → `finalize` — 595 проверок. Кроме кода проверяется то,
   что ломается уже после деплоя и тихо: статьи каталога (`start`, `go`, `else`, `onFail`,
   ключи `ask`, недостижимые и тупиковые узлы) и расхождение восьми копий `writeState` —
   платформа не даёт функциям импортировать друг друга, и копии успели разъехаться.
@@ -617,6 +617,7 @@ trigger_webhook_pyrus → receiveWebhook → skip?
   skip=true                         → finalize
   reopened after close?  reopened   → Outcome - silent handover → finalize
   just a thank-you?      gratitude  → Outcome - solved → finalize
+  asked to close the chat? close_request → Outcome - solved → finalize
   attachment without text? attachment → Outcome - escalate (attachment) → finalize
   partner asked for a human? handover_request → Outcome - escalate (asked for a human) → finalize
   waiting for email?  awaiting_email → createSubtask
@@ -686,7 +687,7 @@ trigger_webhook_pyrus → receiveWebhook → skip?
 stage            awaiting_confirmation | awaiting_email | awaiting_answers |
                  closed | escalated
                  (отсутствие стадии = начало диалога, ведёт в intake)
-                 Стадии `gratitude` и `handover_request` в документе не живут: их
+                 Стадии `gratitude`, `close_request` и `handover_request` в документе не живут: их
                  вычисляет receiveWebhook по тексту сообщения и отдаёт графу на один
                  виток. См. «Что бот слышит кодом» в control-points.md
 data.unitFullName, componentName, problemSummary, email, topicKey

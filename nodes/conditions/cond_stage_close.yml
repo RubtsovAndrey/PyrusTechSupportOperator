@@ -1,0 +1,11 @@
+---
+id: cond_stage_close
+name: partner asked to close?
+position:
+  x: 922
+  y: 132
+next-step: func_close_request
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).stage === 'close_request'"
+  false-step: cond_stage_attachment

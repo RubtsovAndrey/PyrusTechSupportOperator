@@ -575,6 +575,39 @@ else if (storedStage === "awaiting_email") stage = "awaiting_email";
 // middle of a tree walk. Needs a topic to return to — without one there is no article to
 // continue, and intake is always the safe fallback.
 else if (storedStage === "awaiting_answers") stage = data.topicKey ? "awaiting_answers" : "intake";
+
+// ── «Закройте чат» — это завершение, а не передача человеку ──
+// На `awaiting_answers` сообщение идёт прямо в solver, минуя confirmation. Живой прогон
+// показал опасное расхождение: модель написала «обращение закрываю», но вернула управляющий
+// `kind: handover`, и система передала уже решённый вопрос оператору. Явная просьба закрыть
+// ТЕКУЩИЙ чат или обращение однозначна и не должна стоить вызова модели.
+//
+// Признак намеренно требует одновременно действие и объект. Одного «закрыть» недостаточно:
+// партнёр может просить закрыть крышку кассы или кассовую смену. Инфинитив принимается
+// только рядом с «можете/можно»; «нужно закрыть заявку провайдеру» остаётся содержанием
+// обращения. Явное отрицание тоже исключается.
+const CLOSE_REQUEST = [
+  /(?:закройте|закрой|закрывайте|завершите|заверши)(?:\s+\S+){0,3}\s+(?:чат|обращени\S*|заявк\S*|задач\S*|тикет\S*)/i,
+  /(?:чат|обращени\S*|заявк\S*|задач\S*|тикет\S*)(?:\s+\S+){0,3}\s+(?:закройте|закрой|закрывайте|завершите|заверши)/i,
+  /(?:можете|можно)(?:\s+\S+){0,2}\s+(?:закрыть|закрывать|завершить)(?:\s+\S+){0,2}\s+(?:чат|обращени\S*|заявк\S*|задач\S*|тикет\S*)/i,
+  /(?:чат|обращени\S*|заявк\S*|задач\S*|тикет\S*)(?:\s+\S+){0,3}\s+(?:можете|можно)(?:\s+\S+){0,2}\s+(?:закрыть|закрывать|завершить)/i,
+  /(?:please\s+)?(?:close|finish|end)(?:\s+\S+){0,2}\s+(?:chat|ticket|request|case)/i,
+  /(?:chat|ticket|request|case)(?:\s+\S+){0,3}\s+(?:can|may)\s+(?:be\s+)?(?:closed|finished|ended)/i
+];
+function asksToClose(text) {
+  const s = String(text || "").replace(/[.,;:!?]+/g, " ").replace(/\s+/g, " ").trim();
+  // JavaScript's `\b` is ASCII-only even with `i`, so a boundary before Cyrillic «не»
+  // is not a boundary at all. Use the start/whitespace boundary explicitly.
+  if (/(?:^|\s)не\s+(?:закры|заверш)\S*/i.test(s) ||
+      /(?:^|\s)не\s+можете\s+(?:закры|заверш)\S*/i.test(s)) return false;
+  return CLOSE_REQUEST.some(re => re.test(s));
+}
+
+if (incomingText && asksToClose(incomingText) && stage !== "escalated") {
+  stage = "close_request";
+  Log.info({ message: "receiveWebhook: task " + taskId + " — партнёр явно попросил закрыть чат со стадии " + (storedStage || "начало диалога") });
+}
+
 // ── «Позовите человека» слышно на любой стадии ──
 // Эта проверка жила в промпте intake, а intake работает только на приёме обращения: стадии
 // `awaiting_answers`, `awaiting_email` и `awaiting_confirmation` уходят в solver,

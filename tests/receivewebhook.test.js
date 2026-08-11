@@ -389,6 +389,33 @@ async function main() {
     { [KEY]: { stage: "awaiting_confirmation" } });
   t.check("confirmation stage is entered", r.result.stage === "awaiting_confirmation", r.result);
 
+  // ── An explicit request to close belongs to the state machine, not to the model ──
+  // On awaiting_answers there is no confirmation agent in front of the solver. In a live
+  // turn the model wrote «закрываю» but returned kind:handover, so the partner heard one
+  // action while Pyrus performed the opposite one. Only an explicit action + current-chat
+  // object is accepted here; equipment and business procedures must remain ordinary text.
+  r = await run([{ id: 70, author: PARTNER,
+    text: "Простите, не актуально, сами решили, чат можете закрыть", channel: CHAN }],
+    { [KEY]: { stage: "awaiting_answers", data: { topicKey: "employee_card_change" } } });
+  t.check("a close request is heard while the article is waiting for an answer",
+    r.result.stage === "close_request", r.result);
+
+  for (const storedStage of ["intake", "awaiting_email", "awaiting_confirmation"]) {
+    r = await run([{ id: 71, author: PARTNER, text: "Закройте, пожалуйста, обращение", channel: CHAN }],
+      { [KEY]: { stage: storedStage } });
+    t.check("a close request is heard on " + storedStage, r.result.stage === "close_request", r.result);
+  }
+
+  r = await run([{ id: 72, author: PARTNER, text: "Закройте крышку кассы", channel: CHAN }],
+    { [KEY]: { stage: "awaiting_answers", data: { topicKey: "pos_down" } } });
+  t.check("closing the cash-register cover is not closing the chat",
+    r.result.stage === "awaiting_answers", r.result);
+
+  r = await run([{ id: 73, author: PARTNER, text: "Не закрывайте чат", channel: CHAN }],
+    { [KEY]: { stage: "awaiting_answers", data: { topicKey: "employee_card_change" } } });
+  t.check("an explicit negation is not taken for a close request",
+    r.result.stage === "awaiting_answers", r.result);
+
   r = await run([{ id: 21, author: PARTNER, text: "Ещё вопрос", action: "reopened", channel: CHAN }],
     { [KEY]: { stage: "closed", data: { unitFullName: "Москва 12" } } });
   t.check("chat closed by the bot goes to the operator silently", r.result.stage === "reopened", r.result);
