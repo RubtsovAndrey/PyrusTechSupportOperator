@@ -2,8 +2,8 @@
 id: cond_tree_subtask
 name: tree ended in a subtask?
 position:
-  x: 4620
-  y: -1700
+  x: 4610
+  y: -2003
 next-step: func_createsubtask_v5r8k
 next-error-step: null
 parameters:
