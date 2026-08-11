@@ -3,12 +3,14 @@
 // and the wiring of the node graph — because a broken edge is only visible in Pyrus.
 const fs = require("fs");
 const path = require("path");
+const childProcess = require("child_process");
 const vm = require("vm");
 const { ROOT } = require("./harness");
 
 const SUITES = [
   "./receivewebhook.test.js", "./finalize.test.js", "./parseagentjson.test.js",
-  "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js", "./routing.test.js",
+  "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
+  "./routing-catalog.test.js", "./routing.test.js",
   // Идёт последним: остальные наборы проверяют функции поштучно, этот — разговор целиком,
   // и по упавшей проверке здесь при зелёных выше сразу видно, что дело в графе, а не в коде.
   "./dialog.test.js"
@@ -269,13 +271,13 @@ function checkRoutingCases() {
 // ── Документы базы знаний собраны из каталога и не разошлись с ним ──
 // Их загружают в базу знаний руками, и разойтись они могут молча: статью переименовали, а
 // документ остался — обращения по нему находятся и тут же отбрасываются, то есть уходят
-// оператору без объяснения. Проверяется то же, что делает tools/build-rag.js, но со стороны
+// оператору без объяснения. Проверяется то же, что делает tools/build-knowledge.js, но со стороны
 // результата: у каждой статьи есть документ, лишних документов нет, и в каждом стоит верный
 // `topicKey` — второй носитель ключа на случай переименования файла.
 function checkRagDocuments() {
   const problems = [];
   const dir = path.join(ROOT, "docs", "rag");
-  if (!fs.existsSync(dir)) return ["docs/rag/ нет — соберите: node tools/build-rag.js"];
+  if (!fs.existsSync(dir)) return ["docs/rag/ нет — соберите: node tools/build-knowledge.js"];
   let topics;
   try {
     topics = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/knowledge_catalog.json"), "utf8")).topics || [];
@@ -287,7 +289,7 @@ function checkRagDocuments() {
 
   Object.keys(expected).forEach(key => {
     const file = path.join(dir, key + ".md");
-    if (!fs.existsSync(file)) return problems.push("у статьи " + key + " нет документа — пересоберите: node tools/build-rag.js");
+    if (!fs.existsSync(file)) return problems.push("у статьи " + key + " нет документа — пересоберите: node tools/build-knowledge.js");
     const text = fs.readFileSync(file, "utf8");
     const m = /topicKey\s*:\s*(\S+)/.exec(text);
     if (!m) problems.push(key + ".md: нет строки topicKey — второй носитель ключа потерян");
@@ -297,6 +299,22 @@ function checkRagDocuments() {
     if (!expected[f.replace(/\.md$/, "")]) problems.push("лишний документ " + f + " — такой статьи в каталоге нет");
   });
   return problems;
+}
+
+// ── The editable topic files are the source; catalog, RAG and manifest are outputs ──
+// A locally valid generated catalog can still be stale if an author edited a topic and
+// forgot to rebuild. Invoke the same generator in read-only mode instead of duplicating
+// its hashing and ordering rules here. This also makes deploy.ps1 stop before pushing a
+// repository whose DB payload and RAG documents describe different versions.
+function checkKnowledgeBuild() {
+  const script = path.join(ROOT, "tools", "build-knowledge.js");
+  const run = childProcess.spawnSync(process.execPath, [script, "--check"], {
+    cwd: ROOT,
+    encoding: "utf8"
+  });
+  if (run.status === 0) return [];
+  const detail = String(run.stderr || run.stdout || "generator failed without output").trim();
+  return [detail];
 }
 
 // ── Снимок состояния не должен врать про временные настройки ──
@@ -450,6 +468,17 @@ function checkGraph() {
     ragDocs.forEach(p => console.log("        " + p));
   } else {
     console.log("  PASS  every article has its document, and every document its article");
+  }
+
+  console.log("\nknowledge source of truth");
+  const knowledgeBuild = checkKnowledgeBuild();
+  total++;
+  if (knowledgeBuild.length) {
+    failed++;
+    console.log("  FAIL  generated knowledge files differ from their topic sources:");
+    knowledgeBuild.forEach(p => console.log("        " + p.replace(/\n/g, "\n        ")));
+  } else {
+    console.log("  PASS  topic sources, catalog, RAG documents and manifest are in sync");
   }
 
   console.log("\nstatus snapshot");

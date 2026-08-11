@@ -2,16 +2,15 @@
 id: searchKnowledge
 name: searchKnowledge
 description: "Ищет в базе знаний тематику, подходящую под описание проблемы. Если\
-  \ ничего не подходит, возвращает found=false и никогда не угадывает; в chunks пр\
-  и этом приходят выдержки из базы для ориентира. Когда тематика уже известна, пер\
-  едавай topicKey."
+  \ ничего не подходит, возвращает found=false без кандидатов и никогда не угадыв\
+  ает. Когда тематика уже известна, передавай topicKey."
 response-description: "В ответе всегда есть turnKind — он говорит, чем сейчас этот\
   \ виток: choose-branch (вызови инструмент ещё раз, передав branch), questions (з\
   адай preQuestions и ничего кроме них), solution (выдай solverInstruction), handover\
   \ (не говори ничего, передачей занимается сценарий). При questions может прийти\
   \ reasked: true — эти вопросы уже задавались, а партнёр ответил не на них; повто\
   рять их слово в слово нельзя. На query: { found, source, topics: [{ score, key,\
-  \ description, route, componentName }], chunks }. На topicKey ветвящаяся статья\
+  \ description, route, componentName }] }. На topicKey ветвящаяся статья\
   \ возвращает один узел: { turnKind, treeNode, preQuestions, answerKeys, branchOptions,\
   \ solverInstruction, treeEnd }. Линейная статья возвращает либо свои вопросы — {\
   \ needsPreQuestions: true, preQuestions, answerKeys }, и если answerKeys непусты\

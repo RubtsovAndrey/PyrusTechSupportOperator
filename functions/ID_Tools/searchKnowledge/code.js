@@ -946,9 +946,13 @@ async function topicsFromRag() {
     chunks = (rag && Array.isArray(rag.chunks)) ? rag.chunks : [];
   } catch (e) {
     Log.warn({ message: "searchKnowledge: RAG недоступен, остаётся подбор по словам: " + e });
-    return null;
+    return { status: "unavailable", topics: [] };
   }
-  if (!chunks.length) return [];
+  // An empty service response is different from a successful search whose candidates were
+  // all below the configured threshold. Empty may mean an unfilled or not-yet-indexed
+  // knowledge base, where the lexical fallback keeps the bot operational. Below threshold
+  // is an explicit abstention and must not resurrect weaker lexical guesses.
+  if (!chunks.length) return { status: "empty", topics: [] };
 
   // У одной статьи фрагментов много, а кандидат из неё один — берётся лучший счёт.
   const best = {};
@@ -968,11 +972,12 @@ async function topicsFromRag() {
       " не удалось связать ни с одной статьёй каталога — имя документа должно совпадать с key статьи" });
   }
 
-  return Object.keys(best)
+  const found = Object.keys(best)
     .map(key => ({ topic: topics.filter(t => String(t.key) === key)[0], score: best[key] }))
     .filter(r => r.topic && r.score >= ragSettings().minScore)
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_TOPICS);
+  return { status: found.length ? "found" : "below-threshold", topics: found };
 }
 
 // Only the fields the router decides on. Shipping whole articles here used to put
@@ -1009,25 +1014,36 @@ const margin = scored => (scored.length > 1 ? (scored[0].score - scored[1].score
 // `on` — решает RAG, подбор по словам остаётся страховкой на случай пустого ответа.
 const RAG_MODE = ragSettings().mode;
 const byWords = topicsFromWords();
-// `null` из topicsFromRag означает «спросили, но не смогли» — это не то же самое, что
-// «не спрашивали», и в логе их путать нельзя: одно чинят порогом, другое — интеграцией.
-const byRag = RAG_MODE === "off" ? undefined : await topicsFromRag();
+// The status matters even when there are no candidates. `below-threshold` is a valid,
+// useful answer («none of our articles is close enough»); `empty` and `unavailable` mean
+// that the semantic index could not help and justify the lexical fallback.
+const ragResult = RAG_MODE === "off" ? undefined : await topicsFromRag();
+const byRag = ragResult ? ragResult.topics : undefined;
 
 Log.info({ message: "searchKnowledge: маршрут \"" + String(query).slice(0, 120) + "\"" +
   " | по словам: " + shown(byWords) + " (отрыв " + margin(byWords) + ")" +
-  " | RAG: " + (byRag === undefined ? "не спрашивали" : byRag === null ? "недоступен"
+  " | RAG: " + (byRag === undefined ? "не спрашивали" : ragResult.status === "unavailable" ? "недоступен"
+    : ragResult.status === "empty" ? "пустой ответ"
+    : ragResult.status === "below-threshold" ? "всё ниже порога"
     : shown(byRag) + " (отрыв " + margin(byRag) + ")") +
   " | режим: " + RAG_MODE });
 
-const chosen = (RAG_MODE === "on" && byRag && byRag.length) ? byRag : byWords;
+// When RAG is healthy and deliberately abstains, abstention wins. Falling back here used
+// to defeat `rag.minScore`: a generic word such as «хочу» or «всё» could revive a lexical
+// candidate immediately after semantic search had correctly rejected every article.
+const ragDecided = RAG_MODE === "on" && ragResult &&
+  (ragResult.status === "found" || ragResult.status === "below-threshold");
+const chosen = ragDecided ? byRag : byWords;
 const chosenBy = chosen === byRag ? "rag" : "catalog";
 
 if (chosen.length) {
   return { found: true, source: chosenBy, topics: asCandidates(chosen) };
 }
 
-// Не нашлось ничего. Отдавать каталог целиком нельзя — агент начнёт угадывать; выдержки из
-// базы знаний нужны только чтобы оператор видел, что рядом вообще было.
+// Не нашлось ничего. Отдавать каталог или сырые RAG-фрагменты нельзя — агент начнёт
+// угадывать из вариантов, которые порог только что отверг. Для диагностики достаточно
+// строки лога: она содержит и кандидатов, и оценки, а управляющий ответ остаётся
+// однозначным `found:false`.
 const best = topics
   .map((t, i) => ({ key: String(t.key || ""), score: known.filter(q => hasToken(haystacks[i], q)).length / denominator }))
   .sort((a, b) => b.score - a.score)[0];
@@ -1035,12 +1051,8 @@ Log.info({ message: "searchKnowledge: ни одна статья не подош
   "\"; каталог знает " + known.length + " слов из " + queryTokens.length + ", ближайшая — " +
   (best ? best.key + " с " + best.score.toFixed(2) : "ничего") });
 
-let chunks = [];
-try {
-  const rag = await Rag.retrieveChunks({ ragIntegration: RAG_KEY, query: String(query) });
-  chunks = (rag && rag.chunks ? rag.chunks : []).slice(0, 3).map(c => ({ score: c.score, content: c.content }));
-} catch (e) {
-  Log.warn({ message: "searchKnowledge: RAG fallback failed: " + e });
-}
-
-return { found: false, topics: [], chunks: chunks, source: "rag-fallback" };
+return {
+  found: false,
+  topics: [],
+  source: ragDecided ? "rag-below-threshold" : "catalog-miss"
+};

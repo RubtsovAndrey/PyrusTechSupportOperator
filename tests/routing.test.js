@@ -154,6 +154,19 @@ async function main() {
   t.check("выше порога — есть, и только тот, кто выше",
     keys(r).length === 1 && keys(r)[0] === "pos_down", r.result);
 
+  // A healthy semantic search that found chunks but rejected all of them has answered
+  // «none». Falling back to words in this case made minScore ineffective: generic lexical
+  // matches came back immediately after RAG had deliberately filtered them out.
+  r = await route("касса не включается", {
+    config: on(0.6),
+    onRag: () => ({ chunks: [chunk("pos_down.md", 0.59), chunk("equipment_request.md", 0.40)] })
+  });
+  t.check("RAG ниже порога не оживляет лексического кандидата",
+    r.result.found === false && keys(r).length === 0, r.result);
+  t.check("отказ RAG различим в логе", /RAG: всё ниже порога/.test(r.logs), r.logs);
+  t.check("после отказа RAG не вызывается второй раз и сырые фрагменты модели не отдаются",
+    r.rags.length === 1 && !("chunks" in r.result), { calls: r.rags, result: r.result });
+
   // ── База знаний недоступна или пуста ──
   r = await route("касса не включается", {
     config: on(), onRag: () => { throw new Error("rag 500"); }
@@ -165,6 +178,13 @@ async function main() {
   r = await route("касса не включается", { config: on(), onRag: () => ({ chunks: [] }) });
   t.check("пустой ответ базы знаний — тоже откат на слова",
     r.result.source === "catalog" && keys(r)[0] === "pos_down", r.result);
+
+  r = await route("как дела", {
+    config: { rag: { mode: "off" } },
+    onRag: () => { throw new Error("RAG must not be called in off mode"); }
+  });
+  t.check("off не вызывает RAG даже когда подбор по словам ничего не нашёл",
+    r.result.found === false && r.rags.length === 0, { result: r.result, calls: r.rags });
 
   // ── Настройки читаются только там, где нужны ──
   // Солвер вызывает searchKnowledge с готовым `topicKey` и работает в разы чаще
