@@ -139,6 +139,12 @@ async function main() {
     r.replies.length === 1 && r.stage === "closed", r.stage + " / " + r.replies.length);
   t.check("и модель на этот виток не тратится", r.agents.length === 0, r.agents);
 
+  bot = chat();
+  await bot.turn("Здравствуйте! Нужно поменять аватарку у курьера, Тамбов-1", { unit: "Тамбов-1" });
+  r = await bot.turn("Спасибо большое! 🙏");
+  t.check("эмодзи не мешает распознать чистую благодарность",
+    r.internal.length === 0 && r.replies.length === 1 && r.stage === "closed", r);
+
   // Всё остальное в переоткрытом чате по-прежнему уходит человеку — включая благодарность
   // с довеском: «спасибо, а теперь другой вопрос» — это другой вопрос.
   bot = chat();

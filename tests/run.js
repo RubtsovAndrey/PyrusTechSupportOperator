@@ -49,6 +49,20 @@ function checkSyntax() {
   return rows;
 }
 
+// Node.js accepts regexp features that the JavaScript engine on Agent Platform does not.
+// A Unicode property escape once passed the local syntax check and then prevented the
+// whole receiveWebhook function from compiling after deploy. Keep the known incompatible
+// construct out of every user function until the platform runtime supports it.
+function checkPlatformSyntax() {
+  const problems = [];
+  walk(path.join(ROOT, "functions"), []).filter(f => f.endsWith("code.js")).forEach(file => {
+    const rel = path.relative(ROOT, file).split(path.sep).join("/");
+    const src = fs.readFileSync(file, "utf8");
+    if (/\\[pP]\{/.test(src)) problems.push(rel + ": Unicode regexp property escapes are unsupported by Agent Platform");
+  });
+  return problems;
+}
+
 // The descriptions the model reads live in YAML that is edited by hand, and a stray quote
 // there is not a typo the platform survives — it rejects the whole function. There is no
 // YAML parser to lean on without dependencies, so the one mistake worth catching is
@@ -372,6 +386,16 @@ function checkGraph() {
     if (!ok) failed++;
     console.log("  " + (ok ? "PASS  " : "FAIL  ") + rel + (ok ? "" : "\n        " + err));
   });
+
+  console.log("\nplatform JavaScript compatibility");
+  const platformSyntax = checkPlatformSyntax();
+  total++;
+  if (platformSyntax.length) {
+    failed++;
+    platformSyntax.forEach(p => console.log("  FAIL  " + p));
+  } else {
+    console.log("  PASS  no unsupported Unicode regexp property escapes");
+  }
 
   console.log("\nyaml quoting");
   const yaml = checkYaml();

@@ -548,7 +548,11 @@ const THANKS_PART = [
 ];
 function isJustThanks(text) {
   // Знаки и эмодзи к смыслу отношения не имеют, а сравнению целиком мешают.
-  const bare = String(text || "").replace(/[^\p{L}\p{N}\s,;.!?]+/gu, " ").replace(/\s+/g, " ").trim();
+  // Agent Platform runs an older JavaScript regexp engine: Unicode property escapes
+  // compile in Node.js but fail there before the function can start.
+  // The phrases recognised below are Russian and English, so explicit ranges are both
+  // sufficient for this narrow classifier and compatible with the platform runtime.
+  const bare = String(text || "").replace(/[^A-Za-zА-Яа-яЁё0-9\s,;.!?]+/g, " ").replace(/\s+/g, " ").trim();
   if (!bare || bare.length > 80) return false;
   const parts = bare.split(/[,;.!?]+|\s+и\s+/).map(p => p.trim()).filter(Boolean);
   if (!parts.length) return false;
