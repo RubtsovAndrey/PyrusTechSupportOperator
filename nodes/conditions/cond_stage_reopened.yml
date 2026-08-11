@@ -8,4 +8,4 @@ next-step: func_handover_silent
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).stage === 'reopened'"
-  false-step: cond_stage_attachment
+  false-step: cond_stage_thanks

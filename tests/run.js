@@ -8,7 +8,10 @@ const { ROOT } = require("./harness");
 
 const SUITES = [
   "./receivewebhook.test.js", "./finalize.test.js", "./parseagentjson.test.js",
-  "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js", "./routing.test.js"
+  "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js", "./routing.test.js",
+  // Идёт последним: остальные наборы проверяют функции поштучно, этот — разговор целиком,
+  // и по упавшей проверке здесь при зелёных выше сразу видно, что дело в графе, а не в коде.
+  "./dialog.test.js"
 ];
 
 // Function parameters declared in schema.yml, needed to wrap the source exactly as the
@@ -103,8 +106,13 @@ function checkCatalog() {
     if (!nodes) {
       // A linear article: its onFail names an exit, never a node.
       const steps = (Array.isArray(t.steps) ? t.steps : []).filter(s => s && (typeof s === "string" || s.instruction));
-      if (!steps.length && !t.solverInstruction && String(t.route || "solver") === "solver") {
-        say("route is solver, but there is neither a step nor a solverInstruction to serve");
+      // `article` — прозаический уровень: текст, написанный как для человека. `solverInstruction`
+      // — то же поле под прежним именем.
+      if (!steps.length && !t.article && !t.solverInstruction && String(t.route || "solver") === "solver") {
+        say("route is solver, but there is neither a step, an article nor a solverInstruction to serve");
+      }
+      if (t.article && (steps.length || t.solverInstruction)) {
+        say("article is set together with steps/solverInstruction — выберите один уровень статьи");
       }
       if (t.onFail && ["subtask", "escalate"].indexOf(String(t.onFail)) < 0) {
         say("onFail=\"" + t.onFail + "\" is neither subtask nor escalate, and a linear article has no nodes to jump to");
@@ -176,8 +184,15 @@ function checkCatalog() {
 // like «check for arrays at every depth» has to land in all eight, and this is what says so.
 // Comments and log wording may differ (receiveWebhook reports a missed point write as info,
 // not a warning: on the first turn of a chat there is no document yet). The code may not.
-function checkPrelude() {
-  const RE = /function setPath\([\s\S]*?\n}\n[\s\S]*?function hasArrayValue\([\s\S]*?\n}\n[\s\S]*?function writeState\([\s\S]*?\n}\n/;
+const PRELUDE_RE = /function setPath\([\s\S]*?\n}\n[\s\S]*?function hasArrayValue\([\s\S]*?\n}\n[\s\S]*?function writeState\([\s\S]*?\n}\n/;
+// ── Текст, который читает человек, тоже существует в двух копиях ──
+// Сводка оператору и текст подзадачи собираются одним и тем же шаблоном, а функции
+// платформы не импортируют друг друга. Разъедутся — и один и тот же разговор опишут
+// по-разному два документа, которые читает один человек. Тот же класс расхождения, что у
+// `writeState`, и проверяется тем же способом.
+const SUMMARY_RE = /const SUMMARY = \{[\s\S]*?function summaryTemplate\([\s\S]*?\n}\n/;
+
+function checkPrelude(RE) {
   const groups = {};
   walk(path.join(ROOT, "functions"), []).filter(f => f.endsWith("code.js")).forEach(file => {
     const rel = path.relative(ROOT, file).split(path.sep).join("/");
@@ -435,16 +450,21 @@ function checkGraph() {
     console.log("  PASS  the rule and the script that enforces it name the same directories");
   }
 
-  console.log("\nwriteState copies");
-  const prelude = checkPrelude();
-  total++;
-  if (prelude.length > 1) {
-    failed++;
-    console.log("  FAIL  the copies of writeState have drifted into " + prelude.length + " versions:");
-    prelude.forEach((files, i) => console.log("        " + (i + 1) + ") " + files.join(", ")));
-  } else {
-    console.log("  PASS  " + (prelude[0] || []).length + " copies of writeState, all identical in code");
-  }
+  [["writeState", PRELUDE_RE], ["summary template", SUMMARY_RE]].forEach(([name, re]) => {
+    console.log("\n" + name + " copies");
+    const groups = checkPrelude(re);
+    total++;
+    if (groups.length > 1) {
+      failed++;
+      console.log("  FAIL  the copies of " + name + " have drifted into " + groups.length + " versions:");
+      groups.forEach((files, i) => console.log("        " + (i + 1) + ") " + files.join(", ")));
+    } else if (!groups.length) {
+      failed++;
+      console.log("  FAIL  no copy of " + name + " found at all — has it been renamed?");
+    } else {
+      console.log("  PASS  " + groups[0].length + " copies of " + name + ", all identical in code");
+    }
+  });
 
   for (const s of SUITES) {
     const res = await require(s)();

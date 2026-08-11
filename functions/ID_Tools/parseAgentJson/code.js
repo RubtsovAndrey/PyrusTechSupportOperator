@@ -77,7 +77,14 @@ function businessFromText(text) {
 // `ambiguity` is an out-parameter: the caller needs to know that the unit was refused
 // ONLY because the business is missing, because that changes the question the partner is
 // asked next. Refused as «not in the catalog» it asked for the point all over again.
-function validateUnit(candidate, business, ambiguity) {
+// `network` — партнёр пишет от лица всей сети, а не точки: «бухгалтер сети Москва 1»,
+// «вопрос по всем нашим точкам». Номера точки у такого обращения не существует, и требовать
+// его — тупик; Pyrus достаточно любой точки этой сети. Ровно это уже умеет matchUnit по
+// параметру `scope`, но выгрузка живого чата показала, что flash-модель инструмент не
+// вызывает вовсе: юнит опознаёт запасной путь здесь. То есть вся ветка «запрос от сети»
+// работала только в теории — на практике партнёра трижды спрашивали номер точки, которого
+// нет, и обращение уходило человеку по лимиту уточнений. Поэтому здесь то же правило.
+function validateUnit(candidate, business, ambiguity, network) {
   if (!candidate) return null;
   const wantedFull = normalize(candidate);
   const wantedName = normalize(nameOf(candidate));
@@ -133,6 +140,28 @@ function validateUnit(candidate, business, ambiguity) {
           ambiguity.name = String(candidate);
         }
         return null;
+      }
+    }
+    // Имя сети — это не имя точки, поэтому до сюда обращение от сети доходит ни с чем.
+    // Точки сети опознаются по строению имени: «Москва 1-1» — это первая точка сети
+    // «Москва 1», и никакая «Москва 11» под правило не подходит, потому что normalize
+    // разделяет дефис пробелом. Берётся первая по номеру — та же, что взял бы matchUnit.
+    if (!hit && network) {
+      let kin = raw.filter(item => normalize(nameOf(item)).indexOf(wantedName + " ") === 0);
+      const businesses = kin.map(businessOf).filter((b, i, a) => b && a.indexOf(b) === i);
+      if (kin.length && businesses.length > 1) {
+        if (wantedBiz) kin = kin.filter(item => normalize(businessOf(item)) === wantedBiz);
+        if (!kin.length || kin.map(businessOf).filter((b, i, a) => b && a.indexOf(b) === i).length > 1) {
+          Log.warn({ message: "parseAgentJson: network \"" + candidate + "\" spans " + businesses.length + " businesses, asking which one" });
+          if (ambiguity) { ambiguity.kind = "need_business"; ambiguity.name = String(candidate); }
+          return null;
+        }
+      }
+      if (kin.length) {
+        // Числовая сортировка, иначе первой точкой сети из десяти станет «-10», а не «-1».
+        kin.sort((a, b) => nameOf(a).localeCompare(nameOf(b), "ru", { numeric: true }));
+        hit = kin[0];
+        Log.info({ message: "parseAgentJson: обращение от сети \"" + candidate + "\", взята первая её точка " + hit });
       }
     }
     if (!hit) Log.warn({ message: "parseAgentJson: unit \"" + candidate + "\" is not in unitCatalog, not persisting" });
@@ -392,7 +421,11 @@ if (unitCandidate) {
   if (!business && parsed.business) {
     Log.warn({ message: "parseAgentJson: the agent names business \"" + parsed.business + "\" that the partner has not, ignored on task " + taskId });
   }
-  parsed.unitFullName = validateUnit(unitCandidate, business, ambiguity);
+  // `scope: "network"` агент объявляет тем же словом, каким передал бы его в matchUnit, —
+  // и объявить обязан в JSON, а не только в вызове инструмента, потому что вызова чаще
+  // всего не происходит.
+  const network = String(parsed.scope || "").toLowerCase() === "network";
+  parsed.unitFullName = validateUnit(unitCandidate, business, ambiguity, network);
 
   // ── A point already resolved is not a question again ──
   // The agent re-reports what it heard every turn, and what it heard is the bare name
@@ -584,6 +617,26 @@ if (taskId) {
         patch["data.attempts"] = attempts;
       }
     }
+    // ── «Этим занимается специалист» в статье, написанной прозой ──
+    // Условия графа читают `treeEnd`, а его ставит инструмент — но только у ветвящейся
+    // статьи, где конец известен заранее. У прозы конца в структуре нет: там прямо в
+    // тексте написано «сами мы такое не чиним», и увидеть это может только модель. Она
+    // отвечает `kind: "handover"` — и до этой строки такой ответ не делал ничего: пустой
+    // текст подменялся отбивкой «мы вернёмся с ответом», стадия уходила в
+    // `awaiting_confirmation`, и обращение зависало у бота вместо человека.
+    // Право эскалировать тут у модели по необходимости, и цена ошибки невелика: в худшем
+    // случае человек получит обращение, которое мог бы дожать бот.
+    if (String(stage || "") === "solver" && String(parsed.kind || "") === "handover" && !data.treeEnd) {
+      data.treeEnd = "escalate";
+      patch["data.treeEnd"] = "escalate";
+      // Условия графа читают результат ЭТОЙ функции, а не документ, и `treeEnd` выносится
+      // в него выше по коду — до того, как сюда дошло дело. Без этой строки запись в
+      // документ есть, а условие её не видит, и виток всё равно уходит в «Outcome - reply».
+      parsed.treeEnd = "escalate";
+      patch["data.handoverReason"] = "статья говорит, что этот случай решает специалист";
+      Log.info({ message: "parseAgentJson: solver reports a handover on task " + taskId + " and the article set no ending — escalating" });
+    }
+
     // `subtaskId` guards against creating the subtask twice for ONE problem. A new
     // question in the same task is a different problem and may need its own subtask,
     // and the streak counter must not carry a stale score into it either.

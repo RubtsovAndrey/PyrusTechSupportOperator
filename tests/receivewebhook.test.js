@@ -263,8 +263,10 @@ async function main() {
     r.updates[0].filters.taskId === 11613 && r.updates[0].filters.key === undefined,
     r.updates[0].filters);
   // `pendingOutcome` is among them on purpose: the decision of a turn must not outlive it.
+  // `data.handoverReason` for the same reason — the reason recorded about one handover must
+  // not be read out to the operator about the next.
   t.check("only own paths are written",
-    setPaths(r.updates[0]).join(",") === "botHasReplied,pendingOutcome,runtime,taskId,updatedAt",
+    setPaths(r.updates[0]).join(",") === "botHasReplied,data.handoverReason,pendingOutcome,runtime,taskId,updatedAt",
     setPaths(r.updates[0]));
   t.check("a point write that finds its document needs no whole-document rescue",
     r.puts.length === 0, r.puts);
@@ -296,20 +298,23 @@ async function main() {
   t.check("clearing the decision does not touch the collected facts",
     r.state.data.problemSummary === "не печатает чек" && r.state.stage === "gathering", r.state);
 
-  // The web widget reports the sender as an object, not a string. Concatenated into the
-  // operator's summary it read «Кто обращается: [object Object]».
+  // ── Кто в треде, когда партнёр пришёл через веб-виджет ──
+  // Ровно этот payload видно в выгрузке живого чата: автором комментария Pyrus называет
+  // СВОЙ служебный аккаунт (`last_name: "Pyrus.com"`), а имени партнёра нет ни в канале, ни
+  // в поле «Имя» — там `Anonymous user`. Раньше побеждал автор, и оператор читал «Партнёр:
+  // Pyrus.com», что похоже на название организации-контрагента.
   r = await run([{
     id: 1,
-    author: { id: 555, first_name: "", last_name: "" },
+    author: { id: 1730, first_name: "", last_name: "Pyrus.com", type: "user" },
     text: "здравствуйте",
     channel: { type: "web_widget", direction: "inbound", from: { name: "Anonymous user" } }
   }], {});
-  t.check("a channel address that is an object still yields a name",
-    r.state.runtime.partnerName === "Anonymous user", r.state.runtime.partnerName);
+  t.check("служебное имя Pyrus за имя партнёра не выдаётся",
+    r.state.runtime.partnerName === null, r.state.runtime.partnerName);
 
   r = await run([{ id: 1, author: PARTNER, text: "здравствуйте", channel: CHAN }], {});
-  t.check("a named author still wins over the channel address",
-    r.state.runtime.partnerName === "Партнёр", r.state.runtime.partnerName);
+  t.check("настоящее имя из канала или от автора сохраняется",
+    r.state.runtime.partnerName === "p@x.ru", r.state.runtime.partnerName);
 
   // A point write cannot create a document — there is no upsert — and it reports the miss
   // as count 0 instead of failing. The fallback is what makes the first turn persist.

@@ -538,8 +538,11 @@ async function main() {
     /Сотрудник: Иванов Иван/.test(note) && !/employee:/.test(note), note);
   t.check("a key without a label still prints, as itself",
     /reason: опечатка/.test(note), note);
-  t.check("who and where is stated even when nothing is known",
-    /Партнёр: имя не определено, email не указан/.test(note) && /Юнит: /.test(note), note);
+  // Имени партнёра в сводке нет намеренно: у обращения из веб-виджета автором комментария
+  // числится служебный аккаунт Pyrus, и оператор читал «Партнёр: Pyrus.com». А вот
+  // отсутствие email печатается — по нему видно, что спросить его не удалось.
+  t.check("where and how to reach him is stated even when nothing is known",
+    /Email: не указан/.test(note) && /Юнит: /.test(note) && !/Партнёр:/.test(note), note);
   t.check("the topic line carries the article's own description",
     /Тематика: profile_change — изменить данные сотрудника/.test(note), note);
   t.check("nothing was tried, so there is no block saying so",

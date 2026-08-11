@@ -113,39 +113,94 @@ function topicForm(topicKey, nodeId, who) {
   return out;
 }
 
-function requestSummary(o) {
+// ── Текст саммари лежит ШАБЛОНОМ, и шаблон правится без деплоя ──
+// `config.summary.operator` и `config.summary.subtask` в документе БД перекрывают то, что
+// ниже. Смысл в том, что формулировки и порядок строк меняются чаще всего, а раньше за
+// каждую запятую приходилось платить деплоем — и правкой в двух файлах сразу.
+// Плейсхолдеры в фигурных скобках перечислены в `summaryFields`. Неизвестный плейсхолдер
+// остаётся в тексте как есть: опечатку в `config` лучше увидеть, чем съесть.
+//
+// Имени партнёра здесь больше нет, и это не упрощение. Оно бралось из `author`
+// комментария, а у обращения из веб-виджета автор — служебный аккаунт Pyrus: оператор
+// читал «Партнёр: Pyrus.com» и мог принять это за название организации (видно в выгрузке
+// живого чата). Настоящего имени у веб-виджета нет вовсе — `Anonymous user`, — а отвечают
+// партнёру по каналу задачи, а не по имени, так что строка не помогала никому.
+const SUMMARY = {
+  operator: [
+    "[Внутренняя переписка]",
+    "Бот передаёт обращение оператору.",
+    "",
+    "Юнит: {unit}",
+    "Email: {email}",
+    "Тематика: {topic}",
+    "Суть: {problem}",
+    "{collected}{tried}",
+    "Причина передачи: {reason}"
+  ].join("\n"),
+  subtask: [
+    "Обращение передано ботом техподдержки.",
+    "",
+    "Юнит: {unit}",
+    "Email: {email}",
+    "Тематика: {topic}",
+    "Суть: {problem}",
+    "{collected}{tried}",
+    "Компонент: {component}",
+    "Родительская задача: №{parent}"
+  ].join("\n")
+};
+
+// Описание тематики — это список формулировок партнёра для поиска, а не название для
+// человека: оператору уезжало полторы строки синонимов вроде «нет интернета в пиццерии,
+// нет связи в кофейне, не открывается Додо ИС, пропал интернет, не грузятся сайты».
+const TOPIC_DESCRIPTION_LIMIT = 70;
+
+function summaryFields(o) {
   const data = o.data || {};
-  const runtime = o.runtime || {};
   const labels = o.labels || {};
   const answers = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
-  // The order the article asked them in — that is also the order they make sense in.
-  const keys = Object.keys(answers);
   const attempts = Array.isArray(data.attempts) ? data.attempts : [];
-  // A name that is not a string has already reached an operator once, as
-  // «Кто обращается: [object Object]».
-  const name = typeof runtime.partnerName === "string" && runtime.partnerName ? runtime.partnerName : null;
-  const lines = [o.header, ""];
-  lines.push("Партнёр: " + [name || "имя не определено", data.email || "email не указан"].join(", "));
-  lines.push("Юнит: " + (data.unitFullName || "не определён"));
-  lines.push("Тематика: " + (data.topicKey
-    ? data.topicKey + (o.description ? " — " + o.description : "") + (o.topicNote || "")
-    : "не определена — подходящей статьи в базе нет"));
-  lines.push("", "Суть обращения: " + (data.problemSummary || "не описана"));
-  if (keys.length) {
-    lines.push("", "Собрано у партнёра:");
-    keys.forEach(k => lines.push("  " + (labels[k] || k) + ": " + answers[k]));
-  }
-  // Listed without a verdict: the last advice is written down when it is offered, and
-  // whether it helped is exactly what we do not know at the moment of a handover.
-  if (attempts.length) {
-    lines.push("", "Что уже пробовали:");
-    attempts.forEach((a, i) => lines.push("  " + (a.step || i + 1) + ") " + (a.advice || "—")));
-  }
-  (o.tail || []).filter(Boolean).forEach((t, i) => {
-    if (i === 0) lines.push("");
-    lines.push(t);
-  });
-  return lines.join("\n");
+  // Блок печатается только когда в нём что-то есть: «Уже пробовали: ничего» занимает две
+  // строки и не сообщает ничего.
+  const block = (title, rows) => (rows.length ? "\n" + title + ":\n" + rows.join("\n") + "\n" : "");
+  const short = s => {
+    const one = String(s || "").replace(/\s+/g, " ").trim();
+    return one.length > TOPIC_DESCRIPTION_LIMIT ? one.slice(0, TOPIC_DESCRIPTION_LIMIT) + "…" : one;
+  };
+  return {
+    // Обязательное печатается даже пустым: пустота здесь тоже факт. «Email: не указан»
+    // говорит, что спросить его не удалось, а «тематика не определена» отличает «статья
+    // велела передать» от «статьи никто не написал».
+    unit: data.unitFullName || "не определён",
+    email: data.email || "не указан",
+    topic: data.topicKey
+      ? data.topicKey + (o.description ? " — " + short(o.description) : "") + (o.topicNote || "")
+      : "не определена — подходящей статьи в базе нет",
+    problem: data.problemSummary || "не описана",
+    // Порядок — тот, в котором статья спрашивала: в нём ответы и читаются.
+    collected: block("Собрано у партнёра",
+      Object.keys(answers).map(k => "  " + (labels[k] || k) + ": " + answers[k])),
+    // Без вердикта: совет записывается в момент выдачи, а помог ли он — ровно то, чего мы
+    // в момент передачи не знаем.
+    tried: block("Что уже пробовали",
+      attempts.map((a, i) => "  " + (a.step || i + 1) + ") " + (a.advice || "—"))),
+    reason: o.reason || "не указана",
+    component: data.componentName || "не определён",
+    parent: o.parent || "—"
+  };
+}
+
+function render(tpl, fields) {
+  return String(tpl)
+    .replace(/\{(\w+)\}/g, (m, k) => (fields[k] === undefined ? m : String(fields[k])))
+    // Пустой блок не должен оставлять после себя дыру в две пустые строки.
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function summaryTemplate(cfg, which) {
+  const custom = cfg && cfg.summary && typeof cfg.summary === "object" ? cfg.summary[which] : null;
+  return typeof custom === "string" && custom.trim() ? custom : SUMMARY[which];
 }
 
 // The whole state machine in one table. Adding a scenario means adding a row here
@@ -362,22 +417,33 @@ if (!text) {
 let internalNote = null;
 if (spec.nextStage === "escalated") {
   const form = topicForm(data.topicKey, data.treeNode, "applyOutcome");
-  internalNote = requestSummary({
-    header: "[Внутренняя переписка]\nБот передаёт обращение оператору.",
+  // Шаблон живёт в `config`, и только эта ветка его читает: на остальных исходах саммари
+  // не собирается вовсе, а лишний Db.get на каждом витке — это лишний Db.get.
+  let cfg = {};
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "config" });
+    cfg = (doc && doc.value) || {};
+  } catch (e) {
+    Log.warn({ message: "applyOutcome: config read failed, the summary uses the built-in template: " + e });
+  }
+  internalNote = render(summaryTemplate(cfg, "operator"), summaryFields({
     data: data,
-    runtime: runtime,
     labels: form.labels,
     description: form.description,
     // For the bot both cases end in a handover, for the operator they are different
     // jobs: an article that routes to a human is a known procedure, no article at all
     // means nobody has written one yet.
     topicNote: data.topicRoute === "escalate" ? " (статья предписывает передать обращение человеку)" : "",
-    tail: ["Причина передачи: " + (loopBroken
+    // Порядок причин — от самой точной к самой общей. `data.handoverReason` записывает
+    // тот, кто передачу и решил — статья, у которой партнёр дважды ничего не спросил, или
+    // сам обработчик вебхука, узнавший просьбу человека: он один знает, что именно
+    // произошло, а `prev.reason` в этот момент несёт объяснение модели, то есть пересказ.
+    reason: loopBroken
       ? (overrun
         ? "статья задала больше " + MAX_TREE_QUESTIONS + " вопросов и не пришла ни к решению, ни к подзадаче — похоже на ошибку в самой статье"
         : "бот задал подряд " + MAX_CLARIFY_STREAK + " уточняющих вопроса и не продвинулся")
-      : (spec.silent ? "партнёр написал в закрытый чат" : (prev.reason || "не указана")))]
-  });
+      : (spec.silent ? "партнёр написал в закрытый чат" : (data.handoverReason || prev.reason || "не указана"))
+  }));
 }
 
 // ── Why the Pyrus field updates are NOT built here ──

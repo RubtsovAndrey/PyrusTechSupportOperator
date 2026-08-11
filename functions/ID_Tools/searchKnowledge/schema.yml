@@ -8,7 +8,9 @@ description: "Ищет в базе знаний тематику, подходя
 response-description: "В ответе всегда есть turnKind — он говорит, чем сейчас этот\
   \ виток: choose-branch (вызови инструмент ещё раз, передав branch), questions (з\
   адай preQuestions и ничего кроме них), solution (выдай solverInstruction), handover\
-  \ (не говори ничего, передачей занимается сценарий). На query: { found, source,\
+  \ (не говори ничего, передачей занимается сценарий). При questions может прийти\
+  \ reasked: true — эти вопросы уже задавались, а партнёр ответил не на них; повто\
+  рять их слово в слово нельзя. На query: { found, source,\
   \ topics: [{ score, key, description, route, componentName }], chunks }. На topicKey\
   \ ветвящаяся статья возвращает один узел: { turnKind, treeNode, preQuestions, answerKeys,\
   \ branchOptions, solverInstruction, treeEnd }. Линейная статья возвращает либо с\
@@ -16,7 +18,10 @@ response-description: "В ответе всегда есть turnKind — он �
   \ непусты, ответы на эти вопросы верни в поле answers следующим витком, как и дл\
   я ветвящейся статьи; либо один шаг, который надо выдать сейчас — { solverInstruction,\
   \ followUpQuestion, stepNumber, stepCount, isLastStep, onFail }; либо то, что пр\
-  обовать больше нечего — { found: false, stepsExhausted: true, onFail }"
+  обовать больше нечего — { found: false, stepsExhausted: true, onFail }. При prose:\
+  \ true в solverInstruction лежит статья целиком, возможно с условиями внутри: вы\
+  бери подходящую партнёру часть, а если выбрать нельзя — задай один различающий в\
+  опрос и верни kind: questions"
 parameters:
 - name: query
   type: STRING

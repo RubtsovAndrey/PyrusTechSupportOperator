@@ -88,6 +88,40 @@ try {
   Log.warn({ message: "nextSolutionStep: state read failed: " + e });
 }
 
+// ── Партнёр спросил про сам совет ──
+// «А где эту крышку искать?» — это вопрос, а не провал шага. Прежде такая реплика
+// приходила сюда статусом `unclear` и обращение уходило человеку без ответа: статус
+// «прочитать не удалось» — ровно то, что маленькая модель возвращает на совершенно
+// читаемый вопрос. Теперь у неё есть слово для него, и виток возвращается к солверу с тем
+// же шагом, ничего не расходуя: непонятый совет не испробован.
+//
+// Бесконечно разъяснять нельзя — партнёр, переспросивший третий раз, от бота нового не
+// услышит. Общий счётчик уточнений (`MAX_CLARIFY_STREAK`) сюда не годится: он считает
+// исходы, ждущие ответа, а обычный совет тоже его ждёт, и три совета подряд превратились
+// бы в передачу человеку. Поэтому счёт свой и привязан к шагу: новый совет его обнуляет.
+const MAX_EXPLANATIONS = 2;
+if (String(prev.status || "") === "question") {
+  const explained = (Number(data.treeExplained) || 0) + 1;
+  if (explained > MAX_EXPLANATIONS) {
+    // Причину пишем в документ: её читает applyOutcome, и оператору важно, что партнёр не
+    // спорил с советом, а не смог его понять — это разная работа.
+    writeState(taskId, {
+      "data.handoverReason": "партнёр " + MAX_EXPLANATIONS + " раза переспросил про один и тот же совет и так его не понял",
+      "data.treeExplain": null,
+      "updatedAt": Date.now()
+    }, "nextSolutionStep");
+    return decide("escalate", "partner did not understand the advice after " + MAX_EXPLANATIONS + " explanations");
+  }
+  if (!writeState(taskId, {
+    "data.treeExplain": true,
+    "data.treeExplained": explained,
+    "updatedAt": Date.now()
+  }, "nextSolutionStep")) {
+    return decide("escalate", "could not record that the advice has to be explained again");
+  }
+  return decide("solver", "partner asked about the advice, explaining it again (" + explained + ")");
+}
+
 const topicKey = data.topicKey || null;
 if (!topicKey) return decide("escalate", "topic is unknown");
 

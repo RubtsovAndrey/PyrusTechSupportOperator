@@ -192,6 +192,25 @@ async function main() {
   t.check("с phrasings подбор по словам находит то, что раньше пропускал",
     r.result.found === true && keys(r)[0] === "equipment_request", r.result);
 
+  // ── Ключ статьи — идентификатор, а не текст для сравнения ──
+  // Ключи латиницей (`pos_down`, `no_internet`) участвовали в подборе по словам, и слово
+  // «down» из английского сообщения находило статью про кассу: запрос «The internet is
+  // down» получал pos_down=0.50 и no_internet=0.50 из одних только имён. То же ждало
+  // любого, кто вставит в чат лог с латиницей. Стало заметно, когда «пишет не по-русски»
+  // перестало быть поводом для эскалации и такие обращения пошли обычным путём.
+  r = await route("The internet is down, nothing opens", { config: { rag: { mode: "off" } } });
+  t.check("слово из ключа статьи её не находит",
+    r.result.found === false && !keys(r).length, keys(r));
+  t.check("и в логе сказано, что каталог не знает ни одного слова запроса",
+    /каталог знает 0 слов/.test(r.logs), r.logs.split("\n").pop());
+
+  // Обратная сторона: осмысленное латинское слово в описании работает как обычно.
+  const latin = JSON.parse(JSON.stringify(CATALOG));
+  latin.topics[0].description = "касса не работает, ошибка ККТ, driver error";
+  r = await route("на кассе driver error", { config: { rag: { mode: "off" } }, catalog: latin });
+  t.check("а латиница в описании статьи по-прежнему находится",
+    keys(r)[0] === "pos_down", keys(r));
+
   return t.report();
 }
 

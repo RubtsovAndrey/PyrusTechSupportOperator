@@ -1,0 +1,8 @@
+---
+key: 1000299722-anthropic-sonnet-q7x4m2
+credential-key: null
+name: Anthropic - Claude Sonnet (solver)
+provider: ANTHROPIC
+model: just-ai/anthropic/claude-sonnet-4-5
+is-direct-access: false
+origin-key: REPLACE_WITH_YOUR_LLM_KEY

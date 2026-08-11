@@ -15,7 +15,15 @@ const CATALOGS = {
     // One name, one business, two addresses — the point number is what is missing here,
     // not the brand.
     "[dodopizza.ru] Химки-1 (Ленина, 1)",
-    "[dodopizza.ru] Химки-1 (Мира, 2)"
+    "[dodopizza.ru] Химки-1 (Мира, 2)",
+    // Сеть: «Тула 1» — это не точка, точки — «Тула 1-1», «Тула 1-2», «Тула 1-10».
+    // Десятая нужна, чтобы сортировка первой точки была числовой, а не по алфавиту.
+    "[dodopizza.ru] Тула 1-2 (Советская, 2)",
+    "[dodopizza.ru] Тула 1-1 (Ленина, 1)",
+    "[dodopizza.ru] Тула 1-10 (Мира, 10)",
+    // Одноимённые сети двух бизнесов: подставлять точку тут нельзя ни при каком scope.
+    "[dodopizza.ru] Орёл 1-1 (Победы, 1)",
+    "[drinkit.ru] Орёл 1-1 (Победы, 3)"
   ],
   knowledge_catalog: {
     topics: [
@@ -89,6 +97,45 @@ async function main() {
   }));
   t.check("the unit is taken from what the agent heard, without a tool call",
     r.state.data.unitFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", r.state.data);
+
+  // ── Обращение от сети, когда инструмент не вызывался ──
+  // Ветка «запрос от всей сети» умела только matchUnit: `scope: "network"` берёт первую
+  // точку сети, потому что номера точки у такого обращения не существует. Но выгрузка
+  // живого чата показала, что flash-модель инструмент не вызывает вовсе — юнит опознаёт
+  // запасной путь здесь, а он про сети ничего не знал. То есть партнёра трижды спрашивали
+  // номер, которого нет, и обращение уходило человеку по лимиту уточнений: вся ветка
+  // работала только в теории.
+  r = await run("intake", json({
+    action: "clarify", clarifyKind: "need_point_number", unit: "Тула 1", scope: "network",
+    unitFullName: null, problemSummary: "вопрос по всем точкам сети"
+  }), null, { incomingText: "бухгалтер сети Тула 1, вопрос по всем точкам" });
+  t.check("обращение от сети получает первую точку сети, без вызова инструмента",
+    r.state.data.unitFullName === "[dodopizza.ru] Тула 1-1 (Ленина, 1)", r.state.data);
+  t.check("и номер точки, которого не существует, больше не спрашивается",
+    r.result.action === "route" && !r.result.clarifyKind, r.result);
+
+  // Без `scope` то же имя остаётся неизвестным: «Тула 1» может быть и опечаткой в имени
+  // точки, а неверный юнит в поле Pyrus хуже пустого.
+  r = await run("intake", json({
+    action: "clarify", unit: "Тула 1", unitFullName: null, problemSummary: "вопрос"
+  }), null, { incomingText: "Тула 1, вопрос" });
+  t.check("без scope имя сети точкой не считается", !r.state.data.unitFullName, r.state.data);
+
+  // Сеть одного имени в двух бизнесах — выбор между ними так и остаётся вопросом.
+  r = await run("intake", json({
+    action: "clarify", unit: "Орёл 1", scope: "network",
+    unitFullName: null, problemSummary: "вопрос по сети"
+  }), null, { incomingText: "мы сеть Орёл 1" });
+  t.check("сеть с одним именем в двух бизнесах не разрешается догадкой",
+    !r.state.data.unitFullName && r.result.clarifyKind === "need_business", r.result);
+
+  // Слово партнёра о бизнесе решает и здесь — тем же правилом, что и для точки.
+  r = await run("intake", json({
+    action: "clarify", unit: "Орёл 1", scope: "network",
+    unitFullName: null, problemSummary: "вопрос по сети"
+  }), null, { incomingText: "мы кофейни, сеть Орёл 1" });
+  t.check("а слово партнёра о бизнесе решает и для сети",
+    r.state.data.unitFullName === "[drinkit.ru] Орёл 1-1 (Победы, 3)", r.state.data);
 
   // ── A business the agent named and the partner did not ──
   // The whole message was «Москва-12, нужно изменить фамилию сотрудника…». The agent did

@@ -400,21 +400,53 @@ const outboundChannel = lastInbound
   ? { type: lastInbound.channel.type, direction: "outbound", to: lastInbound.channel.from }
   : null;
 
-// Who the operator will be talking to. Taken from the thread rather than asked for,
-// and kept out of the prompt: it is only used in the internal summary.
-// The address of a channel is a string for email but an object for the web widget
-// ({ name: "Anonymous user" }), and the object went into the operator's summary as
-// «Кто обращается: [object Object]». A name is a string or it is nothing.
+// ── Имя партнёра: почему его больше нет в сводке оператору ──
+// Оно бралось из `author` комментария, и для почты это работало. Для веб-виджета — нет:
+// автором там числится служебный аккаунт Pyrus, и оператор читал «Партнёр: Pyrus.com»,
+// что похоже на название организации-контрагента. Настоящего имени у веб-виджета нет
+// вовсе: и `channel.from.name`, и поле комментария «Имя» содержат `Anonymous user`
+// (проверено по выгрузке живого чата). Отвечают партнёру по каналу задачи, а не по имени,
+// так что строка не помогала никому — и убрана из сводки.
+//
+// Само значение по-прежнему пишется в документ: оно ничего не стоит, а знать, кто в треде,
+// иногда нужно при разборе. Порядок источников теперь верный — канал вперёд автора, — и
+// служебные имена за имя не считаются.
+const NOT_A_NAME = /^(pyrus\.com|anonymous user|аноним)$/i;
 function personName(v) {
   if (!v) return null;
-  if (typeof v === "string") return v.trim() || null;
+  if (typeof v === "string") return NOT_A_NAME.test(v.trim()) ? null : (v.trim() || null);
   const named = String(v.name || [v.first_name, v.last_name].filter(Boolean).join(" ")).trim();
-  return named || (typeof v.email === "string" ? v.email : null) || null;
+  const clean = named && !NOT_A_NAME.test(named) ? named : null;
+  return clean || (typeof v.email === "string" ? v.email : null) || null;
 }
 
 const partnerName = lastInbound
-  ? (personName(lastInbound.author) || personName(lastInbound.channel.from))
+  ? (personName(lastInbound.channel && lastInbound.channel.from) || personName(lastInbound.author))
   : null;
+
+// ── На каком языке пришло обращение ──
+// Раньше «не на русском» стояло в промпте intake рядом с агрессией, то есть язык считался
+// неисправностью. Теперь агентам велено отвечать на языке партнёра, и обращение идёт
+// обычным путём. Признак остаётся по двум причинам, и обе — про будущее: во-первых, по
+// нему видно, сколько таких обращений вообще бывает, и стоит ли переводить фразы, которые
+// собирает КОД (уточняющий вопрос, приветствие, отбивки) — они по-прежнему только русские,
+// так что сейчас разговор на другом языке получается наполовину русским; во-вторых,
+// именно он будет выбирать язык этих фраз, когда переводы появятся.
+//
+// Различается письменность, а не язык: отличить украинский от русского или немецкий от
+// английского кодом нельзя, а это и не нужно — язык понимает модель, читая само сообщение.
+// Короткие сообщения не размечаются вовсе: «E-103» или «ок» не говорят ни о чём, а ошибка
+// здесь означала бы неверно выбранный язык ответа.
+function scriptOf(text) {
+  const letters = String(text || "").match(/[a-zа-яё]/gi) || [];
+  if (letters.length < 8) return null;
+  const cyrillic = letters.filter(c => /[а-яё]/i.test(c)).length;
+  return cyrillic * 2 >= letters.length ? "cyrillic" : "latin";
+}
+const lang = scriptOf(incomingText);
+if (lang === "latin") {
+  Log.info({ message: "receiveWebhook: task " + taskId + " — обращение написано латиницей; фразы, которые собирает код, останутся русскими" });
+}
 
 const unitField = allFields.find(f => f.name === "Юнит");
 const componentField = allFields.find(f => f.name === "Компонент");
@@ -492,8 +524,44 @@ if (newRequest) {
 // ── Stage the graph should enter (this replaces the separate routeStage function) ──
 // Only these stages are reachable. Anything else falls back to intake, which is
 // always safe: intake re-gathers whatever is missing.
+// ── «Спасибо» — это не переоткрытие обращения ──
+// Ветка `end: close` закрывает чат сразу после совета, и следующая реплика партнёра
+// приходит уже в закрытый чат. Молчаливая передача человеку тут не случайна: тредом
+// владеет Pyrus, задача переиспользуется месяцами, и два разных обращения в одной задаче —
+// то, в чём бот путается. Защита остаётся; снимается ровно один случай, когда в сообщении
+// нет НИЧЕГО, кроме благодарности. Партнёры благодарят постоянно, и каждое такое «спасибо»
+// стоило первой линии разбора уже решённого вопроса.
+//
+// Признак нарочно узкий и проверяет сообщение ЦЕЛИКОМ. Цена ошибок несимметрична: не
+// узнать благодарность — это сегодняшнее поведение, то есть ничего не потеряно, а принять
+// за благодарность новый вопрос — значит закрыть его и не ответить. Поэтому «спасибо, а
+// теперь другое дело» под это правило не подпадает, и так и задумано.
+// Сообщение разбирается на части по знакам и союзам, и благодарностью считается только
+// такое, где благодарность — КАЖДАЯ часть. «Да, получилось, спасибо» подходит; «Спасибо, а
+// теперь другое дело» — нет, потому что вторая часть не про это. Так правило остаётся
+// узким, не перечисляя всех возможных комбинаций вежливости.
+const THANKS_PART = [
+  /^(большое\s+|огромное\s+)?(спасибо|спс|пасибо|благодарю|благодарствую|thanks|thank\s+you|thx)(\s+(большое|огромное|вам|тебе|за\s+помощь|ребята|ребят|друг))?$/i,
+  /^(да|ага|угу|отлично|супер|класс|понятно|ясно|хорошо|ок|окей|ok|okay)$/i,
+  /^(вс[её]\s+)?(получилось|заработало|работает|помогло|решилось|решили|понятно|ясно|хорошо)$/i,
+  /^(вопросов\s+больше\s+нет|больше\s+вопросов\s+нет|это\s+вс[её]|вс[её])$/i
+];
+function isJustThanks(text) {
+  // Знаки и эмодзи к смыслу отношения не имеют, а сравнению целиком мешают.
+  const bare = String(text || "").replace(/[^\p{L}\p{N}\s,;.!?]+/gu, " ").replace(/\s+/g, " ").trim();
+  if (!bare || bare.length > 80) return false;
+  const parts = bare.split(/[,;.!?]+|\s+и\s+/).map(p => p.trim()).filter(Boolean);
+  if (!parts.length) return false;
+  return parts.every(p => THANKS_PART.some(re => re.test(p)));
+}
+
 let stage = "intake";
-if (storedStage === "closed") stage = "reopened";               // bot had finished, partner wrote again
+if (storedStage === "closed") {
+  stage = isJustThanks(incomingText) ? "gratitude" : "reopened";
+  if (stage === "gratitude") {
+    Log.info({ message: "receiveWebhook: task " + taskId + " — в закрытый чат пришла только благодарность, отвечаем и закрываем снова, оператора не беспокоим" });
+  }
+}
 else if (storedStage === "escalated") stage = "escalated";      // operator owns the thread now
 else if (storedStage === "awaiting_confirmation") stage = "awaiting_confirmation";
 else if (storedStage === "awaiting_email") stage = "awaiting_email";
@@ -503,6 +571,47 @@ else if (storedStage === "awaiting_email") stage = "awaiting_email";
 // middle of a tree walk. Needs a topic to return to — without one there is no article to
 // continue, and intake is always the safe fallback.
 else if (storedStage === "awaiting_answers") stage = data.topicKey ? "awaiting_answers" : "intake";
+// ── «Позовите человека» слышно на любой стадии ──
+// Эта проверка жила в промпте intake, а intake работает только на приёме обращения: стадии
+// `awaiting_answers`, `awaiting_email` и `awaiting_confirmation` уходят в solver,
+// createSubtask и confirmation напрямую, минуя его. То есть просьбу человека бот не слышал
+// ровно там, где ветвящаяся статья проводит большинство витков и где партнёр чаще всего
+// устаёт. В лучшем случае его выпускал общий предохранитель — через два-три витка и с
+// причиной «бот задал 3 уточняющих вопроса», которая оператору говорит неправду.
+//
+// Кодом, а не моделью: витка стоить не должно, а сам признак узкий и проверяемый.
+//
+// ⚠️ Голое существительное брать НЕЛЬЗЯ, и это главное в списке ниже. «Переведите
+// сотрудника в другую пиццерию» — законная ветка статьи про карточку, «менеджер офиса
+// меняет аватарку сам» — цитата из самой базы знаний, «оператор кассы сказал» — рассказ о
+// проблеме. Поэтому ищется просьба: повелительный глагол рядом со словом о человеке, либо
+// прямо названное «живой человек» / «не бот». Между глаголом и человеком допускается до
+// трёх слов — «дайте мне, пожалуйста, живого человека».
+//
+// Список составлен без живых логов и заведомо неполон: в тестовом чате партнёром был
+// автор бота, и ни одной такой реплики там нет. Дополнять его следует по выгрузкам
+// реальных переписок, а не по воображению — это единственное место, которое для этого
+// нужно править.
+const ASKS_FOR_HUMAN = [
+  /(позов|позвать|дайте|дай\b|соедин|переключ|свяж|подключ|переад)\S*(\s+\S+){0,3}\s+(человек|оператор|специалист|поддержк|менеджер|руководител)/i,
+  /жив(ой|ого|ым|ому)\s+(человек|оператор|сотрудник|специалист)/i,
+  /(хочу|хотел бы|хотела бы|можно|нужно|надо)(\s+\S+){0,2}\s+(поговорить|пообщаться|связаться|общаться)\s+с\s+(человек|оператор|специалист|руководител|менеджер)/i,
+  /не\s+хочу\s+(общаться\s+|разговаривать\s+)?с\s+ботом/i,
+  // Всё сообщение целиком — одно слово: «Оператора!»
+  /^\s*(оператор|человек)\S{0,2}\s*[!.?]*\s*$/i
+];
+function asksForHuman(text) {
+  const s = String(text || "");
+  return ASKS_FOR_HUMAN.some(re => re.test(s));
+}
+
+let handoverReason = null;
+if (incomingText && asksForHuman(incomingText) && stage !== "escalated" && stage !== "reopened") {
+  stage = "handover_request";
+  handoverReason = "партнёр попросил связать его с человеком";
+  Log.info({ message: "receiveWebhook: task " + taskId + " — партнёр просит человека, обращение уходит оператору со стадии " + (storedStage || "начало диалога") });
+}
+
 // A message the bot cannot read at all goes to a human immediately: guessing what is
 // on a screenshot from an empty text is exactly the improvisation this bot must not do.
 // True on every working stage — a screenshot answering "Получилось?" is just as
@@ -553,7 +662,11 @@ const runtimeValue = {
   unitFieldId: unitFieldId,
   componentFieldId: componentFieldId,
   isFirstBotReply: isFirstBotReply,
-  partnerName: partnerName
+  partnerName: partnerName,
+  // Письменность последнего сообщения партнёра, `null` — если сообщение слишком короткое,
+  // чтобы о ней судить. Прежнее значение при этом сохраняется: разговор не меняет язык
+  // оттого, что партнёр ответил «ок».
+  lang: lang || (stored.runtime && stored.runtime.lang) || null
 };
 
 // Request-scoped Pyrus data lives in the task document, not in the session, so
@@ -582,7 +695,12 @@ const patch = {
   // answer to the new message and act on its `action`, closing or escalating the task.
   // Cleared here because this is the only function that knows a new turn has begun; the
   // invariant becomes checkable in one line: pendingOutcome is non-empty ⇒ this turn set it.
-  "pendingOutcome": null
+  "pendingOutcome": null,
+  // Почему обращение уходит человеку — словами того, кто это решил. Обнуляется здесь по
+  // той же причине, что и `pendingOutcome`: причина, записанная об одной передаче, не
+  // должна быть зачитана оператору о другой. Кроме этой функции его пишет searchKnowledge,
+  // когда статья дважды не получила ответа, — и всегда позже, уже внутри витка.
+  "data.handoverReason": handoverReason
 };
 if (newRequest || !documentExists) {
   // The leftovers of the finished обращение must go, so here the whole subtree is

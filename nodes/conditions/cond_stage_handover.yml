@@ -1,0 +1,11 @@
+---
+id: cond_stage_handover
+name: partner asked for a human?
+position:
+  x: 1396
+  y: 300
+next-step: func_escalate_request
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).stage === 'handover_request'"
+  false-step: cond_stage_email

@@ -8,4 +8,4 @@ next-step: func_escalate_attachment
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).stage === 'attachment'"
-  false-step: cond_stage_email
+  false-step: cond_stage_handover

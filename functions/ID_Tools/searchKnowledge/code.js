@@ -81,10 +81,25 @@ function normalizeTopic(t) {
       followUpQuestion: String(own || t.followUpQuestion || DEFAULT_FOLLOW_UP)
     });
   });
-  if (!steps.length && t.solverInstruction) {
+  // ── Самый дешёвый уровень статьи: просто проза ──
+  // `article` — текст, написанный так, как его написали бы для человека: с условиями внутри
+  // («если не открывается только Додо ИС — …, если интернет пропал целиком — …»). Разбирать
+  // его на узлы не нужно, это делает модель, читая текст. Отдаётся он как единственный шаг,
+  // поэтому весь механизм линейной статьи — «один совет за виток», `onFail`, разъяснение
+  // того же шага — достаётся бесплатно и ничего нового в графе не появляется.
+  //
+  // `solverInstruction` — то же самое поле под прежним именем. Оно и раньше так работало,
+  // просто называлось «инструкция для солвера» и считалось наследием; для автора статьи это
+  // имя ничего не значит, поэтому основным становится `article`.
+  const prose = t.article || t.solverInstruction;
+  if (!steps.length && prose) {
     steps.push({
-      instruction: String(t.solverInstruction),
-      followUpQuestion: String(t.followUpQuestion || DEFAULT_FOLLOW_UP)
+      instruction: String(prose),
+      followUpQuestion: String(t.followUpQuestion || DEFAULT_FOLLOW_UP),
+      // Отличать прозу от одиночного шага обязательно: это РАЗНЫЕ задания для модели.
+      // Шаг пересказывают целиком; статью читают, выбирают подходящую партнёру часть, а
+      // если выбрать не из чего — задают один вопрос, который различает варианты.
+      prose: true
     });
   }
   return {
@@ -439,7 +454,15 @@ if (topicKey) {
 
       let target = null;
       let how = "";
-      if (data.treeNext && topic.nodes[String(data.treeNext)]) {
+      // ── Партнёр спросил про сам совет, а не сообщил, помог ли он ──
+      // «А где эту крышку искать?» — вопрос, а не провал шага. Раньше такой виток доходил
+      // до nextSolutionStep со статусом `unclear` и обращение уходило человеку без ответа.
+      // Узел выдаётся ТОТ ЖЕ и попыткой не считается: партнёр совет ещё не пробовал.
+      const explaining = data.treeExplain === true && !!at && !!at.advice;
+      if (explaining) {
+        target = at;
+        how = "explaining the same advice again";
+      } else if (data.treeNext && topic.nodes[String(data.treeNext)]) {
         // A node handed over by name instead of being reached through an answer: this is
         // how «не помогло» continues an article. It must be DELIVERED, not advanced from,
         // which is exactly what would happen if it were stored as the current node.
@@ -542,23 +565,64 @@ if (topicKey) {
       const component = target.componentName || topic.componentName;
       // `treeNext` is consumed the moment it is delivered: left in place it would pin the
       // dialog to that node and every later answer would land on it again.
-      const patch = { treeNode: target.id, treeEnd: null, treeNext: null };
+      // `handoverReason` is cleared on every turn of the tree for the same reason
+      // `pendingOutcome` is cleared on every turn of the graph: a reason recorded about one
+      // handover must not be read out to the operator about a different one.
+      // `treeExplain` потребляется тем витком, который его прочитал, поэтому снимается
+      // здесь — на любом пути, а не только на том, где разъяснение и случилось.
+      const patch = { treeNode: target.id, treeEnd: null, treeNext: null, handoverReason: null, treeExplain: null };
       if (component) patch.componentName = component;
 
       // A node that asks — with or without a recommendation above the question. The turn
       // ends awaiting an answer, so it is a clarification, never a solution.
       //
-      // Only what is still missing is asked, and only once. A node that both asks and
-      // ends — «на какой номер поменять» and then a subtask — would otherwise ask the
-      // same question on every turn: the dialog stands on it until the terminal fires,
-      // and asking again is what that looks like from the inside. Fields are optional by
-      // decision, so an answer the partner did not give moves the article on instead of
-      // holding him there.
+      // Only what is still missing is asked. Fields are optional by decision, so an answer
+      // the partner did not give moves the article on instead of holding him there — but
+      // «did not answer» and «said something else entirely» were the same thing to this
+      // code, and that cost a real conversation: the partner wrote «хватит вопросов,
+      // позовите оператора», the protest counted as declining to answer, the tree jumped
+      // straight to its `subtask` terminal, and the first line would have received a
+      // ticket «поменять телефон» naming no employee, no number and no reason.
+      //
+      // What separates the two is whether THIS turn gave the node anything at all. That is
+      // a fact about the document, not a judgement about the partner, so it is counted
+      // here and not asked of the model — and it covers every shape the same failure
+      // takes: a protest, a question back, a change of subject, «сейчас уточню у
+      // управляющей». Answering SOME of the questions still counts as engaging, which is
+      // what keeps optional fields optional.
       const unanswered = target.ask.filter(q => !known[q.key]);
-      if (unanswered.length && String(data.treeAskedNode || "") !== target.id) {
+      const askedBefore = String(data.treeAskedNode || "") === target.id;
+      // Anything this turn contributed to this node: the model's `answers`, and the branch
+      // the article read out of the partner's own words a few lines above.
+      const engaged = target.ask.some(q => stored[q.key] === undefined && known[q.key] !== undefined);
+      const ignoredTurns = (askedBefore && !engaged) ? (Number(data.treeSilent) || 0) + 1 : 0;
+      patch.treeSilent = ignoredTurns;
+
+      // Twice in a row is not a slow partner, it is a partner who is not going to answer
+      // this question. The limit lives here rather than in the general clarification guard
+      // (`MAX_CLARIFY_STREAK`) because that one fires a turn later and tells the operator
+      // the wrong reason — «бот задал 3 уточняющих вопроса» — about a partner who was
+      // asking for a human.
+      const MAX_IGNORED = 2;
+      if (unanswered.length && ignoredTurns >= MAX_IGNORED) {
+        patch.treeEnd = "escalate";
+        // Said in the document, not in the tool's answer: the answer goes to the model, and
+        // what the operator reads must not depend on the model repeating it back.
+        patch.handoverReason = "партнёр дважды ответил не на заданный вопрос статьи (" +
+          unanswered.map(q => q.key).join(", ") + " так и не названы)";
+        patchData(patch);
+        Log.warn({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " asked for " + unanswered.map(q => q.key).join(", ") + " twice and got no answer either time, handing over" });
+        return {
+          found: false, topics: [], source: "tree-no-answer", turnKind: "handover",
+          key: topic.key, treeEnd: "escalate", onFail: topic.onFail,
+          handoverReason: "партнёр дважды ответил не на заданный вопрос — статья дальше не идёт"
+        };
+      }
+
+      if (unanswered.length && (!askedBefore || !engaged)) {
         patch.treeAskedNode = target.id;
         patchData(patch);
-        Log.info({ message: "searchKnowledge: topic " + topic.key + " -> node " + target.id + " (" + how + "), " + unanswered.length + " question(s)" });
+        Log.info({ message: "searchKnowledge: topic " + topic.key + " -> node " + target.id + " (" + how + "), " + unanswered.length + " question(s)" + (ignoredTurns ? ", asked again after a reply that answered nothing" : "") });
         return {
           found: true,
           source: "tree-questions",
@@ -573,11 +637,15 @@ if (topicKey) {
           branchOptions: target.branches.map(b => b.when.join(" / ")),
           onFail: topic.onFail,
           solverInstruction: target.advice,
-          followUpQuestion: null
+          followUpQuestion: null,
+          // The partner said something that was not an answer. The solver is told so it can
+          // acknowledge him instead of repeating the question word for word, which is what
+          // makes a bot feel deaf.
+          reasked: ignoredTurns > 0
         };
       }
       if (unanswered.length) {
-        Log.warn({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " asked for " + unanswered.map(q => q.key).join(", ") + " and got nothing, moving on without it" });
+        Log.warn({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " asked for " + unanswered.map(q => q.key).join(", ") + " and got only part of it, moving on without the rest" });
       }
 
       // Rules like «всегда уточняем причину» are asked once, in whichever branch the
@@ -656,13 +724,23 @@ if (topicKey) {
       // A recommendation to try. Logged as an attempt so the confirmation stage can tell
       // «не помогло» apart from a fresh question, and so the operator's summary lists
       // what the partner has already been told.
-      const attempt = stepDone(data.attempts, topic.key) + 1;
+      //
+      // A repeated explanation is NOT an attempt: the partner has not tried the advice yet,
+      // he asked about it. Reusing the number already logged is what keeps it out of the
+      // journal — parseAgentJson refuses to log a step number it has logged before — and
+      // that matters twice over: the operator's summary must not claim the partner tried
+      // something four times, and `nextSolutionStep` counts those very numbers to decide
+      // when the article is out of steps.
+      const done = stepDone(data.attempts, topic.key);
+      const attempt = explaining ? (done || 1) : done + 1;
       patch.offeredStep = { topicKey: topic.key, stepNumber: attempt, nodeId: target.id, at: Date.now() };
+      // Новый совет обнуляет счёт разъяснений: непонятность относится к шагу, а не к диалогу.
+      if (!explaining) patch.treeExplained = 0;
       patchData(patch);
-      Log.info({ message: "searchKnowledge: topic " + topic.key + " advises at node " + target.id + " (" + how + ")" });
+      Log.info({ message: "searchKnowledge: topic " + topic.key + (explaining ? " explains again at node " : " advises at node ") + target.id + " (" + how + ")" });
       return {
         found: true,
-        source: "tree-advice",
+        source: explaining ? "tree-advice-again" : "tree-advice",
         turnKind: "solution",
         key: topic.key,
         description: topic.description,
@@ -673,7 +751,9 @@ if (topicKey) {
         stepNumber: attempt,
         stepCount: attempt,
         isLastStep: true,
-        onFail: topic.onFail
+        onFail: topic.onFail,
+        // Партнёр этот совет уже читал и не понял. Повторять его слово в слово бессмысленно.
+        explaining: explaining
       };
     }
 
@@ -734,9 +814,13 @@ if (topicKey) {
     }
 
     const done = stepDone(data.attempts, topic.key);
+    // Партнёр спросил про сам совет — выдаётся тот же шаг, и попыткой это не считается.
+    // То же решение, что и у ветвящейся статьи, и по той же причине: непонятый шаг не
+    // испробован, а значит, следующий предлагать рано.
+    const explainingStep = data.treeExplain === true && done > 0;
     // Every step has been tried. Repeating the last one is worse than admitting it:
     // the caller leaves the topic through onFail instead.
-    if (done >= topic.steps.length) {
+    if (!explainingStep && done >= topic.steps.length) {
       Log.warn({ message: "searchKnowledge: topic " + topic.key + " is exhausted (" + done + " of " + topic.steps.length + " steps tried)" });
       return {
         found: false,
@@ -748,10 +832,16 @@ if (topicKey) {
         onFail: topic.onFail
       };
     }
-    const index = done;
+    const index = explainingStep ? done - 1 : done;
     const step = topic.steps[index];
-    patchData({ offeredStep: { topicKey: topic.key, stepNumber: index + 1, at: Date.now() } });
-    Log.info({ message: "searchKnowledge: topic " + topic.key + " step " + (index + 1) + "/" + topic.steps.length + " (steps tried: " + done + ")" });
+    const stepPatch = {
+      offeredStep: { topicKey: topic.key, stepNumber: index + 1, at: Date.now() },
+      treeExplain: null
+    };
+    // Новый шаг обнуляет счёт разъяснений: непонятность относится к шагу, а не к диалогу.
+    if (!explainingStep) stepPatch.treeExplained = 0;
+    patchData(stepPatch);
+    Log.info({ message: "searchKnowledge: topic " + topic.key + (explainingStep ? " explains step " : " step ") + (index + 1) + "/" + topic.steps.length + " (steps tried: " + done + ")" });
     return {
       found: true,
       source: "key",
@@ -765,7 +855,11 @@ if (topicKey) {
       isLastStep: index >= topic.steps.length - 1,
       stepsExhausted: false,
       solverInstruction: step.instruction,
-      followUpQuestion: step.followUpQuestion
+      followUpQuestion: step.followUpQuestion,
+      // Партнёр этот шаг уже читал и не понял. Повторять его слово в слово бессмысленно.
+      explaining: explainingStep,
+      // Статья прозой: внутри могут быть условия, и выбрать подходящее — работа модели.
+      prose: step.prose === true
     };
   }
   Log.warn({ message: "searchKnowledge: no topic with key " + topicKey });
@@ -799,8 +893,15 @@ if (!queryTokens.length) {
 // Знаменатель — только те слова запроса, которые каталог вообще знает. Раньше делили на все,
 // и знаменатель считал имена людей и адреса, которых ни в одной статье быть не может: чем
 // точнее партнёр описывал проблему, тем ниже был счёт статьи о ней.
+// ── Ключ статьи в подборе НЕ участвует ──
+// Он идентификатор для кода, а не текст для сравнения, и как текст он вредил: ключи
+// латиницей (`pos_down`, `no_internet`, `dodo_is_slow`) находились по английским словам из
+// сообщения. Запрос «The internet is down» получал pos_down=0.50 и no_internet=0.50 — из
+// одного слова «down» в имени файла, — и партнёр уезжал в статью про кассу. То же ждало
+// любого, кто вставит в чат лог с латиницей. Смысл статьи целиком лежит в `description` и
+// `phrasings`, и это единственное, что должно решать.
 const haystacks = topics.map(t => tokenize([
-  t.key, t.description, t.componentName,
+  t.description, t.componentName,
   // Переформулировки партнёра, из которых собираются документы для RAG, помогают и здесь:
   // запасной подбор получает те же синонимы бесплатно.
   Array.isArray(t.phrasings) ? t.phrasings.join(" ") : null
