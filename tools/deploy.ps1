@@ -21,8 +21,10 @@ $ErrorActionPreference = "Stop"
 # that cries wolf on success teaches people to ignore its output, which defeats the one job
 # it has. Exit codes are checked explicitly instead — they are the only honest signal here.
 #
-# Named RunGit and calling git.exe on purpose: PowerShell resolves names case-insensitively,
+# Named RunGit rather than Git on purpose: PowerShell resolves names case-insensitively,
 # so a function called Git that runs `git` calls itself until the call depth blows up.
+# Invoke `git` without the Windows-only `.exe` suffix so the same script works in pwsh on
+# Windows, macOS and Linux.
 function RunGit {
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
@@ -31,7 +33,7 @@ function RunGit {
     # an ErrorRecord, and rendering one prints a red block with CategoryInfo and a stack —
     # over «To https://github.com/…», which is git reporting success. Flattened to strings
     # and written with Write-Host they are what they are: progress output.
-    $out = & git.exe @args 2>&1 | ForEach-Object { $_.ToString() }
+    $out = & git @args 2>&1 | ForEach-Object { $_.ToString() }
     $code = $LASTEXITCODE
   } finally { $ErrorActionPreference = $prev }
   if ($out) { $out | ForEach-Object { Write-Host "  $_" } }
