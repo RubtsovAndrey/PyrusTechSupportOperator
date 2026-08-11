@@ -2,7 +2,7 @@
 id: func_escalate_request
 name: Outcome - escalate (asked for a human)
 position:
-  x: 2022
+  x: 1860
   y: 604
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k

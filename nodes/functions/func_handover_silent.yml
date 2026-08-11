@@ -2,8 +2,8 @@
 id: func_handover_silent
 name: Outcome - silent handover
 position:
-  x: 1168
-  y: 298
+  x: 1054
+  y: 440
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:

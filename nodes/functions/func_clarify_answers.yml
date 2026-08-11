@@ -2,8 +2,8 @@
 id: func_clarify_answers
 name: Outcome - clarify (article questions)
 position:
-  x: 5692
-  y: -1937
+  x: 5550
+  y: -1889
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:
