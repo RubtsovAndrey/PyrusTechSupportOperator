@@ -2,8 +2,8 @@
 id: func_clarify_email
 name: Outcome - clarify email
 position:
-  x: 6180
-  y: 34
+  x: 6268
+  y: 30
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:

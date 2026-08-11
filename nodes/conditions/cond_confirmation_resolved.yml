@@ -2,8 +2,8 @@
 id: cond_confirmation_resolved
 name: resolved?
 position:
-  x: 2694
-  y: 464
+  x: 2704
+  y: 732
 next-step: func_closetask_w2f6n
 next-error-step: null
 parameters:

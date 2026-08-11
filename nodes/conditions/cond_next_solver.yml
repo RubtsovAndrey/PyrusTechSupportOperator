@@ -2,8 +2,8 @@
 id: cond_next_solver
 name: try next step?
 position:
-  x: 3932
-  y: 676
+  x: 3984
+  y: 688
 next-step: agent_solver
 next-error-step: null
 parameters:
