@@ -634,3 +634,69 @@ async function main() {
 }
 
 module.exports = main;
+
+// The end-to-end graph suite checks mechanics that were originally discovered on three
+// sample articles. Those examples must not come from the editable production catalog:
+// replacing business knowledge is a normal operation and must not silently rewrite what a
+// graph regression test means. Keep its compact fixture beside the lower-level tree fixture.
+main.dialogCatalog = {
+  topics: [
+    {
+      key: "employee_card_change",
+      description: "поменять данные сотрудника: аватарку, телефон, перевести в другую точку",
+      phrasings: [
+        "поменять аватарку у курьера",
+        "изменить номер телефона сотрудника",
+        "перевести сотрудника в другую пиццерию",
+        "проблема с карточкой сотрудника"
+      ],
+      start: "what",
+      onFail: "operator",
+      nodes: {
+        what: {
+          ask: [{ key: "changeKind", label: "Что меняем", question: "что именно нужно изменить в карточке сотрудника" }],
+          branches: [
+            { when: ["аватарка", "фото"], go: "avatar" },
+            { when: ["телефон", "номер телефона"], go: "phone" },
+            { when: ["перевод", "перевести", "другая пиццерия", "другая точка"], go: "transfer" }
+          ],
+          "else": "operator"
+        },
+        avatar: { advice: "Аватарку менеджер меняет сам в личном кабинете.", end: "close" },
+        phone: {
+          ask: [
+            { key: "employee", label: "Сотрудник", question: "ФИО сотрудника" },
+            { key: "newValue", label: "Новый номер", question: "на какой номер поменять" },
+            { key: "reason", label: "Причина", question: "по какой причине нужно изменение" }
+          ],
+          end: "subtask",
+          componentName: "Сотрудники — контакты"
+        },
+        transfer: {
+          ask: [
+            { key: "employee", label: "Сотрудник", question: "ФИО сотрудника" },
+            { key: "newValue", label: "Новая точка", question: "в какую точку перевести" }
+          ],
+          end: "subtask",
+          componentName: "Сотрудники — переводы"
+        },
+        operator: { end: "escalate" }
+      }
+    },
+    JSON.parse(JSON.stringify(CATALOG.knowledge_catalog.topics[1])),
+    {
+      key: "pos_down",
+      description: "касса не печатает чек, не работает касса",
+      phrasings: ["касса не печатает чек", "не работает касса"],
+      start: "cover",
+      onFail: "operator",
+      nodes: {
+        cover: { advice: "Проверьте, плотно ли закрыта крышка отсека с чековой лентой.", onFail: "paper" },
+        paper: { advice: "Проверьте чековую ленту и установите её термочувствительной стороной наружу.", onFail: "driver" },
+        driver: { advice: "Закройте программу «Тест драйвер ККТ», если она открыта.", onFail: "restart" },
+        restart: { advice: "Выключите кассу, подождите 30 секунд и включите снова.", onFail: "operator" },
+        operator: { end: "escalate" }
+      }
+    }
+  ]
+};

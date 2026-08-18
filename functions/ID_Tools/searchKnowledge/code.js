@@ -930,7 +930,10 @@ function keyOfChunk(chunk) {
 
   const path = String((chunk.source && chunk.source.path) || "");
   // Имя файла без пути и расширения: платформа называет источник по загруженному файлу.
-  const base = path.split(/[\\/]/).pop().replace(/\.[^.]+$/, "").trim().toLowerCase();
+  // При загрузке Markdown через интерфейс встречается имя `topic.md.md`: платформа
+  // дописывает расширение к уже названному документу. Снимаем все конечные расширения,
+  // иначе здоровый RAG виден в логе, но ни один его фрагмент не связывается со статьёй.
+  const base = path.split(/[\\/]/).pop().replace(/(\.[^.]+)+$/, "").trim().toLowerCase();
   if (known[base]) return known[base];
 
   const m = /topickey\s*:\s*([A-Za-z0-9_-]+)/i.exec(String(chunk.content || ""));

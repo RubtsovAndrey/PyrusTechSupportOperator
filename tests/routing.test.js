@@ -113,6 +113,9 @@ async function main() {
   r = await route("вопрос", { config: on(), onRag: () => ({ chunks: [chunk("/base/знания/POS_Down.TXT", 0.9)] }) });
   t.check("путь и расширение отбрасываются, регистр не важен", keys(r)[0] === "pos_down", r.result);
 
+  r = await route("вопрос", { config: on(), onRag: () => ({ chunks: [chunk("pos_down.md.md", 0.9)] }) });
+  t.check("повторённое платформой расширение тоже отбрасывается", keys(r)[0] === "pos_down", r.result);
+
   // Второй, независимый носитель — на случай, если документ переименуют.
   r = await route("вопрос", {
     config: on(),

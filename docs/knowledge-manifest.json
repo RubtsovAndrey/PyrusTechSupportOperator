@@ -1,56 +1,14 @@
 {
   "schemaVersion": 1,
-  "topicCount": 7,
-  "catalogSha256": "715f5118222050fb3898bdb70b969cac7cabb4072d206f7e34bcb671b11a9da1",
+  "topicCount": 1,
+  "catalogSha256": "27fc59544ba94611947f296f10f8e039cfb18f695c92a6fd696c988751e3d1ce",
   "topics": [
     {
-      "key": "employee_card_change",
-      "source": "docs/knowledge/topics/employee_card_change.json",
-      "sourceSha256": "590ae50e085617b9b394034ffd8654efa77c0aabc131b5296ed49adf9da693cf",
-      "rag": "docs/rag/employee_card_change.md",
-      "ragSha256": "a7ca1fb3c32a11bb09c935bac54db67e7763093b5ad26ce61e6275cfa73c1698"
-    },
-    {
-      "key": "pos_down",
-      "source": "docs/knowledge/topics/pos_down.json",
-      "sourceSha256": "43317118d8b75f1f01074840e3e558d0be5fd608638b31bbdd3e0e4bc71848bf",
-      "rag": "docs/rag/pos_down.md",
-      "ragSha256": "245f9de09ef011821e18af472af4fc67dccb55a9311b44128c4295f2ba0f1d9a"
-    },
-    {
-      "key": "no_internet",
-      "source": "docs/knowledge/topics/no_internet.json",
-      "sourceSha256": "66d519c8c1fc45b1f2080ff6a0f1fbad5e885589ebc4aa488b01f6700bb45d0b",
-      "rag": "docs/rag/no_internet.md",
-      "ragSha256": "85c844c72f66241ecfcc503822728d3551bf94f2be7ef6447cd3412aadd11ea7"
-    },
-    {
-      "key": "rating_appeal_rejected",
-      "source": "docs/knowledge/topics/rating_appeal_rejected.json",
-      "sourceSha256": "92f35e76b25c08cd6d45ede42795b2f4ce5436ec60ad742a5a80932175127c23",
-      "rag": "docs/rag/rating_appeal_rejected.md",
-      "ragSha256": "3d481e79507c30d89b493d107a9f12dcdc4d414980d7a1f937fb4e8b66f3195e"
-    },
-    {
-      "key": "dodo_is_slow",
-      "source": "docs/knowledge/topics/dodo_is_slow.json",
-      "sourceSha256": "653e8b9b1b3fee863f53447bccf10a7abddf3eafe51d842de7be78822ae56b5b",
-      "rag": "docs/rag/dodo_is_slow.md",
-      "ragSha256": "5fa53301d60dbe6327d864ba1490e6cd303701dad695f1fa90d1954d643e867a"
-    },
-    {
-      "key": "equipment_request",
-      "source": "docs/knowledge/topics/equipment_request.json",
-      "sourceSha256": "24c1c74084f7b93ed9863ec8a6e992e02be8b90b1c52eddbb43b4c9da93d7da3",
-      "rag": "docs/rag/equipment_request.md",
-      "ragSha256": "85398883a32e5db76db9600ab9eab09b81c34545d16c22810a3269ffc628e545"
-    },
-    {
-      "key": "support_complaint",
-      "source": "docs/knowledge/topics/support_complaint.json",
-      "sourceSha256": "e5b810d892cf2c0405d3dab73ae626d1423c2c686fcbcec892241d536fea3779",
-      "rag": "docs/rag/support_complaint.md",
-      "ragSha256": "decdfa7c5e15d33697929740138449b752b33f07776a1b4b24e5ec0b385ceb26"
+      "key": "pos_terminal_troubleshooting",
+      "source": "docs/knowledge/topics/pos_terminal_troubleshooting.json",
+      "sourceSha256": "7a18f49abde368852c5bbf413e8e6b393389c01d696ec049493bef2065c65f4b",
+      "rag": "docs/rag/pos_terminal_troubleshooting.md",
+      "ragSha256": "e00909342c7722cb7a2998f04f48c29ee9899260e9a5fed4bc41f10f612f0323"
     }
   ]
 }

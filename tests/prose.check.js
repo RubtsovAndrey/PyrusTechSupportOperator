@@ -19,7 +19,9 @@
 // Это свойство конкретной модели, и измеряется оно только живым прогоном.
 const { conversation } = require("./dialog");
 
-const CATALOG = require("../docs/knowledge_catalog.json");
+// Исторический пример намеренно живёт в тестовой фикстуре: эксперимент сравнивает
+// два формата статьи и не должен зависеть от состава текущего боевого каталога.
+const CATALOG = require("./tree.test.js").dialogCatalog;
 
 // Та же тема, написанная прозой. Ровно то, что первая линия и так пишет в своих
 // инструкциях: текст с условиями внутри, без ключей, узлов и синонимов веток.
@@ -44,9 +46,7 @@ const PROSE = {
 };
 
 function catalogWith(topic) {
-  const copy = JSON.parse(JSON.stringify(CATALOG));
-  copy.topics = copy.topics.map(t => (t.key === topic.key ? topic : t));
-  return copy;
+  return { topics: [JSON.parse(JSON.stringify(topic))] };
 }
 
 let taskId = 800000;

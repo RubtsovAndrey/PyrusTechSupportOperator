@@ -10,12 +10,17 @@ const fs = require("fs");
 const path = require("path");
 const { suite, ROOT } = require("./harness");
 const { conversation } = require("./dialog");
+const DIALOG_CATALOG = require("./tree.test.js").dialogCatalog;
 
 let taskId = 730000;
 // Все разговоры набора, чтобы в конце проверить их общее свойство: ни один узел не упал и
 // ни одна ветка не умерла молча.
 const all = [];
-const chat = () => { const c = conversation({ taskId: ++taskId }); all.push(c); return c; };
+const chat = () => {
+  const c = conversation({ taskId: ++taskId, catalog: DIALOG_CATALOG });
+  all.push(c);
+  return c;
+};
 
 const heard = bot => bot.turns.map(t => t.replies.join(" ")).join(" | ");
 

@@ -1,12 +1,6 @@
 {
   "schemaVersion": 1,
   "topics": [
-    "employee_card_change",
-    "pos_down",
-    "no_internet",
-    "rating_appeal_rejected",
-    "dodo_is_slow",
-    "equipment_request",
-    "support_complaint"
+    "pos_terminal_troubleshooting"
   ]
 }

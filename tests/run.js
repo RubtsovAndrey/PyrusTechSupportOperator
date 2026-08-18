@@ -10,7 +10,7 @@ const { ROOT } = require("./harness");
 const SUITES = [
   "./receivewebhook.test.js", "./finalize.test.js", "./parseagentjson.test.js",
   "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
-  "./routing-catalog.test.js", "./routing.test.js",
+  "./pos-terminal-catalog.test.js", "./routing-catalog.test.js", "./routing.test.js",
   // Идёт последним: остальные наборы проверяют функции поштучно, этот — разговор целиком,
   // и по упавшей проверке здесь при зелёных выше сразу видно, что дело в графе, а не в коде.
   "./dialog.test.js"

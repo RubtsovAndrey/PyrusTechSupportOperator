@@ -1,18 +1,6 @@
-// Читает выгрузку трасс с платформы и печатает то, ради чего её и открывают: что сказал
-// партнёр, что ответил бот, какие инструменты вызывались с какими параметрами, какой исход
-// выбран и что написано в логе.
-//
-// Выгрузка — дерево спанов на несколько мегабайт, где реплика партнёра лежит в теле
-// вебхука, ответ бота — в теле POST в Pyrus, а решение витка — в аргументах applyOutcome.
-// Глазами это не читается, а восстанавливать разговор по логам приходится каждый раз,
-// когда бот повёл себя не так.
-//
-// Чего в выгрузке НЕТ: ответа модели. Логируется только запрос к LLM, поэтому реплику
-// агента видно лишь на следующем запросе того же блока (роль assistant) — последний ответ
-// агента не виден вовсе. Судить о нём приходится по действиям, которые он вызвал.
-//
-// Запуск: node tools/read-trace.js <файл.json> [ещё файлы] [--prompt]
+// Запуск: node tools/read-trace.js <папка1,папка2> [--prompt]
 const fs = require("fs");
+const path = require("path");
 
 function nodes(root, out) {
   out.push(root);
@@ -27,8 +15,6 @@ function cut(s, n) {
 
 const data = span => (span.relatedEvent && span.relatedEvent.data) || null;
 
-// Тело вебхука лежит где-то внутри события триггера, и его форма зависит от версии
-// платформы. Ищется по признаку, а не по пути: `task_id` + `task` есть только у него.
 function findWebhook(obj, depth) {
   if (!obj || typeof obj !== "object" || (depth || 0) > 10) return null;
   if (obj.task_id && obj.task) return obj;
@@ -40,9 +26,17 @@ function findWebhook(obj, depth) {
 }
 
 function turnsOf(file) {
-  const tree = JSON.parse(fs.readFileSync(file, "utf8"));
+  let tree;
+  try {
+    tree = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (e) {
+    console.error(`  [!] Ошибка чтения файла ${file}: ${e.message}`);
+    return [];
+  }
+
   const roots = Array.isArray(tree) ? tree : [tree];
   const turns = [];
+
   roots.forEach(root => (root.children || []).forEach(trace => {
     if (trace.type !== "trace") return;
     const all = nodes(trace, []);
@@ -50,7 +44,7 @@ function turnsOf(file) {
       at: trace.startTime || trace.traceStartTime || "",
       partner: null, taskId: null,
       replies: [], internal: [], calls: [], outcome: null,
-      path: [], logs: [], prompts: [], errors: []
+      path: [], logs: [], prompts: [], llmReplies: [], errors: []
     };
 
     all.forEach(span => {
@@ -63,9 +57,7 @@ function turnsOf(file) {
         if (!turn.path.length) turn.path.push(move[1]);
         turn.path.push(move[2]);
       }
-      // `label` обрезан платформой на полусотне символов, а вся диагностика — в хвосте:
-      // строка «маршрут …» именно там называет счета, отрыв и режим подбора. Целая строка
-      // лежит в `userLog`.
+
       if (/^Лог: /.test(label)) turn.logs.push(e.userLog || label.slice(5));
       if (e.isError) turn.errors.push(cut(e.message || label, 200));
 
@@ -86,8 +78,6 @@ function turnsOf(file) {
         }
       }
 
-      // Всё, что бот сказал в Pyrus. С каналом — партнёру, без канала — во внутреннюю
-      // переписку: это единственное различие между ними и в самом Pyrus.
       if (/Http\.post/.test(label) && d && /\/comments$/.test(String(d.url || ""))) {
         const body = d.body || {};
         const entry = {
@@ -100,7 +90,6 @@ function turnsOf(file) {
         else turn.internal.push(entry);
       }
 
-      // Инструменты и функции с аргументами: по ним видно, ЧТО модель передала.
       if (/Пользовательская функция/.test(label) && d) {
         const name = String(label).split(": ")[1] || label;
         const args = d.args || (d.file ? null : d);
@@ -109,7 +98,18 @@ function turnsOf(file) {
       }
 
       if (/LLM/i.test(label) && d && d.body && Array.isArray(d.body.messages)) {
+        // Запрос к LLM (промпт)
         turn.prompts.push(d.body.messages.map(m => m.role + ": " + cut(m.content, 900)).join("\n    "));
+
+        // Ответ от LLM (результат из outputData)
+        try {
+          if (span.outputData && span.outputData.body && span.outputData.body.choices) {
+            const llmContent = span.outputData.body.choices[0].message.content;
+            if (llmContent) turn.llmReplies.push(cut(llmContent, 900));
+          }
+        } catch (err) {
+          // Игнорируем, если структура ответа неожиданно другая или LLM не ответила
+        }
       }
     });
 
@@ -118,35 +118,72 @@ function turnsOf(file) {
   return turns;
 }
 
+// Парсинг аргументов командной строки
 const args = process.argv.slice(2);
 const withPrompt = args.indexOf("--prompt") >= 0;
-const files = args.filter(a => a !== "--prompt");
-if (!files.length) {
-  console.log("Использование: node tools/read-trace.js <файл.json> [ещё файлы] [--prompt]");
+// Собираем все аргументы, кроме флага --prompt, и объединяем их через запятую
+// (на случай если пользователь ввёл `dir1 dir2` или `dir1,dir2`)
+const dirsArg = args.filter(a => a !== "--prompt").join(",");
+
+if (!dirsArg) {
+  console.log("Использование: node tools/read-trace.js <папка1,папка2> [--prompt]");
   process.exit(1);
 }
 
-let all = [];
-files.forEach(f => { all = all.concat(turnsOf(f)); });
-all.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+// Разбиваем по запятым, убираем пробелы и пустые строки
+const dirs = dirsArg.split(",").map(d => d.trim()).filter(Boolean);
 
-all.forEach((t, i) => {
-  console.log("\n──── виток " + (i + 1) + "  " + t.at + "  задача " + (t.taskId || "?"));
-  if (t.partner) {
-    console.log("  ПАРТНЁР (" + t.partner.author + (t.partner.channel ? ", канал" : ", БЕЗ канала") +
-      (t.partner.attachments ? ", вложений " + t.partner.attachments : "") + "): " + cut(t.partner.text, 400));
+// Обработка каждой папки как отдельного документа
+dirs.forEach(dir => {
+  console.log("\n========================================================");
+  console.log("📁 ДОКУМЕНТ: " + dir);
+  console.log("========================================================");
+
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+    console.log(`  [!] Путь '${dir}' не найден или не является папкой.\n`);
+    return;
   }
-  t.calls.forEach(c => console.log("  вызов: " + c));
-  t.replies.forEach(r => console.log("  БОТ: " + cut(r.text, 500) +
-    (r.action ? " [action: " + r.action + "]" : "") + (r.fields ? " [полей: " + r.fields + "]" : "")));
-  t.internal.forEach(r => console.log("  ОПЕРАТОРУ: " + cut(r.text, 500) +
-    (r.approval ? " [approval: " + r.approval + "]" : "")));
-  if (!t.replies.length && !t.internal.length) console.log("  (в Pyrus ничего не ушло)");
-  console.log("  исход: " + (t.outcome || "—"));
-  t.logs.forEach(l => console.log("  лог: " + cut(l, 300)));
-  t.errors.forEach(l => console.log("  ОШИБКА: " + l));
-  console.log("  путь: " + t.path.filter(n => n !== "Pyrus Webhook").join(" → "));
-  if (withPrompt) t.prompts.forEach((p, k) => console.log("  --- промпт " + (k + 1) + " ---\n    " + p));
-});
 
-console.log("\nвсего витков: " + all.length);
+  // Собираем все JSON-файлы в папке
+  const files = fs.readdirSync(dir)
+    .filter(f => f.toLowerCase().endsWith(".json"))
+    .map(f => path.join(dir, f));
+
+  if (!files.length) {
+    console.log("  (В папке нет JSON-файлов)\n");
+    return;
+  }
+
+  let allTurns = [];
+  files.forEach(f => {
+    allTurns = allTurns.concat(turnsOf(f));
+  });
+
+  // Сортируем все витки из всех файлов этой папки хронологически
+  allTurns.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+
+  allTurns.forEach((t, i) => {
+    console.log("\n──── виток " + (i + 1) + "  " + t.at + "  задача " + (t.taskId || "?"));
+    if (t.partner) {
+      console.log("  ПАРТНЁР (" + t.partner.author + (t.partner.channel ? ", канал" : ", БЕЗ канала") +
+        (t.partner.attachments ? ", вложений " + t.partner.attachments : "") + "): " + cut(t.partner.text, 400));
+    }
+
+    if (withPrompt) t.prompts.forEach((p, k) => console.log("  --- промпт " + (k + 1) + " ---\n    " + p));
+    t.llmReplies.forEach(r => console.log("  LLM (ответ): " + cut(r, 500)));
+
+    t.calls.forEach(c => console.log("  вызов: " + c));
+    t.replies.forEach(r => console.log("  БОТ: " + cut(r.text, 500) +
+      (r.action ? " [action: " + r.action + "]" : "") + (r.fields ? " [полей: " + r.fields + "]" : "")));
+    t.internal.forEach(r => console.log("  ОПЕРАТОРУ: " + cut(r.text, 500) +
+      (r.approval ? " [approval: " + r.approval + "]" : "")));
+
+    if (!t.replies.length && !t.internal.length) console.log("  (в Pyrus ничего не ушло)");
+    console.log("  исход: " + (t.outcome || "—"));
+    t.logs.forEach(l => console.log("  лог: " + cut(l, 300)));
+    t.errors.forEach(l => console.log("  ОШИБКА: " + l));
+    console.log("  путь: " + t.path.filter(n => n !== "Pyrus Webhook").join(" → "));
+  });
+
+  console.log("\nВсего витков в документе '" + dir + "': " + allTurns.length);
+});
