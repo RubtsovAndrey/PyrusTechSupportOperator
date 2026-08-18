@@ -2,8 +2,8 @@
 id: cond_stage_thanks
 name: just a thank-you?
 position:
-  x: 756
-  y: 86
+  x: 754
+  y: 82
 next-step: func_closetask_w2f6n
 next-error-step: null
 parameters:

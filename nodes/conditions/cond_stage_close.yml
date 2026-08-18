@@ -2,8 +2,8 @@
 id: cond_stage_close
 name: partner asked to close?
 position:
-  x: 922
-  y: 132
+  x: 754
+  y: 231
 next-step: func_close_request
 next-error-step: null
 parameters:
