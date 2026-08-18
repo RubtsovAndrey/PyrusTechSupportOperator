@@ -18,7 +18,7 @@ parameters:
       filled-ai: false
     replyText:
       type: STRING
-      value: Понял, обращение закрываю.
+      value: "Понял, обращение закрываю."
       filled-ai: false
   context-config: null
   hitl-tool-config: null

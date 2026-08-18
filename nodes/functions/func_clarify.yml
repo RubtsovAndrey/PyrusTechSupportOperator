@@ -2,8 +2,8 @@
 id: func_clarify
 name: Outcome - clarify
 position:
-  x: 3258
-  y: 12
+  x: 3052
+  y: -114
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:

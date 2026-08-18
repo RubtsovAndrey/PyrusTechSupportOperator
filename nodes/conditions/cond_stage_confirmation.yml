@@ -2,8 +2,8 @@
 id: cond_stage_confirmation
 name: confirmation?
 position:
-  x: 1656
-  y: -103
+  x: 1730
+  y: -131
 next-step: agent_confirmation
 next-error-step: null
 parameters:
