@@ -4,7 +4,4 @@ name: Dodo Knowledge Base MCP
 url: https://knowledgebase.dodois.io/mcp
 collection-name: knowledgebase
 credential-key: 1000299722-knowledgebase_token-kb7x
-transport-type: sse
-custom-headers:
-  Accept: application/json, text/event-stream
 origin-key: REPLACE_WITH_YOUR_MCP_KEY
