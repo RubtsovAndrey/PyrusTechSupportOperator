@@ -204,4 +204,6 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Tools/parseAgentJson/
 - `ID_Tools.nextSolutionStep` — Decides what to do after the partner reports that a solution did not help: offer the next step of the knowledge article, or leave the topic through its onFail route. Not a tool — called by the graph after the confirmation stage.
   Directory: functions/ID_Tools/nextSolutionStep/
+- `ID_Tools.getKnowledgeMcp` — Ищет статьи в Базе Знаний через MCP и возвращает их содержимое с метаданными. Используй для поиска решений проблем партнёров.
+  Directory: functions/ID_Tools/getKnowledgeMcp/
 
