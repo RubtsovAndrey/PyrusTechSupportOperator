@@ -1,4 +1,4 @@
-const MCP_KEY = "1000299722-knowledgebase_mcp-kb7x";
+const MCP_KEY = "1000299722-dodo_knowledge_base_-wok";
 const DEFAULT_LIMIT = 3;
 
 /**
