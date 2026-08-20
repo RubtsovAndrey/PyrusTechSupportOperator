@@ -1,25 +1,30 @@
 ---
 id: getKnowledgeMcp
 name: getKnowledgeMcp
-description: "Ищет статьи в Базе Знаний через MCP и возвращает их содержимое с метаданными. Используй для поиска решений проблем партнёров."
-response-description: "Возвращает найденные статьи с метаданными: { found: boolean, articles: [{ articleId, title, content, metadata: { component, route, onSuccess, onFail, requiresEmail, requiresSubtask, priority } }] }. Если ничего не найдено, found=false и articles пустой."
+description: Ищет статьи в Базе Знаний через MCP и возвращает их содержимое с метаданными.
+  Используй для поиска решений проблем партнёров.
+response-description: "Возвращает найденные статьи с метаданными: { found: boolean,\
+  \ articles: [{ articleId, title, content, metadata: { component, route, onSuccess,\
+  \ onFail, requiresEmail, requiresSubtask, priority } }] }. Если ничего не найден\
+  о, found=false и articles пустой."
 parameters:
 - name: query
   type: STRING
   required: true
-  description: "Описание проблемы для поиска в Базе Знаний."
+  description: Описание проблемы для поиска в Базе Знаний.
   properties: null
   items: null
 - name: spaceIds
   type: STRING
   required: false
-  description: "ID пространств для сужения поиска (через запятую). Если не указано, ищет по всей БЗ."
+  description: "ID пространств для сужения поиска (через запятую). Если не указано\
+    , ищет по всей БЗ."
   properties: null
   items: null
 - name: limit
   type: NUMBER
   required: false
-  description: "Максимальное количество результатов (по умолчанию 3)."
+  description: Максимальное количество результатов (по умолчанию 3).
   properties: null
   items: null
 language: JAVASCRIPT
