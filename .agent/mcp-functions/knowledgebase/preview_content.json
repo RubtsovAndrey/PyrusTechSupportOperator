@@ -1,0 +1,20 @@
+{
+  "description" : "Dry-run конвертации Markdown во внутренний формат Базы Знаний: ничего не сохраняет, возвращает предупреждения о деградации. Вызывайте перед create_content/update_content для нетривиального Markdown.",
+  "input" : {
+    "type" : "object",
+    "properties" : {
+      "request" : {
+        "type" : "object",
+        "description" : "",
+        "properties" : {
+          "content" : {
+            "type" : "string",
+            "description" : "Markdown-содержимое для проверки"
+          }
+        },
+        "required" : [ "content" ]
+      }
+    },
+    "required" : [ "request" ]
+  }
+}

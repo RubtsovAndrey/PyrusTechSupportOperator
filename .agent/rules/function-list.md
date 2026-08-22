@@ -186,24 +186,43 @@ For detailed info about parameters and response, read the corresponding file.
 - `Log.error` — Logs an error message
   Schema: .agent/system-functions/Log/error.json
 
+## MCP Functions
+
+- `knowledgebase.get_link_templates` — Шаблоны ссылок на веб-приложение Базы Знаний: на главную, на пространство и на статью, уже с правильным доменом текущего MCP-подключения. Те же шаблоны сервер присылает в instructions при подключении, поэтому вызывайте этот инструмент, когда их нет под рукой (клиент мог не передать instructions, или они вытеснились из контекста). Любую ссылку на Базу Знаний стройте только по этим шаблонам, подставляя spaceId/articleId из ответов остальных инструментов, и никогда по памяти. Инструмент дешёвый: не обращается к БД, не зависит от прав и не требует аргументов.
+  Schema: .agent/mcp-functions/knowledgebase/get_link_templates.json
+- `knowledgebase.get_announcements` — Лента объявлений (анонсов, новостей) Базы Знаний — используйте этот инструмент, в частности, для запросов пользователя про «новости». Последние опубликованные статьи по всем доступным пользователю пространствам, отсортированные по дате публикации (сначала новые), постранично. Каждый элемент уже содержит заголовок, excerpt, пространство, авторов и флаг вотермарок (если IsWatermarksEnabled: true, excerpt — служебная пометка, а не текст статьи) — используйте эти поля напрямую, не вызывая get_content, если не нужен полный текст статьи. Чтобы дать пользователю ссылку на объявление, возьмите шаблон из get_link_templates и подставьте SpaceId и ArticleId — сами ссылку не придумывайте.
+  Schema: .agent/mcp-functions/knowledgebase/get_announcements.json
+- `knowledgebase.get_space_content` — Оглавление пространства: статьи с id, заголовками, статусами, темами, языком, авторами и датами создания/обновления. Постранично. Этих полей обычно достаточно, чтобы отфильтровать или найти нужные статьи (например, по автору или языку) без вызова get_content для каждой — вызывайте get_content только для той статьи, чьё содержимое реально нужно, чтобы не тратить лишние запросы. Чтобы сузить оглавление по темам, передайте themes — список id тем (id берите из поля Themes этого же ответа); вернутся только статьи, у которых есть хотя бы одна из указанных тем. Сначала вызовите get_spaces, чтобы получить корректный spaceId. Ссылки на пространство и на его статьи стройте только по шаблонам из get_link_templates.
+  Schema: .agent/mcp-functions/knowledgebase/get_space_content.json
+- `knowledgebase.get_content` — Статья по id: Markdown-содержимое с полными метаданными — статус, язык, даты создания/публикации/обновления, права доступа, fidelity конвертации, пространство, авторы, темы, переводы на другие языки, флаги вотермарок/комментариев/тёмного режима. Используйте search_content или get_space_content, чтобы сначала найти id статьи — они уже возвращают часть тех же метаданных (авторы, язык, темы), поэтому вызывайте get_content только когда нужен сам текст статьи или поля, которых там нет (переводы, fidelity, права доступа). Если IsWatermarksEnabled: true, поле Content содержит не текст статьи, а служебное сообщение со ссылкой для пользователя — это ожидаемое поведение, а не ошибка. Чтобы дать пользователю ссылку на статью, возьмите шаблон из get_link_templates и подставьте Space.Id и Id — сами ссылку не придумывайте.
+  Schema: .agent/mcp-functions/knowledgebase/get_content.json
+- `knowledgebase.preview_content` — Dry-run конвертации Markdown во внутренний формат Базы Знаний: ничего не сохраняет, возвращает предупреждения о деградации. Вызывайте перед create_content/update_content для нетривиального Markdown.
+  Schema: .agent/mcp-functions/knowledgebase/preview_content.json
+- `knowledgebase.get_spaces` — Список пространств Базы Знаний, доступных пользователю: id, название, описание, тип (corporate/partner), права (reader/writer), количество статей и языки контента. Вызывайте первым, чтобы получить корректные spaceId для остальных инструментов — этих полей обычно достаточно, чтобы выбрать нужное пространство по названию/языку/размеру, не открывая каждое через get_space_content. Право writer здесь не гарантирует, что запись через MCP разрешена прямо сейчас — это дополнительно зависит от того, настроено ли текущее MCP-подключение в режиме записи (см. create_content).
+  Schema: .agent/mcp-functions/knowledgebase/get_spaces.json
+- `knowledgebase.search_content` — Полнотекстовый поиск по статьям Базы Знаний, доступным пользователю, опционально в конкретных пространствах (id из get_spaces). Каждый результат уже содержит не только excerpt, но и язык, статус, дату обновления, пространство, авторов, темы и флаг вотермарок — для большинства задач фильтрации/поиска отдельный вызов get_content не требуется. Если IsWatermarksEnabled: true, excerpt — это служебная пометка, а не реальный текст статьи. Чтобы дать пользователю ссылку на найденную статью, возьмите шаблон из get_link_templates и подставьте SpaceId и ArticleId из результата — сами ссылку не придумывайте.
+  Schema: .agent/mcp-functions/knowledgebase/search_content.json
+- `knowledgebase.current_user` — Получить идентификационные данные (идентификатор, имя, адрес электронной почты) пользователя, которому принадлежит текущий токен MCP. Используйте их, чтобы достоверно определить, являетесь ли вы автором статьи, вместо того чтобы гадать по имени или дате.
+  Schema: .agent/mcp-functions/knowledgebase/current_user.json
+
 ## User Functions
 
-- `ID_Pyrus.receiveWebhook` — Validates the Pyrus webhook payload (task_id, allowlisted api_url, token), drops the bot's own comments and comments already answered, stores the request-scoped Pyrus data in the task document, rebuilds the dialog history and resolves the stage to enter.
-  Directory: functions/ID_Pyrus/receiveWebhook/
-- `ID_Pyrus.finalize` — Terminal node for every path. Applies the pending outcome of the task document: aborts if a newer message has arrived, posts the comment to Pyrus and only then persists the new stage. Falls back to an operator handover if no outcome was set.
-  Directory: functions/ID_Pyrus/finalize/
-- `ID_Actions.createSubtask` — Creates a Pyrus subtask from the facts stored in the task document (unit, component, email) and posts a summary comment to it. Idempotent: the task document catches retries and the form register is asked before creating, so two concurrent runs cannot produce two subtasks for the same problem.
-  Directory: functions/ID_Actions/createSubtask/
 - `ID_Actions.applyOutcome` — Records the decision of the current turn (reply text, Pyrus action, field updates, next stage) into the task document. Single place where dialog transitions are defined; finalize only performs the I/O.
   Directory: functions/ID_Actions/applyOutcome/
-- `ID_Tools.matchUnit` — Находит юнит партнёра в каталоге. Вызывай всегда, когда партнёр назвал город, номер точки или бренд. Инструмент решает сам и возвращает точную строку каталога только тогда, когда ответ однозначен: одно и то же название бывает и у пиццерии, и у кофейни, и тогда он просит уточнить, а не угадывает.
-  Directory: functions/ID_Tools/matchUnit/
-- `ID_Tools.searchKnowledge` — Ищет в базе знаний тематику, подходящую под описание проблемы. Если ничего не подходит, возвращает found=false без кандидатов и никогда не угадывает. Когда тематика уже известна, передавай topicKey.
-  Directory: functions/ID_Tools/searchKnowledge/
-- `ID_Tools.parseAgentJson` — Parses the JSON answer of an agent, validates the unit, the topic and the component against the catalogs, persists the collected facts into the task document and clears the previous problem when the partner moves on to a new question. Throws when the answer is not parseable, so the node error edge can hand the task to an operator.
-  Directory: functions/ID_Tools/parseAgentJson/
-- `ID_Tools.nextSolutionStep` — Decides what to do after the partner reports that a solution did not help: offer the next step of the knowledge article, or leave the topic through its onFail route. Not a tool — called by the graph after the confirmation stage.
-  Directory: functions/ID_Tools/nextSolutionStep/
+- `ID_Actions.createSubtask` — Creates a Pyrus subtask from the facts stored in the task document (unit, component, email) and posts a summary comment to it. Idempotent: the task document catches retries and the form register is asked before creating, so two concurrent runs cannot produce two subtasks for the same problem.
+  Directory: functions/ID_Actions/createSubtask/
+- `ID_Pyrus.finalize` — Terminal node for every path. Applies the pending outcome of the task document: aborts if a newer message has arrived, posts the comment to Pyrus and only then persists the new stage. Falls back to an operator handover if no outcome was set.
+  Directory: functions/ID_Pyrus/finalize/
+- `ID_Pyrus.receiveWebhook` — Validates the Pyrus webhook payload (task_id, allowlisted api_url, token), drops the bot's own comments and comments already answered, stores the request-scoped Pyrus data in the task document, rebuilds the dialog history and resolves the stage to enter.
+  Directory: functions/ID_Pyrus/receiveWebhook/
 - `ID_Tools.getKnowledgeMcp` — Ищет статьи в Базе Знаний через MCP и возвращает их содержимое с метаданными. Используй для поиска решений проблем партнёров.
   Directory: functions/ID_Tools/getKnowledgeMcp/
+- `ID_Tools.matchUnit` — Находит юнит партнёра в каталоге. Вызывай всегда, когда партнёр назвал город, номер точки или бренд. Инструмент решает сам и возвращает точную строку каталога только тогда, когда ответ однозначен: одно и то же название бывает и у пиццерии, и у кофейни, и тогда он просит уточнить, а не угадывает.
+  Directory: functions/ID_Tools/matchUnit/
+- `ID_Tools.nextSolutionStep` — Decides what to do after the partner reports that a solution did not help: offer the next step of the knowledge article, or leave the topic through its onFail route. Not a tool — called by the graph after the confirmation stage.
+  Directory: functions/ID_Tools/nextSolutionStep/
+- `ID_Tools.parseAgentJson` — Parses the JSON answer of an agent, validates the unit, the topic and the component against the catalogs, persists the collected facts into the task document and clears the previous problem when the partner moves on to a new question. Throws when the answer is not parseable, so the node error edge can hand the task to an operator.
+  Directory: functions/ID_Tools/parseAgentJson/
+- `ID_Tools.searchKnowledge` — Ищет в базе знаний тематику, подходящую под описание проблемы. Если ничего не подходит, возвращает found=false без кандидатов и никогда не угадывает. Когда тематика уже известна, передавай topicKey.
+  Directory: functions/ID_Tools/searchKnowledge/
 
