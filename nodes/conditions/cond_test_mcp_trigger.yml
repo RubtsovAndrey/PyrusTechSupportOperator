@@ -3,7 +3,7 @@ id: cond_test_mcp_trigger
 name: Test MCP trigger?
 position:
   x: 550
-  y: -384
+  y: -385
 next-step: func_test_mcp_direct
 next-error-step: null
 parameters:
