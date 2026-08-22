@@ -64,7 +64,6 @@ async function main({ query, spaceIds, limit }) {
   const resultLimit = limit || DEFAULT_LIMIT;
   
   console.log("=== getKnowledgeMcp START ===");
-  console.log("Version: 2026-08-22-v2");
   console.log("Query:", query);
   console.log("SpaceIds:", spaceIds);
   console.log("Limit:", resultLimit);
