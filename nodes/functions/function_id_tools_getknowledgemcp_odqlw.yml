@@ -1,0 +1,29 @@
+---
+id: function_id_tools_getknowledgemcp_odqlw
+name: ID_Tools.getKnowledgeMcp
+position:
+  x: 1434
+  y: -1069
+next-step: null
+next-error-step: null
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: getKnowledgeMcp
+  is-tool: false
+  parameters:
+    query:
+      type: STRING
+      value: null
+      filled-ai: false
+    spaceIds:
+      type: STRING
+      value: null
+      filled-ai: false
+    limit:
+      type: NUMBER
+      value: null
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null
