@@ -9,4 +9,4 @@ next-error-step: null
 parameters:
   condition: "['escalate', 'clarify'].indexOf((Context.getLastFunctionResult() ||\
     \ {}).action) >= 0"
-  false-step: agent_routing
+  false-step: cond_test_mcp

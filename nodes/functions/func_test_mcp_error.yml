@@ -1,0 +1,13 @@
+---
+id: func_test_mcp_error
+name: Test MCP Error
+position:
+  x: 2600
+  y: -1000
+next-step: func_finalize_p1x9k
+next-error-step: null
+parameters:
+  function-key: Pyrus.reply
+  function-arguments:
+    text: "❌ **MCP Test Error**\n\nError: {{Context.getLastFunctionResult().error\
+      \ || 'Unknown error'}}"

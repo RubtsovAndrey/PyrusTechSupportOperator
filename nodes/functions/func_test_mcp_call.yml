@@ -1,0 +1,14 @@
+---
+id: func_test_mcp_call
+name: Test MCP Call
+position:
+  x: 2400
+  y: -1200
+next-step: func_test_mcp_reply
+next-error-step: func_test_mcp_error
+parameters:
+  function-key: getKnowledgeMcp
+  function-arguments:
+    query: касса не работает
+    spaceIds: ""
+    limit: 3

@@ -1,0 +1,15 @@
+---
+id: func_test_mcp_reply
+name: Test MCP Reply
+position:
+  x: 2400
+  y: -1000
+next-step: func_finalize_p1x9k
+next-error-step: null
+parameters:
+  function-key: Pyrus.reply
+  function-arguments:
+    text: "🧪 **MCP Test Result**\n\nFound: {{Context.getLastFunctionResult().found}}\n\
+      Articles: {{Context.getLastFunctionResult().articles.length}}\n\n{{#each Context.getLastFunctionResult().articles}}\n\
+      📄 **{{this.title}}**\nComponent: {{this.metadata.component}}\nRoute: {{this.metadata.route}}\n\
+      ---\n{{/each}}"
