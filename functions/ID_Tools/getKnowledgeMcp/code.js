@@ -1,4 +1,4 @@
-const MCP_KEY = "1000299722-dodo_knowledge_base_-wok";
+const MCP_KEY = "1000299722-dodo_knowledge_base_-rqp";
 const DEFAULT_LIMIT = 3;
 
 /**
@@ -63,6 +63,12 @@ function parseMetadata(markdown) {
 async function main({ query, spaceIds, limit }) {
   const resultLimit = limit || DEFAULT_LIMIT;
   
+  console.log("=== getKnowledgeMcp START ===");
+  console.log("Query:", query);
+  console.log("SpaceIds:", spaceIds);
+  console.log("Limit:", resultLimit);
+  console.log("MCP_KEY:", MCP_KEY);
+  
   try {
     // 1. Поиск статей через MCP
     const searchParams = {
@@ -73,33 +79,41 @@ async function main({ query, spaceIds, limit }) {
     };
     
     // Добавить фильтр по пространствам, если указано
-    if (spaceIds) {
+    if (spaceIds && spaceIds.trim()) {
       const spaces = spaceIds.split(',').map(s => s.trim()).filter(Boolean);
       if (spaces.length > 0) {
         searchParams.request.spaces = spaces;
+        console.log("Filtering by spaces:", spaces);
       }
     }
     
+    console.log("Calling MCP search_content...");
     const searchResult = await MCP.call(MCP_KEY, "search_content", searchParams);
+    console.log("Search result:", searchResult ? "OK" : "NULL");
     
     if (!searchResult || !searchResult.results || searchResult.results.length === 0) {
+      console.log("No results found");
       return {
         found: false,
         articles: []
       };
     }
     
+    console.log("Found articles:", searchResult.results.length);
+    
     // 2. Получить полные статьи с метаданными
     const articles = [];
     
     for (const result of searchResult.results.slice(0, resultLimit)) {
       try {
+        console.log(`Getting article ${result.articleId}...`);
         const article = await MCP.call(MCP_KEY, "get_content", {
           request: { id: result.articleId }
         });
         
         // Парсить метаданные
         const metadata = parseMetadata(article.content);
+        console.log(`Article "${article.title}" metadata:`, Object.keys(metadata).length, "fields");
         
         articles.push({
           articleId: article.id,
@@ -116,13 +130,19 @@ async function main({ query, spaceIds, limit }) {
       }
     }
     
+    console.log("=== getKnowledgeMcp SUCCESS ===");
+    console.log("Total articles:", articles.length);
+    
     return {
       found: articles.length > 0,
       articles: articles
     };
     
   } catch (error) {
-    console.error("MCP search error:", error);
+    console.error("=== getKnowledgeMcp ERROR ===");
+    console.error("Error:", error);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
     return {
       found: false,
       articles: [],
