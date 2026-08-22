@@ -4,7 +4,7 @@ name: receiveWebhook
 position:
   x: 380
   y: -206
-next-step: cond_skip_processing
+next-step: cond_test_mcp_trigger
 next-error-step: func_finalize_p1x9k
 parameters:
   type: USER
