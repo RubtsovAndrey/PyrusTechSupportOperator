@@ -2,8 +2,8 @@
 id: func_parsejson_confirmation
 name: parseConfirmation
 position:
-  x: 2298
-  y: 644
+  x: 2260
+  y: 772
 next-step: cond_confirmation_resolved
 next-error-step: func_escalate_m9k4j
 parameters:

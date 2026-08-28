@@ -10,7 +10,7 @@
 
 const MCP_URL = "https://knowledgebase.dodois.io/mcp";
 const CREDENTIAL_KEYS = [
-  "1000299722-kb_mcp_token-x4m7q",
+  "1000299722-kbmcptoken-vod",
   "1000299722-knowledge_base_mcp_t-qvb"
 ];
 const LIMIT = 3;

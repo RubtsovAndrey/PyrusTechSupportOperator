@@ -1,4 +1,5 @@
 ---
-description: Tool functions for unit matching, scenario knowledge and operator-only knowledge search
+description: "Tool functions for unit matching, scenario knowledge and operator-only\
+  \ knowledge search"
 dependencies: null
 language: JAVASCRIPT
