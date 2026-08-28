@@ -203,6 +203,26 @@ function summaryTemplate(cfg, which) {
   return typeof custom === "string" && custom.trim() ? custom : SUMMARY[which];
 }
 
+// Результаты общего поиска — только подсказка оператору. Они всегда добавляются после
+// основного саммари и явно помечаются как непроверенные: ни одна найденная статья не была
+// отправлена партнёру и не повлияла на решение передать обращение человеку.
+function operatorKnowledgeBlock(knowledge) {
+  const articles = knowledge && Array.isArray(knowledge.articles) ? knowledge.articles.slice(0, 3) : [];
+  if (!articles.length) return "";
+  const lines = [
+    "Возможные материалы из Базы Знаний:",
+    "Материалы подобраны полнотекстовым поиском и не отправлялись партнёру автоматически."
+  ];
+  articles.forEach((a, i) => {
+    lines.push("");
+    lines.push((i + 1) + ". " + (a.title || "Статья без заголовка") + " — " +
+      (a.spaceTitle || "пространство не указано"));
+    if (a.excerpt) lines.push("Почему найдено: " + a.excerpt);
+    if (a.url) lines.push("Ссылка: " + a.url);
+  });
+  return lines.join("\n");
+}
+
 // The whole state machine in one table. Adding a scenario means adding a row here
 // plus one node in the graph, and nothing else changes.
 const OUTCOMES = {
@@ -444,6 +464,8 @@ if (spec.nextStage === "escalated") {
         : "бот задал подряд " + MAX_CLARIFY_STREAK + " уточняющих вопроса и не продвинулся")
       : (spec.silent ? "партнёр написал в закрытый чат" : (data.handoverReason || prev.reason || "не указана"))
   }));
+  const knowledge = operatorKnowledgeBlock(prev.operatorKnowledge);
+  if (knowledge) internalNote += "\n\n" + knowledge;
 }
 
 // ── Why the Pyrus field updates are NOT built here ──

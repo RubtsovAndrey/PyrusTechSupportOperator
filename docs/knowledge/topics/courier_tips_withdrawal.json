@@ -1,0 +1,12 @@
+{
+  "key": "courier_tips_withdrawal",
+  "description": "курьер не может вывести электронные чаевые из сервиса CloudTips. Вопросами сервиса занимается его собственная поддержка",
+  "phrasings": [
+    "курьер не может вывести чаевые",
+    "не выводятся электронные чаевые",
+    "проблема с чаевыми в cloudtips"
+  ],
+  "route": "solver",
+  "onFail": "escalate",
+  "article": "Все вопросы о сервисе CloudTips пишите на почту [support@cp.ru](support@cp.ru) или в [техническую поддержку сервис](https://cloudtips.ru/support)[а](https://cloudtips.ru/support)\n\nИнструкция: [Электронные чаевые через приложение](https://dodopizza.info/articles/0f309544-e396-4c34-8836-75fb42ce5ce3)\n\n---\n\nИсточник: [Курьер не может вывести чаевые](https://knowledgebase.dodois.io/next/article/963b66c2-e111-43c6-a9ff-e7e5af3e4244/62570f01-6c7b-49e9-9e45-ae6a0b8c5b20)"
+}

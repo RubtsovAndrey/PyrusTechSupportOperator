@@ -293,6 +293,7 @@ function conversation(options) {
       knowledge_catalog: catalog,
       unitCatalog: units
     }, o.db || {}),
+    credentials: o.credentials,
     // Pyrus, к которому обращается finalize, проверяя, не устарел ли виток, и
     // createSubtask, спрашивая форму и реестр.
     onGet: a => {
@@ -305,7 +306,12 @@ function conversation(options) {
       }
       return { body: { task: { id: taskId, comments: comments.slice() } } };
     },
-    onPost: a => (/\/tasks$/.test(a.url) ? { body: { task: { id: 990000 + taskId % 1000 } } } : { body: {} })
+    onPost: a => {
+      if (/\/mcp$/.test(a.url) && o.onMcp) return o.onMcp(a);
+      return /\/tasks$/.test(a.url)
+        ? { body: { task: { id: 990000 + taskId % 1000 } } }
+        : { body: {} };
+    }
   });
 
   // Сессия контекста живёт дольше витка и дольше задачи, поэтому её чистит receiveWebhook.

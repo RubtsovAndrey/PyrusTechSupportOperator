@@ -1,6 +1,11 @@
 {
   "schemaVersion": 1,
   "topics": [
-    "pos_terminal_troubleshooting"
+    "courier_tips_withdrawal",
+    "kiosk_remote_access",
+    "notification_sounds_missing",
+    "pos_terminal_troubleshooting",
+    "scanner_newland_setup",
+    "tv_board_connection"
   ]
 }

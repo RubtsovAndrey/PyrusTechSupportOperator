@@ -1,14 +1,49 @@
 {
   "schemaVersion": 1,
-  "topicCount": 1,
-  "catalogSha256": "27fc59544ba94611947f296f10f8e039cfb18f695c92a6fd696c988751e3d1ce",
+  "topicCount": 6,
+  "catalogSha256": "b84cda5c341461531436aaaeeff8a12c9bcbdbca916860ec3c4c61da5ed7780d",
   "topics": [
+    {
+      "key": "courier_tips_withdrawal",
+      "source": "docs/knowledge/topics/courier_tips_withdrawal.json",
+      "sourceSha256": "22647470ba5896f7c766dab08e569c961f7ae43e122d6463b0725b83b75f8ca6",
+      "rag": "docs/rag/courier_tips_withdrawal.md",
+      "ragSha256": "d6b710e73e122f69aec7ccc00a5bb0cd2758488c1942b9e347192d9090de1d11"
+    },
+    {
+      "key": "kiosk_remote_access",
+      "source": "docs/knowledge/topics/kiosk_remote_access.json",
+      "sourceSha256": "8dfd672be2f724c4cee86cfb90b659a59477c8efe35edc8fc4128825b4f08cc9",
+      "rag": "docs/rag/kiosk_remote_access.md",
+      "ragSha256": "492769863d10ecd399b7012179a4ca75f3770f88f9ca2819d694b30fe4436244"
+    },
+    {
+      "key": "notification_sounds_missing",
+      "source": "docs/knowledge/topics/notification_sounds_missing.json",
+      "sourceSha256": "298d8c79d8f869dd3d6f36c36539c0e7205170cad627a22da75e039f71a6c681",
+      "rag": "docs/rag/notification_sounds_missing.md",
+      "ragSha256": "a57cd43073bce3436b593bd4d108f69010c5b72b6cded9a45251589b78d7df10"
+    },
     {
       "key": "pos_terminal_troubleshooting",
       "source": "docs/knowledge/topics/pos_terminal_troubleshooting.json",
       "sourceSha256": "7a18f49abde368852c5bbf413e8e6b393389c01d696ec049493bef2065c65f4b",
       "rag": "docs/rag/pos_terminal_troubleshooting.md",
       "ragSha256": "e00909342c7722cb7a2998f04f48c29ee9899260e9a5fed4bc41f10f612f0323"
+    },
+    {
+      "key": "scanner_newland_setup",
+      "source": "docs/knowledge/topics/scanner_newland_setup.json",
+      "sourceSha256": "61b178c32ab135409969489cc9b08428469f204f0c10a89815559082a2673122",
+      "rag": "docs/rag/scanner_newland_setup.md",
+      "ragSha256": "ed39d9eddfeb900a2fb5f3a5971cd68d185162358f3b90b3b224e5353abe262a"
+    },
+    {
+      "key": "tv_board_connection",
+      "source": "docs/knowledge/topics/tv_board_connection.json",
+      "sourceSha256": "4f0d3ca83c5a38487554fb7bad96ae62468771b16e712a4bf49985d9f356cbad",
+      "rag": "docs/rag/tv_board_connection.md",
+      "ragSha256": "e4a4a7764606cba4793fdf9d6d343a5b54f0e73f13f40e42a123a7de20cd37c5"
     }
   ]
 }

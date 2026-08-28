@@ -27,6 +27,11 @@ const heard = bot => bot.turns.map(t => t.replies.join(" ")).join(" | ");
 async function main() {
   const t = suite("dialog");
 
+  const mcpSse = payload => "event: message\ndata: " + JSON.stringify({
+    jsonrpc: "2.0", id: 1,
+    result: { content: [{ type: "text", text: JSON.stringify(payload) }] }
+  }) + "\n\n";
+
   // ── Статья доводит партнёра до самообслуживания за один виток ──
   // Ветка `end: close` — единственный случай, когда бот отвечает и закрывает чат сам.
   let bot = chat();
@@ -294,6 +299,40 @@ async function main() {
   t.check("для обычного обращения письменность — кириллица",
     bot.state.runtime.lang === "cyrillic", bot.state.runtime.lang);
 
+  // ── Неизвестная тема: общая БЗ помогает оператору, но не отвечает партнёру ──
+  bot = conversation({
+    taskId: ++taskId,
+    catalog: DIALOG_CATALOG,
+    credentials: { "1000299722-kb_mcp_token-x4m7q": "read-token" },
+    onMcp: a => {
+      const name = a.body.params.name;
+      if (name === "search_content") return { status: 200, body: mcpSse({ results: [{
+        articleId: "air-1",
+        articleTitle: "Обслуживание кондиционеров",
+        excerpt: "Контакты обслуживающей организации и порядок оформления заявки.",
+        spaceId: "operations",
+        spaceTitle: "Эксплуатация",
+        status: "published",
+        isWatermarksEnabled: false
+      }] }) };
+      if (name === "get_link_templates") return { status: 200, body: mcpSse({
+        ArticleUrlTemplate: "https://kb.example/article/{spaceId}/{articleId}"
+      }) };
+      throw new Error("unexpected MCP tool " + name);
+    }
+  });
+  all.push(bot);
+  r = await bot.turn("Тамбов-1, сломался кондиционер в подсобке", { unit: "Тамбов-1" });
+  t.check("неизвестная тема всё равно передаётся оператору",
+    r.stage === "escalated" && r.replies.length === 1, r);
+  t.check("похожие статьи общей БЗ видит только оператор",
+    r.internal.length === 1 && /Обслуживание кондиционеров/.test(r.internal[0]) &&
+    /не отправлялись партнёру автоматически/.test(r.internal[0]) &&
+    !/Обслуживание кондиционеров/.test(r.replies.join(" ")), r);
+  t.check("общий поиск вызывается кодовым узлом после неудачной маршрутизации",
+    r.trace.some(s => s.id === "func_find_operator_knowledge") &&
+    r.agents.indexOf("agent_routing") >= 0, r.trace.map(s => s.id));
+
   // ── Вложение без текста ──
   bot = chat();
   await bot.turn("Тамбов-1, не работает касса", { unit: "Тамбов-1" });
@@ -312,7 +351,7 @@ async function main() {
     topics: [{
       key: "no_internet",
       description: "нет интернета, нет связи, не открывается Додо ИС",
-      phrasings: ["нет интернета", "пропала связь", "не работает интернет"],
+      phrasings: ["нет интернета", "пропала связь", "не работает интернет", "не открывается Додо ИС"],
       route: "solver",
       onFail: "escalate",
       article: "Если интернет пропал во всей точке — обратитесь к провайдеру. " +

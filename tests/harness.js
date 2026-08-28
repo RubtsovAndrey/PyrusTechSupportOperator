@@ -15,11 +15,12 @@ function loadFunction(relPath, paramNames) {
   const src = fs.readFileSync(path.join(ROOT, relPath), "utf8");
   const names = paramNames || [];
   const factory = new Function(
-    "Context", "AgentContext", "Db", "Log", "Http", "Rag", ...names,
+    "Context", "AgentContext", "Db", "Log", "Http", "Rag", "Credentials", ...names,
     "return (async function(){\n" + src + "\n})();"
   );
   return (env, args) => factory(
-    env.Context, env.AgentContext, env.Db, env.Log, env.Http, env.Rag, ...(args || [])
+    env.Context, env.AgentContext, env.Db, env.Log, env.Http, env.Rag, env.Credentials,
+    ...(args || [])
   );
 }
 
@@ -66,9 +67,11 @@ function makeEnv(options) {
   const puts = [];
   // Каждый запрос к RAG, чтобы тест мог проверить и то, что его НЕ делали.
   const rags = [];
+  // Ключи, по которым код спрашивал секреты: порядок обращения — часть поведения.
+  const creds = [];
 
   const env = {
-    db, notes, values, posts, gets, updates, puts, rags,
+    db, notes, values, posts, gets, updates, puts, rags, creds,
     prev: clone(o.prev) || {},
     Context: {
       getMessageContent: () => ({ payload: o.payload }),
@@ -149,6 +152,16 @@ function makeEnv(options) {
       }
     },
     Log: { info() {}, warn() {}, error() {}, debug() {}, trace() {} },
+    // Хранилище секретов платформы. `noCredentials: true` убирает неймспейс целиком: код,
+    // который читает токен, обязан отличать «неймспейса нет» от «токен пустой», иначе
+    // отсутствие доступа выглядит как «ничего не нашлось».
+    Credentials: o.noCredentials ? undefined : {
+      get: a => {
+        creds.push(a.credentialKey);
+        const token = (o.credentials || {})[a.credentialKey];
+        return token === undefined ? undefined : { key: a.credentialKey, token: token };
+      }
+    },
     // Chunks come back sorted by descending score, each with `content` and a `source` whose
     // `path` is the name of the document in the knowledge base — the platform names a source
     // after the file it was uploaded from, which is what carries the topic key.

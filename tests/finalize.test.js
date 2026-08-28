@@ -378,6 +378,37 @@ async function main() {
   t.check("and it gets there through the point write, with no rescue needed",
     decided.puts.length === 0, decided.puts);
 
+  const enriched = makeEnv({
+    prev: {
+      taskId: "11613",
+      reason: "подходящей тематики нет",
+      operatorKnowledge: {
+        articles: [{
+          title: "Закрытие кассовой смены",
+          spaceTitle: "Техподдержка",
+          excerpt: "Порядок действий при ошибке закрытия смены.",
+          url: "https://kb.example/article/space-tech/article-1"
+        }]
+      }
+    },
+    db: { [KEY]: state({
+      stage: "routing",
+      pendingOutcome: null,
+      data: { problemSummary: "не закрывается смена" }
+    }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(enriched, ["escalated", null]);
+  const enrichedNote = enriched.db[KEY].pendingOutcome.internalNote;
+  t.check("general knowledge search is appended only to the operator summary",
+    /Возможные материалы/.test(enrichedNote) &&
+    /не отправлялись партнёру автоматически/.test(enrichedNote) &&
+    /Закрытие кассовой смены/.test(enrichedNote) &&
+    /https:\/\/kb\.example/.test(enrichedNote), enrichedNote);
+  t.check("operator hints never become the partner reply",
+    !/Закрытие кассовой смены/.test(enriched.db[KEY].pendingOutcome.replyText || ""),
+    enriched.db[KEY].pendingOutcome);
+
   r = await run({ db: decided.db });
   t.check("the partner is asked what the bot decided to ask",
     /о какой точке/i.test(r.posts[0].body.text), r.posts[0].body);

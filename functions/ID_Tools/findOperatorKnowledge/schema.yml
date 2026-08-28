@@ -1,0 +1,8 @@
+---
+id: findOperatorKnowledge
+name: findOperatorKnowledge
+description: Ищет по всей доступной Базе Знаний возможные материалы для оператора,
+  когда утверждённый сценарий бота не найден. Ничего не отправляет партнёру.
+response-description: "{ taskId, reason, operatorKnowledge: { query, articles: [{ articleId, title, spaceTitle, excerpt, url }] } }"
+parameters: []
+language: JAVASCRIPT

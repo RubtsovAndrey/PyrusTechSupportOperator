@@ -11,6 +11,7 @@ const SUITES = [
   "./receivewebhook.test.js", "./finalize.test.js", "./parseagentjson.test.js",
   "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
   "./pos-terminal-catalog.test.js", "./routing-catalog.test.js", "./routing.test.js",
+  "./getknowledgemcp.test.js", "./operator-knowledge.test.js", "./kbarticle.test.js", "./synckb.test.js",
   // Идёт последним: остальные наборы проверяют функции поштучно, этот — разговор целиком,
   // и по упавшей проверке здесь при зелёных выше сразу видно, что дело в графе, а не в коде.
   "./dialog.test.js"
@@ -23,7 +24,8 @@ const FUNCTION_PARAMS = {
   "functions/ID_Actions/applyOutcome/code.js": ["outcome", "replyText"],
   "functions/ID_Tools/parseAgentJson/code.js": ["stage"],
   "functions/ID_Tools/searchKnowledge/code.js": ["query", "topicKey", "branch", "answers"],
-  "functions/ID_Tools/matchUnit/code.js": ["query", "scope"]
+  "functions/ID_Tools/matchUnit/code.js": ["query", "scope"],
+  "functions/ID_Tools/getKnowledgeMcp/code.js": ["query", "spaceIds", "limit"]
 };
 
 function walk(dir, out) {
@@ -95,15 +97,13 @@ function checkYaml() {
 }
 
 // ── The knowledge catalog is code now ──
-// With branching articles `go`, `else`, `onFail`, `start`, `branchOn`, `end` and the answer
-// keys are executable. searchKnowledge handles a broken one gracefully — it turns it into
-// `treeEnd: "escalate"` — and that is right at runtime but wrong for us: a typo in an
-// article then looks exactly like «the bot handed this over to a human», and nobody ever
-// finds out. Articles are written by hand, so they are linted before the deploy instead.
-const END_KINDS = ["close", "subtask", "escalate"];
+// Сами правила переехали в tools/lint-topics.js: у статьи теперь два источника — файл в
+// репозитории и статья в Базе Знаний, — и проверять их разными правилами нельзя. Здесь
+// остаётся только то, что относится именно к сгенерированному каталогу: он обязан читаться
+// и обязан быть массивом статей.
+const { lintTopics } = require("../tools/lint-topics");
 
 function checkCatalog() {
-  const problems = [];
   let catalog;
   try {
     catalog = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/knowledge_catalog.json"), "utf8"));
@@ -112,85 +112,7 @@ function checkCatalog() {
   }
   const topics = Array.isArray(catalog.topics) ? catalog.topics : null;
   if (!topics) return ["docs/knowledge_catalog.json has no topics array"];
-
-  topics.forEach(topic => {
-    const t = topic || {};
-    const say = m => problems.push("[" + (t.key || "?") + "] " + m);
-    if (!t.key) say("an article without a key cannot be routed to");
-
-    const nodes = t.nodes && typeof t.nodes === "object" ? t.nodes : null;
-    if (!nodes) {
-      // A linear article: its onFail names an exit, never a node.
-      const steps = (Array.isArray(t.steps) ? t.steps : []).filter(s => s && (typeof s === "string" || s.instruction));
-      // `article` — прозаический уровень: текст, написанный как для человека. `solverInstruction`
-      // — то же поле под прежним именем.
-      if (!steps.length && !t.article && !t.solverInstruction && String(t.route || "solver") === "solver") {
-        say("route is solver, but there is neither a step, an article nor a solverInstruction to serve");
-      }
-      if (t.article && (steps.length || t.solverInstruction)) {
-        say("article is set together with steps/solverInstruction — выберите один уровень статьи");
-      }
-      if (t.onFail && ["subtask", "escalate"].indexOf(String(t.onFail)) < 0) {
-        say("onFail=\"" + t.onFail + "\" is neither subtask nor escalate, and a linear article has no nodes to jump to");
-      }
-      return;
-    }
-
-    const ids = Object.keys(nodes);
-    // `end` values are legal targets too: that is how a branch leaves the article.
-    const ref = (v, where) => {
-      if (!v || END_KINDS.indexOf(String(v)) >= 0) return;
-      if (ids.indexOf(String(v)) < 0) say(where + " points at \"" + v + "\", which is not a node of this article");
-    };
-    if (!t.start) say("no start is declared: the entry point then depends on key order in the file");
-    else if (ids.indexOf(String(t.start)) < 0) say("start points at \"" + t.start + "\", which is not a node");
-    ref(t.onFail, "onFail of the article");
-
-    const reached = {};
-    ids.forEach(id => {
-      const n = nodes[id] || {};
-      const ask = Array.isArray(n.ask) ? n.ask : [];
-      const branches = Array.isArray(n.branches) ? n.branches : [];
-      ref(n.go, id + ".go");
-      ref(n["else"], id + ".else");
-      ref(n.onFail, id + ".onFail");
-      [n.go, n["else"], n.onFail].forEach(v => { if (v) reached[String(v)] = true; });
-      branches.forEach((b, i) => {
-        if (!b || !b.go) return say(id + ".branches[" + i + "] has no go, so it is not a branch at all");
-        ref(b.go, id + ".branches[" + i + "]");
-        reached[String(b.go)] = true;
-        if (!(Array.isArray(b.when) ? b.when : [b.when]).filter(Boolean).length) {
-          say(id + ".branches[" + i + "] declares no `when`, so nothing can ever choose it");
-        }
-      });
-      ask.forEach((q, i) => {
-        if (!q || !q.question) return say(id + ".ask[" + i + "] has no question text");
-        if (!q.key) return say(id + ".ask[" + i + "] has no key: its answer cannot be stored");
-        // A key with a dot or a $ addresses a different part of the document than it looks
-        // like — searchKnowledge refuses such a key, and a refused key is a lost answer.
-        if (/[.$]/.test(String(q.key))) say(id + ".ask key \"" + q.key + "\" contains . or $ and will be refused");
-        // Without a label the operator reads the raw key: «newValue: +79001234567».
-        if (!q.label) say(id + ".ask[" + q.key + "] has no label: the operator will see the bare key");
-      });
-      if (n.end && END_KINDS.indexOf(String(n.end)) < 0) {
-        say(id + ".end=\"" + n.end + "\" is not one of " + END_KINDS.join("/"));
-      }
-      if (n.branchOn && !ask.some(q => q && q.key === n.branchOn)) {
-        say(id + ".branchOn=\"" + n.branchOn + "\" is not one of the node's own ask keys");
-      }
-      if (branches.length && ask.length > 1 && !n.branchOn) {
-        say(id + " asks " + ask.length + " questions and branches, but does not say which one the branches read");
-      }
-      // The two states searchKnowledge has to rescue at runtime, as `tree-dead-end`.
-      if (!n.advice && !ask.length && !branches.length && !n.end && !n.go) {
-        say(id + " neither speaks, asks, branches nor ends: the dialog cannot leave it");
-      }
-    });
-    ids.forEach(id => {
-      if (id !== String(t.start) && !reached[id]) say(id + " is unreachable from anywhere");
-    });
-  });
-  return problems;
+  return lintTopics(topics);
 }
 
 // ── The eight copies of writeState ──

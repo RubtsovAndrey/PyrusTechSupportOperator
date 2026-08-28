@@ -1,7 +1,7 @@
 // Executes the real routing specification against the real generated catalog using the
 // lexical fallback. Semantic RAG itself exists only on Agent Platform, so its scores still
-// have to be collected there; locally we can at least guarantee that every in-scope case
-// remains the fallback's first candidate and expose the false candidates for `expect:null`.
+// have to be collected there; locally we guarantee both sides of the contract: every
+// in-scope case is first, and an explicitly out-of-domain case produces no candidate.
 //
 //   node tests/routing-catalog.test.js --report
 
@@ -35,6 +35,8 @@ async function main(options) {
     const candidates = (result.topics || []).map(x => x.key + "=" + Number(x.score).toFixed(2));
     if (c.expect === null) {
       negatives.push({ query: c.query, candidates });
+      t.check("fallback rejects «" + c.query + "»",
+        result.found === false && candidates.length === 0, { candidates, note: c.note });
       continue;
     }
     const first = result.topics && result.topics[0] && result.topics[0].key;
@@ -43,7 +45,7 @@ async function main(options) {
   }
 
   if (report) {
-    console.log("\nNegative / out-of-domain cases (candidates are allowed; the router must reject them):");
+    console.log("\nNegative / out-of-domain cases (the fallback must abstain):");
     negatives.forEach(row => console.log("  " + row.query + " -> " +
       (row.candidates.length ? row.candidates.join(" ") : "none")));
   }

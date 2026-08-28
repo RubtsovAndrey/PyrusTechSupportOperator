@@ -48,8 +48,8 @@ function conversation(problem) {
 async function main() {
   const t = suite("pos terminal catalog acceptance");
   const topic = CATALOG.topics.find(x => x.key === KEY);
-  t.check("the pilot catalog contains only the new topic",
-    CATALOG.topics.length === 1 && !!topic, CATALOG.topics.map(x => x.key));
+  t.check("the pilot topic remains in the growing catalog",
+    !!topic, CATALOG.topics.map(x => x.key));
 
   let c = conversation("касса ресторана: смена превысила 24 часа");
   let r = await c.step();

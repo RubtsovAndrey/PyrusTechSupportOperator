@@ -1,0 +1,17 @@
+---
+id: func_find_operator_knowledge
+name: Find knowledge for operator
+position:
+  x: 4930
+  y: -480
+next-step: func_escalate_m9k4j
+next-error-step: func_escalate_m9k4j
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: findOperatorKnowledge
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

@@ -3,6 +3,13 @@ const RAG_KEY = "1000299722-testovaa_baza_znanij-gsp";
 
 const MAX_TOPICS = 3;
 const MIN_SCORE = 0.34;
+// A single shared word is not a routing decision. Without this guard, an unknown request
+// about a courier avatar matched the tips article only because both contained «курьер»;
+// «сломался планшет» similarly matched the scanner article by «планшет». For a normal
+// sentence require two words from the SAME approved phrasing. A genuinely one-word query
+// may still match one word, but anything longer is safer at the operator than in a random
+// scenario.
+const MIN_PHRASE_MATCHES = 2;
 const DEFAULT_FOLLOW_UP = "Получилось решить вопрос?";
 const STOPWORDS = ["и", "в", "на", "с", "не", "что", "как", "для", "по", "но", "или", "у", "к", "от", "до", "за", "есть", "был", "была", "было"];
 
@@ -900,19 +907,29 @@ if (!queryTokens.length) {
 // одного слова «down» в имени файла, — и партнёр уезжал в статью про кассу. То же ждало
 // любого, кто вставит в чат лог с латиницей. Смысл статьи целиком лежит в `description` и
 // `phrasings`, и это единственное, что должно решать.
-const haystacks = topics.map(t => tokenize([
-  t.description, t.componentName,
-  // Переформулировки партнёра, из которых собираются документы для RAG, помогают и здесь:
-  // запасной подбор получает те же синонимы бесплатно.
-  Array.isArray(t.phrasings) ? t.phrasings.join(" ") : null
-].filter(Boolean).join(" ")));
+// `description` is for the routing model and may intentionally describe exclusions
+// («не относится к физической поломке»). Treating that prose as positive lexical evidence
+// made the excluded request match the article precisely by the words used to exclude it.
+// Approved `phrasings` are the positive evidence. Old articles without them keep their
+// description as a compatibility fallback until they are migrated.
+const lexicalTexts = topics.map(t => {
+  const phrases = Array.isArray(t.phrasings) ? t.phrasings.filter(Boolean).map(String) : [];
+  return phrases.length ? phrases : [t.description, t.componentName].filter(Boolean).map(String);
+});
+const phraseTokens = lexicalTexts.map(list => list.map(tokenize));
+const haystacks = phraseTokens.map(list => [].concat.apply([], list));
 const known = queryTokens.filter(q => haystacks.some(h => hasToken(h, q)));
 const denominator = known.length || 1;
+const requiredPhraseMatches = queryTokens.length === 1 ? 1 : MIN_PHRASE_MATCHES;
+const phraseEvidence = phraseTokens.map(list => list.reduce((best, phrase) => {
+  const hits = queryTokens.filter(q => hasToken(phrase, q)).length;
+  return Math.max(best, hits);
+}, 0));
 
 function topicsFromWords() {
   return topics
     .map((t, i) => ({ topic: t, score: known.filter(q => hasToken(haystacks[i], q)).length / denominator }))
-    .filter(r => r.score >= MIN_SCORE)
+    .filter((r, i) => r.score >= MIN_SCORE && phraseEvidence[i] >= requiredPhraseMatches)
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_TOPICS);
 }

@@ -8,4 +8,4 @@ next-step: func_createsubtask_v5r8k
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).route === 'subtask'"
-  false-step: func_escalate_m9k4j
+  false-step: func_find_operator_knowledge

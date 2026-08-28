@@ -1,130 +1,64 @@
-# Как протестировать MCP на платформе
+# Как проверить чтение Базы Знаний
 
-## Вариант 1: Function node (рекомендуется)
+## Чего в этом документе больше нет и почему
 
-1. Создайте новый граф
-2. Добавьте **Function node**
-3. Выберите функцию: `getKnowledgeMcp`
-4. Укажите параметры:
-   ```json
-   {
-     "query": "касса не работает"
-   }
-   ```
-5. Запустите граф
-6. Посмотрите результат в логах
+Прежняя версия предлагала два способа: узел-функцию `getKnowledgeMcp` и «Code node с
+`MCP.call`». **Второго способа не существует.** Неймспейса `MCP` в функциях платформы нет:
+в `.agent/system-functions/` перечислены `Context`, `AgentContext`, `Db`, `Log`, `Http`,
+`Rag`, `Credentials`, `Llm` и другие, а MCP среди них не значится. MCP-инструменты платформа
+отдаёт только как **коллекцию функций** (`knowledgebase`), вызываемую узлом-функцией с
+`parameters.type: MCP`.
 
----
-
-## Вариант 2: Code node с MCP.call
-
-В Code node используйте такой код:
-
-```javascript
-// Прямой вызов MCP
-const searchResult = await MCP.call(
-  "1000299722-dodo_knowledge_base_-wok",  // ID вашей MCP-интеграции
-  "search_content",
-  {
-    request: {
-      query: "касса не работает",
-      limit: 3
-    }
-  }
-);
-
-console.log("Результаты поиска:", searchResult);
-
-// Если нашлись статьи, получить первую
-if (searchResult.results && searchResult.results.length > 0) {
-  const firstArticle = await MCP.call(
-    "1000299722-dodo_knowledge_base_-wok",
-    "get_content",
-    {
-      request: {
-        id: searchResult.results[0].articleId
-      }
-    }
-  );
-  
-  console.log("Первая статья:", firstArticle.title);
-  console.log("Содержимое:", firstArticle.content.substring(0, 200));
-}
-
-return searchResult;
-```
+`getKnowledgeMcp` этой коллекцией сознательно не пользуется: через узел нельзя передать
+`request.spaces`, которого нет в экспортированной схеме инструмента, а без сужения по
+пространству поиск идёт по всем 56 доступным и выдаёт мусор («касса» → 50 результатов,
+первые три — новости на казахском). Транспорт — прямой JSON-RPC поверх `Http`, причины
+подробно описаны в шапке `functions/ID_Tools/getKnowledgeMcp/code.js`.
 
 ---
 
-## Вариант 3: Создать тестовый граф
+## Проверка локально (основная)
 
-Создайте граф с такой структурой:
+Ничего разворачивать не нужно: тот же исходник, который уезжает на платформу, исполняется
+здесь.
 
+```bash
+# 1. Логика: подставной Http, все обёртки и все отказы
+node tests/getknowledgemcp.test.js
+
+# 2. Живой сервер: настоящий исходник против настоящей БЗ
+node tools/kb-mcp-live.js "смена превысила 24 часа"
+node tools/kb-mcp-live.js "касса не работает" 6d8f5fa3-7fd4-44c8-978d-68743b232533 3
 ```
-[Start] → [Function: getKnowledgeMcp] → [Code: Display Results]
-```
 
-**Function node:**
-- Function: `getKnowledgeMcp`
-- query: `"касса"`
-
-**Code node (Display Results):**
-```javascript
-// Входные данные из предыдущего узла
-const result = input.result;
-
-console.log("=== Результаты поиска ===");
-console.log("Найдено:", result.found);
-console.log("Количество статей:", result.articles?.length || 0);
-
-if (result.articles && result.articles.length > 0) {
-  result.articles.forEach((article, index) => {
-    console.log(`\n--- Статья ${index + 1} ---`);
-    console.log("Заголовок:", article.title);
-    console.log("Метаданные:", JSON.stringify(article.metadata, null, 2));
-  });
-}
-
-return result;
-```
+Второй скрипт берёт токен из `.env.local` (`MCP_KB_TOKEN`) и печатает лог функции, все
+запросы к серверу и разобранные метаданные. Если он зелёный, а на платформе функция не
+работает — дело в платформе (токен в Credentials, доступность узла), а не в коде, и это
+разделение и есть смысл двух проверок.
 
 ---
 
-## Ожидаемый результат
+## Проверка на платформе
 
-Если всё работает правильно, вы увидите:
+1. Credentials → `kb-mcp-token` → вставить токен БЗ.
+2. Узел-функция `ID_Tools.getKnowledgeMcp`, параметр `query` заполнен статически.
+3. Запустить и прочитать лог: функция логирует запрос, число попаданий, отсев по
+   пространству/вотермаркам/пустому содержимому и итоговый список статей.
 
-```
-=== Результаты поиска ===
-Найдено: true
-Количество статей: 3
-
---- Статья 1 ---
-Заголовок: TEST: Проблемы с кассой - смена превысила 24 часа
-Метаданные: {
-  "component": "POS",
-  "route": "solver",
-  "onSuccess": "close",
-  "onFail": "operator"
-}
-```
+Граф на платформе править **там же**: экспорт владеет `nodes/` и стирает узлы, добавленные
+локально. Историю этих потерь видно в git по узлам `func_test_mcp_*`.
 
 ---
 
-## Troubleshooting
+## Что означают отказы
 
-### Ошибка: "Functions is not defined"
-**Причина:** `Functions` доступен только в User Functions, не в Code node.  
-**Решение:** Используйте Function node или `MCP.call()` напрямую.
+Функция не возвращает пустой результат молча — каждая причина называет себя в `error`:
 
-### Ошибка: "MCP integration not found"
-**Причина:** Интеграция не создана или неправильный ID.  
-**Решение:** Проверьте ID интеграции в UI: `1000299722-dodo_knowledge_base_-wok`
-
-### Ошибка: "Credential not configured"
-**Причина:** Токен не настроен.  
-**Решение:** Credentials → Knowledge Base MCP Token → вставить токен
-
-### Ошибка: "Access forbidden"
-**Причина:** Неправильный токен или нет прав.  
-**Решение:** Проверьте токен: `6682a459-5388-4727-9d8d-fdc0a486e359`
+| `error` | Причина | Что делать |
+|---|---|---|
+| `неймспейс Credentials недоступен...` | В функциях платформы нет `Credentials` | Передавать токен иначе (параметр типа `CREDENTIAL`) |
+| `токен не получен (...)` | Credential не заполнен или группа `MCP` не читается из кода | Заполнить `kb-mcp-token` (группа `CUSTOM`) |
+| `MCP search_content ответил 401` | Токен недействителен или отозван | Выпустить новый, обновить Credentials и `.env.local` |
+| `MCP search_content ответил 406` | Не объявлен `Accept: text/event-stream` | Сервер отвечает только SSE — заголовок обязателен |
+| `ответ MCP не разобрался: ...` | Платформа отдала тело в неожидаемом виде | Смотреть первые 200 символов в логе |
+| `found: false` без `error` | Запрос отработал, статей в нашем пространстве нет | Проверить, что статья опубликована и размечена |
