@@ -15,7 +15,7 @@ const https = require("https");
 const { loadFunction, makeEnv } = require("../tests/harness");
 
 const ROOT = path.resolve(__dirname, "..");
-const CRED = "1000299722-kb_mcp_token-x4m7q";
+const CRED = "1000299722-kbmcptoken-vod";
 
 function loadToken() {
   const file = path.join(ROOT, ".env.local");

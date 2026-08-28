@@ -2,8 +2,8 @@
 id: func_parsejson_solver
 name: parseSolver
 position:
-  x: 4208
-  y: -1466
+  x: 4054
+  y: -1812
 next-step: cond_tree_subtask
 next-error-step: func_escalate_m9k4j
 parameters:

@@ -11,7 +11,7 @@ const getKnowledge = loadFunction(
 
 const OWN_SPACE = "6d8f5fa3-7fd4-44c8-978d-68743b232533";
 const OTHER_SPACE = "963b66c2-e111-43c6-a9ff-e7e5af3e4244";
-const CRED = "1000299722-kb_mcp_token-x4m7q";
+const CRED = "1000299722-kbmcptoken-vod";
 
 const ARTICLE_MD = [
   "# Проблемы с кассой: смена превысила 24 часа",

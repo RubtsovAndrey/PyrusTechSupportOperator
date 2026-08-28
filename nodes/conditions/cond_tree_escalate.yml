@@ -2,8 +2,8 @@
 id: cond_tree_escalate
 name: tree ended in a handover?
 position:
-  x: 4616
-  y: -1759
+  x: 4730
+  y: -1919
 next-step: func_escalate_m9k4j
 next-error-step: null
 parameters:

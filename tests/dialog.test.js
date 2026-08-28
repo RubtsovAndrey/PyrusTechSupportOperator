@@ -303,7 +303,7 @@ async function main() {
   bot = conversation({
     taskId: ++taskId,
     catalog: DIALOG_CATALOG,
-    credentials: { "1000299722-kb_mcp_token-x4m7q": "read-token" },
+    credentials: { "1000299722-kbmcptoken-vod": "read-token" },
     onMcp: a => {
       const name = a.body.params.name;
       if (name === "search_content") return { status: 200, body: mcpSse({ results: [{

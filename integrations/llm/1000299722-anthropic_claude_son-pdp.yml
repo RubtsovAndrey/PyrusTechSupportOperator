@@ -1,8 +1,0 @@
----
-key: 1000299722-anthropic_claude_son-pdp
-credential-key: null
-name: Anthropic - Claude Sonnet (solver)
-provider: ANTHROPIC
-model: just-ai/anthropic/claude-sonnet-4-5
-is-direct-access: false
-origin-key: 1000299722-anthropic-sonnet-q7x4m2

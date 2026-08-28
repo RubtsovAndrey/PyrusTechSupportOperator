@@ -2,8 +2,8 @@
 id: func_parsejson_routing
 name: parseRouting
 position:
-  x: 2936
-  y: -842
+  x: 2800
+  y: -1122
 next-step: cond_routing_route
 next-error-step: func_escalate_m9k4j
 parameters:

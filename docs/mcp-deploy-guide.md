@@ -13,7 +13,7 @@
 - `nodes/functions/func_find_operator_knowledge.yml` — кодовый шаг перед обычным handover;
 - `nodes/conditions/cond_routing_subtask.yml` — отрицательная ветка маршрутизации ведёт в
   этот шаг;
-- `credentials/custom/1000299722-kb_mcp_token-x4m7q.yml` — только метаданные credential;
+- `credentials/custom/1000299722-kbmcptoken-vod.yml` — только метаданные credential;
 - существующая MCP-интеграция и её credential в `integrations/mcp/` и `credentials/mcp/`.
 
 Секретного значения в YAML нет. Токен хранится в UI Agent Platform. `origin-key` вручную

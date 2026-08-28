@@ -3,7 +3,7 @@
 const { loadFunction, makeEnv, suite } = require("./harness");
 
 const findKnowledge = loadFunction("functions/ID_Tools/findOperatorKnowledge/code.js");
-const CRED = "1000299722-kb_mcp_token-x4m7q";
+const CRED = "1000299722-kbmcptoken-vod";
 
 function sse(payload) {
   return "event: message\ndata: " + JSON.stringify({
