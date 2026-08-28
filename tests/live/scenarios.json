@@ -42,6 +42,79 @@
           }
         ]
       }
+    },
+    {
+      "id": "known-pos-connection-then-handover",
+      "title": "Известная проблема соединения с ККМ получает совет и после неудачи передаётся оператору",
+      "messages": [
+        "Тамбов-1, на кассе ресторана ККМ не подключен",
+        "Не помогло"
+      ],
+      "expect": {
+        "turnCount": 2,
+        "turns": [
+          {
+            "partner": {
+              "includes": ["Тамбов-1", "кассе ресторана", "ККМ не подключен"]
+            },
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": [
+                "Проверьте соединение между ККМ и моноблоком",
+                "Тест драйвер ККМ",
+                "Получилось решить вопрос"
+              ],
+              "excludes": ["Понадобится время на изучение вопроса"]
+            },
+            "internal": {
+              "count": 0
+            },
+            "logs": {
+              "excludes": ["findOperatorKnowledge:"]
+            },
+            "path": {
+              "includes": ["Solver Agent", "Outcome - reply", "finalize"],
+              "excludes": ["Find knowledge for operator"]
+            },
+            "calls": {
+              "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"reply\""]
+            },
+            "noErrors": true
+          },
+          {
+            "partner": {
+              "includes": ["Не помогло"]
+            },
+            "outcome": "escalated",
+            "replies": {
+              "count": 1,
+              "includes": ["Понадобится время на изучение вопроса"]
+            },
+            "internal": {
+              "count": 1,
+              "includes": [
+                "Бот передаёт обращение оператору",
+                "Тематика: pos_terminal_troubleshooting",
+                "Что уже пробовали",
+                "Проверьте соединение между ККМ и моноблоком"
+              ],
+              "excludes": ["Возможные материалы из Базы Знаний"]
+            },
+            "logs": {
+              "excludes": ["findOperatorKnowledge:"]
+            },
+            "path": {
+              "includes": ["Confirmation Agent", "Outcome - escalate to operator", "finalize"],
+              "excludes": ["Find knowledge for operator"]
+            },
+            "calls": {
+              "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"escalated\""]
+            },
+            "noErrors": true
+          }
+        ]
+      }
     }
   ]
 }

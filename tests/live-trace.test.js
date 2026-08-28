@@ -18,6 +18,32 @@ function matchingTurn() {
   };
 }
 
+function matchingPosTurns() {
+  return [
+    {
+      partner: { text: "Тамбов-1, на кассе ресторана ККМ не подключен" },
+      outcome: "reply",
+      replies: [{ text: "Проверьте соединение между ККМ и моноблоком. Закройте программу «Тест драйвер ККМ». Получилось решить вопрос?" }],
+      internal: [],
+      logs: ["searchKnowledge: pos_terminal_troubleshooting"],
+      path: ["Solver Agent", "Outcome - reply", "finalize"],
+      calls: ["ID_Actions.applyOutcome({\"outcome\":\"reply\"})"],
+      errors: []
+    },
+    {
+      partner: { text: "Не помогло" },
+      outcome: "escalated",
+      replies: [{ text: "Понадобится время на изучение вопроса." }],
+      internal: [{ text: "Бот передаёт обращение оператору. Тематика: pos_terminal_troubleshooting. " +
+        "Что уже пробовали: Проверьте соединение между ККМ и моноблоком." }],
+      logs: ["nextSolutionStep: article exhausted"],
+      path: ["Confirmation Agent", "Outcome - escalate to operator", "finalize"],
+      calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],
+      errors: []
+    }
+  ];
+}
+
 async function main() {
   const t = suite("live trace scenarios");
   const scenariosFile = path.join(__dirname, "live", "scenarios.json");
@@ -38,6 +64,17 @@ async function main() {
   checks = validateScenario([broken], scenario);
   t.check("a platform error fails the scenario even when the handover completed",
     checks.some(c => !c.ok && /нет ошибок платформы/.test(c.label)), checks);
+
+  const posScenario = loadScenario(scenariosFile, "known-pos-connection-then-handover");
+  checks = validateScenario(matchingPosTurns(), posScenario);
+  t.check("the known POS scenario accepts advice followed by a documented handover",
+    checks.length > 0 && checks.every(c => c.ok), checks.filter(c => !c.ok));
+
+  const searchedAgain = matchingPosTurns();
+  searchedAgain[1].path.splice(1, 0, "Find knowledge for operator");
+  checks = validateScenario(searchedAgain, posScenario);
+  t.check("general knowledge search on a known article fails the scenario",
+    checks.some(c => !c.ok && /путь не содержит.*Find knowledge for operator/.test(c.label)), checks);
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pyrus-live-trace-"));
   const json = path.join(tmp, "one.json");
