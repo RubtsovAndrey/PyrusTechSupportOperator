@@ -1,6 +1,14 @@
-// Запуск: node tools/read-trace.js <папка1,папка2> [--prompt]
+// Восстановление живого разговора из выгрузки трасс Agent Platform.
+//
+// Обычный отчёт:
+//   node tools/read-trace.js <папка-или-json> [--prompt]
+//
+// Проверка сохранённого сценария и запись отчёта без перенаправления stdout:
+//   node tools/read-trace.js <папка-или-json> --scenario unknown-courier-avatar --out result_report.txt
 const fs = require("fs");
 const path = require("path");
+
+const DEFAULT_SCENARIOS = path.join(__dirname, "..", "tests", "live", "scenarios.json");
 
 function nodes(root, out) {
   out.push(root);
@@ -25,20 +33,23 @@ function findWebhook(obj, depth) {
   return null;
 }
 
+function traceRoots(root) {
+  if (root && root.type === "trace") return [root];
+  return (root && root.children || []).filter(child => child.type === "trace");
+}
+
 function turnsOf(file) {
   let tree;
   try {
     tree = JSON.parse(fs.readFileSync(file, "utf8"));
   } catch (e) {
-    console.error(`  [!] Ошибка чтения файла ${file}: ${e.message}`);
-    return [];
+    return { turns: [], errors: [`Ошибка чтения файла ${file}: ${e.message}`] };
   }
 
   const roots = Array.isArray(tree) ? tree : [tree];
   const turns = [];
 
-  roots.forEach(root => (root.children || []).forEach(trace => {
-    if (trace.type !== "trace") return;
+  roots.forEach(root => traceRoots(root).forEach(trace => {
     const all = nodes(trace, []);
     const turn = {
       at: trace.startTime || trace.traceStartTime || "",
@@ -98,92 +109,253 @@ function turnsOf(file) {
       }
 
       if (/LLM/i.test(label) && d && d.body && Array.isArray(d.body.messages)) {
-        // Запрос к LLM (промпт)
         turn.prompts.push(d.body.messages.map(m => m.role + ": " + cut(m.content, 900)).join("\n    "));
-
-        // Ответ от LLM (результат из outputData)
         try {
           if (span.outputData && span.outputData.body && span.outputData.body.choices) {
             const llmContent = span.outputData.body.choices[0].message.content;
             if (llmContent) turn.llmReplies.push(cut(llmContent, 900));
           }
         } catch (err) {
-          // Игнорируем, если структура ответа неожиданно другая или LLM не ответила
+          // Некоторые версии экспорта не содержат ответ модели.
         }
       }
     });
 
     turns.push(turn);
   }));
-  return turns;
+  return { turns, errors: [] };
 }
 
-// Парсинг аргументов командной строки
-const args = process.argv.slice(2);
-const withPrompt = args.indexOf("--prompt") >= 0;
-// Собираем все аргументы, кроме флага --prompt, и объединяем их через запятую
-// (на случай если пользователь ввёл `dir1 dir2` или `dir1,dir2`)
-const dirsArg = args.filter(a => a !== "--prompt").join(",");
-
-if (!dirsArg) {
-  console.log("Использование: node tools/read-trace.js <папка1,папка2> [--prompt]");
-  process.exit(1);
+function filesOf(source) {
+  if (!fs.existsSync(source)) return { files: [], error: `Путь '${source}' не найден.` };
+  const stat = fs.statSync(source);
+  if (stat.isFile()) {
+    if (!source.toLowerCase().endsWith(".json")) {
+      return { files: [], error: `Файл '${source}' не является JSON.` };
+    }
+    return { files: [source], error: null };
+  }
+  if (!stat.isDirectory()) return { files: [], error: `Путь '${source}' не является файлом или папкой.` };
+  return {
+    files: fs.readdirSync(source)
+      .filter(f => f.toLowerCase().endsWith(".json"))
+      .map(f => path.join(source, f)),
+    error: null
+  };
 }
 
-// Разбиваем по запятым, убираем пробелы и пустые строки
-const dirs = dirsArg.split(",").map(d => d.trim()).filter(Boolean);
-
-// Обработка каждой папки как отдельного документа
-dirs.forEach(dir => {
-  console.log("\n========================================================");
-  console.log("📁 ДОКУМЕНТ: " + dir);
-  console.log("========================================================");
-
-  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-    console.log(`  [!] Путь '${dir}' не найден или не является папкой.\n`);
-    return;
-  }
-
-  // Собираем все JSON-файлы в папке
-  const files = fs.readdirSync(dir)
-    .filter(f => f.toLowerCase().endsWith(".json"))
-    .map(f => path.join(dir, f));
-
-  if (!files.length) {
-    console.log("  (В папке нет JSON-файлов)\n");
-    return;
-  }
-
-  let allTurns = [];
-  files.forEach(f => {
-    allTurns = allTurns.concat(turnsOf(f));
+function readSource(source) {
+  const found = filesOf(source);
+  const result = { source, files: found.files, turns: [], errors: [] };
+  if (found.error) result.errors.push(found.error);
+  found.files.forEach(file => {
+    const parsed = turnsOf(file);
+    result.turns = result.turns.concat(parsed.turns);
+    result.errors = result.errors.concat(parsed.errors);
   });
+  result.turns.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  return result;
+}
 
-  // Сортируем все витки из всех файлов этой папки хронологически
-  allTurns.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+function renderDocument(document, withPrompt) {
+  const lines = [
+    "",
+    "========================================================",
+    "📁 ДОКУМЕНТ: " + document.source,
+    "========================================================"
+  ];
 
-  allTurns.forEach((t, i) => {
-    console.log("\n──── виток " + (i + 1) + "  " + t.at + "  задача " + (t.taskId || "?"));
+  document.errors.forEach(e => lines.push("  [!] " + e));
+  if (!document.files.length && !document.errors.length) lines.push("  (JSON-файлы не найдены)");
+
+  document.turns.forEach((t, i) => {
+    lines.push("", "──── виток " + (i + 1) + "  " + t.at + "  задача " + (t.taskId || "?"));
     if (t.partner) {
-      console.log("  ПАРТНЁР (" + t.partner.author + (t.partner.channel ? ", канал" : ", БЕЗ канала") +
+      lines.push("  ПАРТНЁР (" + t.partner.author + (t.partner.channel ? ", канал" : ", БЕЗ канала") +
         (t.partner.attachments ? ", вложений " + t.partner.attachments : "") + "): " + cut(t.partner.text, 400));
     }
 
-    if (withPrompt) t.prompts.forEach((p, k) => console.log("  --- промпт " + (k + 1) + " ---\n    " + p));
-    t.llmReplies.forEach(r => console.log("  LLM (ответ): " + cut(r, 500)));
-
-    t.calls.forEach(c => console.log("  вызов: " + c));
-    t.replies.forEach(r => console.log("  БОТ: " + cut(r.text, 500) +
+    if (withPrompt) t.prompts.forEach((p, k) => lines.push("  --- промпт " + (k + 1) + " ---\n    " + p));
+    t.llmReplies.forEach(r => lines.push("  LLM (ответ): " + cut(r, 500)));
+    t.calls.forEach(c => lines.push("  вызов: " + c));
+    t.replies.forEach(r => lines.push("  БОТ: " + cut(r.text, 500) +
       (r.action ? " [action: " + r.action + "]" : "") + (r.fields ? " [полей: " + r.fields + "]" : "")));
-    t.internal.forEach(r => console.log("  ОПЕРАТОРУ: " + cut(r.text, 500) +
+    t.internal.forEach(r => lines.push("  ОПЕРАТОРУ: " + cut(r.text, 500) +
       (r.approval ? " [approval: " + r.approval + "]" : "")));
 
-    if (!t.replies.length && !t.internal.length) console.log("  (в Pyrus ничего не ушло)");
-    console.log("  исход: " + (t.outcome || "—"));
-    t.logs.forEach(l => console.log("  лог: " + cut(l, 300)));
-    t.errors.forEach(l => console.log("  ОШИБКА: " + l));
-    console.log("  путь: " + t.path.filter(n => n !== "Pyrus Webhook").join(" → "));
+    if (!t.replies.length && !t.internal.length) lines.push("  (в Pyrus ничего не ушло)");
+    lines.push("  исход: " + (t.outcome || "—"));
+    t.logs.forEach(l => lines.push("  лог: " + cut(l, 300)));
+    t.errors.forEach(l => lines.push("  ОШИБКА: " + l));
+    lines.push("  путь: " + t.path.filter(n => n !== "Pyrus Webhook").join(" → "));
   });
 
-  console.log("\nВсего витков в документе '" + dir + "': " + allTurns.length);
-});
+  lines.push("", "Всего витков в документе '" + document.source + "': " + document.turns.length);
+  return lines;
+}
+
+function lower(value) {
+  return String(value == null ? "" : value).toLocaleLowerCase("ru-RU");
+}
+
+function hasText(haystack, needle) {
+  return lower(haystack).indexOf(lower(needle)) >= 0;
+}
+
+function validateScenario(turns, scenario) {
+  const checks = [];
+  const add = (label, ok, detail) => checks.push({ label, ok: !!ok, detail: detail || "" });
+  const expect = scenario.expect || {};
+
+  if (expect.turnCount != null) {
+    add("число витков = " + expect.turnCount, turns.length === expect.turnCount,
+      "получено " + turns.length);
+  }
+
+  (expect.turns || []).forEach((wanted, index) => {
+    const turn = turns[index];
+    const prefix = "виток " + (index + 1) + ": ";
+    if (!turn) {
+      add(prefix + "присутствует", false, "виток отсутствует");
+      return;
+    }
+    add(prefix + "присутствует", true);
+
+    const textChecks = (label, actual, spec) => {
+      if (!spec) return;
+      (spec.includes || []).forEach(part => add(prefix + label + " содержит «" + part + "»",
+        hasText(actual, part), "фактически: " + cut(actual, 220)));
+      (spec.excludes || []).forEach(part => add(prefix + label + " не содержит «" + part + "»",
+        !hasText(actual, part), "фактически: " + cut(actual, 220)));
+    };
+
+    textChecks("сообщение партнёра", turn.partner && turn.partner.text, wanted.partner);
+    if (wanted.outcome != null) add(prefix + "исход = " + wanted.outcome,
+      turn.outcome === wanted.outcome, "фактически: " + (turn.outcome || "—"));
+
+    const replies = turn.replies.map(r => r.text || "").join("\n");
+    if (wanted.replies && wanted.replies.count != null) add(prefix + "ответов партнёру = " + wanted.replies.count,
+      turn.replies.length === wanted.replies.count, "получено " + turn.replies.length);
+    textChecks("ответ партнёру", replies, wanted.replies);
+
+    const internal = turn.internal.map(r => r.text || "").join("\n");
+    if (wanted.internal && wanted.internal.count != null) add(prefix + "внутренних сообщений = " + wanted.internal.count,
+      turn.internal.length === wanted.internal.count, "получено " + turn.internal.length);
+    textChecks("внутреннее сообщение", internal, wanted.internal);
+
+    textChecks("логи", turn.logs.join("\n"), wanted.logs);
+    textChecks("путь", turn.path.join(" → "), wanted.path);
+    textChecks("вызовы", turn.calls.join("\n"), wanted.calls);
+
+    if (wanted.noErrors) add(prefix + "нет ошибок платформы", turn.errors.length === 0,
+      turn.errors.join("; "));
+  });
+
+  return checks;
+}
+
+function loadScenario(file, id) {
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(file, "utf8")); }
+  catch (e) { throw new Error("не удалось прочитать сценарии " + file + ": " + e.message); }
+  const scenarios = Array.isArray(doc) ? doc : doc.scenarios;
+  if (!Array.isArray(scenarios)) throw new Error("в " + file + " нет массива scenarios");
+  const scenario = scenarios.find(s => s && s.id === id);
+  if (!scenario) throw new Error("сценарий '" + id + "' не найден в " + file);
+  return scenario;
+}
+
+function renderChecks(scenario, checks) {
+  const passed = checks.filter(c => c.ok).length;
+  const lines = ["", "========================================================",
+    "ПРОВЕРКА СЦЕНАРИЯ: " + scenario.id + " — " + scenario.title,
+    "========================================================"];
+  checks.forEach(c => lines.push("  " + (c.ok ? "PASS" : "FAIL") + "  " + c.label +
+    (!c.ok && c.detail ? "\n        " + c.detail : "")));
+  lines.push("", "ИТОГ: " + (passed === checks.length ? "PASS" : "FAIL") +
+    " (" + passed + "/" + checks.length + ")");
+  return lines;
+}
+
+function parseArgs(argv) {
+  const options = {
+    sources: [], withPrompt: false, scenarioId: null,
+    scenariosFile: DEFAULT_SCENARIOS, outFile: null, listScenarios: false
+  };
+  const valueAfter = (flag, index) => {
+    const value = argv[index + 1];
+    if (!value || value.startsWith("--")) throw new Error("после " + flag + " требуется значение");
+    return value;
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--prompt") options.withPrompt = true;
+    else if (arg === "--scenario") options.scenarioId = valueAfter(arg, i++);
+    else if (arg === "--scenarios") options.scenariosFile = path.resolve(valueAfter(arg, i++));
+    else if (arg === "--out") options.outFile = path.resolve(valueAfter(arg, i++));
+    else if (arg === "--list-scenarios") options.listScenarios = true;
+    else if (arg.startsWith("--")) throw new Error("неизвестный флаг " + arg);
+    else options.sources = options.sources.concat(arg.split(",").map(s => s.trim()).filter(Boolean));
+  }
+  return options;
+}
+
+function usage() {
+  return [
+    "Использование:",
+    "  node tools/read-trace.js <папка-или-json> [ещё-путь] [--prompt]",
+    "  node tools/read-trace.js <путь> --scenario <id> [--out result_report.txt]",
+    "  node tools/read-trace.js --list-scenarios"
+  ].join("\n");
+}
+
+function listScenarios(file) {
+  const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+  return (doc.scenarios || []).map(s => s.id + " — " + s.title).join("\n");
+}
+
+function main(argv) {
+  let options;
+  try { options = parseArgs(argv); }
+  catch (e) { process.stderr.write("Ошибка: " + e.message + "\n" + usage() + "\n"); return 1; }
+
+  if (options.listScenarios) {
+    try { process.stdout.write(listScenarios(options.scenariosFile) + "\n"); return 0; }
+    catch (e) { process.stderr.write("Ошибка: " + e.message + "\n"); return 1; }
+  }
+  if (!options.sources.length) {
+    process.stderr.write(usage() + "\n");
+    return 1;
+  }
+
+  const documents = options.sources.map(readSource);
+  const lines = [];
+  documents.forEach(document => lines.push(...renderDocument(document, options.withPrompt)));
+
+  let failed = documents.some(document => document.errors.length > 0);
+  if (options.scenarioId) {
+    try {
+      const scenario = loadScenario(options.scenariosFile, options.scenarioId);
+      const turns = documents.reduce((all, document) => all.concat(document.turns), [])
+        .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+      const checks = validateScenario(turns, scenario);
+      lines.push(...renderChecks(scenario, checks));
+      if (!checks.length || checks.some(c => !c.ok)) failed = true;
+    } catch (e) {
+      lines.push("", "ОШИБКА ПРОВЕРКИ: " + e.message);
+      failed = true;
+    }
+  }
+
+  const output = lines.join("\n") + "\n";
+  if (options.outFile) fs.writeFileSync(options.outFile, output, "utf8");
+  else process.stdout.write(output);
+  return failed ? 2 : 0;
+}
+
+module.exports = {
+  cut, findWebhook, filesOf, turnsOf, readSource, renderDocument,
+  validateScenario, loadScenario, renderChecks, parseArgs, main
+};
+
+if (require.main === module) process.exitCode = main(process.argv.slice(2));

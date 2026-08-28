@@ -12,6 +12,7 @@ const SUITES = [
   "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
   "./pos-terminal-catalog.test.js", "./routing-catalog.test.js", "./routing.test.js",
   "./getknowledgemcp.test.js", "./operator-knowledge.test.js", "./kbarticle.test.js", "./synckb.test.js",
+  "./live-trace.test.js",
   // Идёт последним: остальные наборы проверяют функции поштучно, этот — разговор целиком,
   // и по упавшей проверке здесь при зелёных выше сразу видно, что дело в графе, а не в коде.
   "./dialog.test.js"

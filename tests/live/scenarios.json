@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "unknown-courier-avatar",
+      "title": "Неизвестный вопрос об аватарке курьера передаётся оператору с подсказками из общей БЗ",
+      "messages": [
+        "Тамбов-1, нужно поменять аватарку у курьера"
+      ],
+      "expect": {
+        "turnCount": 1,
+        "turns": [
+          {
+            "partner": {
+              "includes": ["Тамбов-1", "аватарку у курьера"]
+            },
+            "outcome": "escalated",
+            "replies": {
+              "count": 1,
+              "includes": ["Понадобится время на изучение вопроса"],
+              "excludes": ["Возможные материалы из Базы Знаний", "не отправлялись партнёру автоматически"]
+            },
+            "internal": {
+              "count": 1,
+              "includes": [
+                "Бот передаёт обращение оператору",
+                "Тематика: не определена",
+                "Возможные материалы из Базы Знаний",
+                "не отправлялись партнёру автоматически"
+              ]
+            },
+            "logs": {
+              "includes": ["findOperatorKnowledge:", "подсказок оператору"]
+            },
+            "path": {
+              "includes": ["Find knowledge for operator", "Outcome - escalate to operator", "finalize"]
+            },
+            "calls": {
+              "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"escalated\""]
+            },
+            "noErrors": true
+          }
+        ]
+      }
+    }
+  ]
+}
