@@ -15,6 +15,84 @@ const CREDENTIAL_KEYS = [
 ];
 const LIMIT = 3;
 const EXCERPT_LIMIT = 240;
+const OWN_SPACE_ID = "6d8f5fa3-7fd4-44c8-978d-68743b232533";
+const SUPPORT_SPACE_IDS = [
+  "9f2a0e8b-3109-4354-afe0-0f6fc9a6ce0d",
+  "963b66c2-e111-43c6-a9ff-e7e5af3e4244"
+];
+// `search_content` is a broad full-text candidate generator: it has no relevance score
+// and may return an article because of one generic word such as «нужно» or «поменять».
+// Such a result is worse than no hint at all. Keep only words that describe the subject
+// of the request, then require corroboration in the title/excerpt of the SAME result.
+const STOPWORDS = [
+  "и", "в", "на", "с", "не", "что", "как", "для", "по", "но", "или", "у", "к", "от", "до", "за",
+  "это", "так", "там", "тут", "есть", "был", "была", "было", "были", "мой", "моя", "мое", "наш", "наша",
+  "нужно", "надо", "можно", "хочу", "требуется", "пожалуйста", "помогите", "подскажите",
+  "проблема", "проблемы", "вопрос", "вопросы", "ошибка", "ошибки", "ошибку",
+  "работает", "работать", "работают", "сломался", "сломалась", "сломалось",
+  "сделать", "делать", "поменять", "изменить"
+];
+
+function tokenize(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .split(/[^0-9a-zа-я]+/)
+    // Two-letter domain words matter here: ТВ and ИС are legitimate search anchors.
+    .filter(word => word.length > 1 && STOPWORDS.indexOf(word) < 0);
+}
+
+function sameWord(a, b) {
+  if (a === b) return true;
+  if (a.length < 4 || b.length < 4) return false;
+  const aStem = a.slice(0, Math.max(4, a.length - 2));
+  const bStem = b.slice(0, Math.max(4, b.length - 2));
+  return a.indexOf(bStem) === 0 || b.indexOf(aStem) === 0;
+}
+
+function uniqueWords(words) {
+  const result = [];
+  words.forEach(word => {
+    if (!result.some(existing => sameWord(existing, word))) result.push(word);
+  });
+  return result;
+}
+
+function matches(words, text) {
+  const haystack = tokenize(text);
+  return words.filter(word => haystack.some(candidate => sameWord(candidate, word))).length;
+}
+
+function relevance(query, hit) {
+  const words = uniqueWords(tokenize(query));
+  if (!words.length) return { pass: false, words: [], title: 0, excerpt: 0 };
+  const title = matches(words, hit.articleTitle || hit.title || "");
+  const excerpt = matches(words, hit.excerpt || "");
+
+  // A one-subject request («кондиционер») needs one corroboration. A normal request needs
+  // two signals in one excerpt, while one meaningful word in the title is already a strong
+  // signal: article titles are curated, excerpts are arbitrary windows around any match.
+  // This intentionally favours silence over showing the operator a random article.
+  const pass = words.length === 1
+    ? title > 0 || excerpt > 0
+    : title >= 1 || excerpt >= 2;
+  return { pass: pass, words: words, title: title, excerpt: excerpt };
+}
+
+function spacePriority(spaceId) {
+  const id = String(spaceId || "").toLowerCase();
+  if (id === OWN_SPACE_ID) return 3;
+  if (SUPPORT_SPACE_IDS.indexOf(id) >= 0) return 2;
+  return 0;
+}
+
+function titleKey(hit) {
+  return String(hit.articleTitle || hit.title || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function fromSse(text) {
   const chunks = [];
@@ -139,6 +217,48 @@ try {
   return { taskId: taskId, reason: reason, operatorKnowledge: { query: query, articles: [] } };
 }
 
+const hits = search && Array.isArray(search.results) ? search.results : [];
+const seen = {};
+const candidates = [];
+let eligible = 0;
+for (let i = 0; i < hits.length; i++) {
+  const hit = hits[i] || {};
+  const id = hit.articleId || hit.id;
+  if (!id || seen[String(id)] || hit.isWatermarksEnabled) continue;
+  if (hit.status && String(hit.status) !== "published") continue;
+  seen[String(id)] = true;
+  eligible++;
+  const score = relevance(query, hit);
+  if (!score.pass) continue;
+  candidates.push({
+    hit: hit,
+    order: i,
+    // Source ownership outranks text score: our approved copy first, then support, then
+    // the rest of the readable KB. Inside one tier, a title match is stronger than an
+    // arbitrary excerpt window returned by full-text search.
+    rank: spacePriority(hit.spaceId) * 100 + score.title * 10 + score.excerpt
+  });
+}
+
+candidates.sort((a, b) => b.rank - a.rank || a.order - b.order);
+const accepted = [];
+const seenTitles = {};
+for (let i = 0; i < candidates.length && accepted.length < LIMIT; i++) {
+  const item = candidates[i];
+  const key = titleKey(item.hit);
+  if (key && seenTitles[key]) continue;
+  if (key) seenTitles[key] = true;
+  accepted.push(item.hit);
+}
+
+// Do not make a second MCP request when broad search produced only noise. Handover is the
+// primary operation and must remain fast even when no article deserves to be shown.
+if (!accepted.length) {
+  Log.info({ message: "findOperatorKnowledge: «" + query.slice(0, 120) + "» → MCP " + hits.length +
+    " результатов, опубликованных кандидатов " + eligible + ", фильтр релевантности не пропустил ни одного" });
+  return { taskId: taskId, reason: reason, operatorKnowledge: { query: query, articles: [] } };
+}
+
 let template = null;
 try {
   const links = await rpc(token, "get_link_templates", {});
@@ -147,15 +267,10 @@ try {
   Log.warn({ message: "findOperatorKnowledge: шаблон ссылок не получен: " + e });
 }
 
-const hits = search && Array.isArray(search.results) ? search.results : [];
-const seen = {};
 const articles = [];
-for (let i = 0; i < hits.length && articles.length < LIMIT; i++) {
-  const hit = hits[i] || {};
+for (let i = 0; i < accepted.length; i++) {
+  const hit = accepted[i];
   const id = hit.articleId || hit.id;
-  if (!id || seen[String(id)] || hit.isWatermarksEnabled) continue;
-  if (hit.status && String(hit.status) !== "published") continue;
-  seen[String(id)] = true;
   articles.push({
     articleId: id,
     title: hit.articleTitle || hit.title || "Статья без заголовка",
@@ -169,5 +284,7 @@ for (let i = 0; i < hits.length && articles.length < LIMIT; i++) {
   });
 }
 
-Log.info({ message: "findOperatorKnowledge: «" + query.slice(0, 120) + "» → " + articles.length + " подсказок оператору" });
+Log.info({ message: "findOperatorKnowledge: «" + query.slice(0, 120) + "» → MCP " + hits.length +
+  " результатов, опубликованных кандидатов " + eligible + ", релевантных " + candidates.length +
+  ", подсказок оператору после приоритета и дедупликации " + articles.length });
 return { taskId: taskId, reason: reason, operatorKnowledge: { query: query, articles: articles } };

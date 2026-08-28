@@ -9,9 +9,8 @@ function matchingTurn() {
     partner: { text: "Тамбов-1, нужно поменять аватарку у курьера" },
     outcome: "escalated",
     replies: [{ text: "Добрый день! Понадобится время на изучение вопроса." }],
-    internal: [{ text: "Бот передаёт обращение оператору. Тематика: не определена. " +
-      "Возможные материалы из Базы Знаний. Материалы не отправлялись партнёру автоматически." }],
-    logs: ["findOperatorKnowledge: запрос → 3 подсказок оператору"],
+    internal: [{ text: "Бот передаёт обращение оператору. Тематика: не определена." }],
+    logs: ["findOperatorKnowledge: MCP 9 результатов, фильтр релевантности не пропустил ни одного"],
     path: ["Find knowledge for operator", "Outcome - escalate to operator", "finalize"],
     calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],
     errors: []
@@ -58,6 +57,12 @@ async function main() {
   checks = validateScenario([leaked], scenario);
   t.check("knowledge hints leaking into the partner reply fail the scenario",
     checks.some(c => !c.ok && /ответ партнёру не содержит/.test(c.label)), checks);
+
+  const noisyInternal = matchingTurn();
+  noisyInternal.internal[0].text += " Возможные материалы из Базы Знаний";
+  checks = validateScenario([noisyInternal], scenario);
+  t.check("irrelevant hints remaining in the operator note fail the scenario",
+    checks.some(c => !c.ok && /внутреннее сообщение не содержит/.test(c.label)), checks);
 
   const broken = matchingTurn();
   broken.errors.push("MCP request failed");

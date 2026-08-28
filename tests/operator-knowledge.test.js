@@ -4,6 +4,8 @@ const { loadFunction, makeEnv, suite } = require("./harness");
 
 const findKnowledge = loadFunction("functions/ID_Tools/findOperatorKnowledge/code.js");
 const CRED = "1000299722-kbmcptoken-vod";
+const OWN_SPACE = "6d8f5fa3-7fd4-44c8-978d-68743b232533";
+const SUPPORT_SPACE = "963b66c2-e111-43c6-a9ff-e7e5af3e4244";
 
 function sse(payload) {
   return "event: message\ndata: " + JSON.stringify({
@@ -27,6 +29,7 @@ function hit(id, overrides) {
 
 async function run(options) {
   const o = options || {};
+  const logs = [];
   const env = makeEnv({
     prev: o.prev || { taskId: "17", reason: "подходящей тематики нет" },
     contextValues: { dialog: Object.assign({
@@ -51,8 +54,10 @@ async function run(options) {
       throw new Error("unexpected tool " + name);
     }
   });
+  env.Log.info = a => logs.push(String(a.message));
+  env.Log.warn = a => logs.push(String(a.message));
   const result = await findKnowledge(env);
-  return { result: result, env: env };
+  return { result: result, env: env, logs: logs };
 }
 
 async function main() {
@@ -72,6 +77,10 @@ async function main() {
   t.check("only search metadata is used; full articles are never fetched",
     r.env.posts.every(p => p.body.params.name !== "get_content"),
     r.env.posts.map(p => p.body.params.name));
+  t.check("the log distinguishes MCP candidates from hints shown to the operator",
+    /MCP 2 результатов/.test(r.logs.join("\n")) && /релевантных 2/.test(r.logs.join("\n")) &&
+    /после приоритета и дедупликации 2/.test(r.logs.join("\n")),
+    r.logs);
 
   r = await run({ hits: [
     hit("watermark", { isWatermarksEnabled: true }),
@@ -82,6 +91,77 @@ async function main() {
   t.check("watermarks, drafts and duplicate articles are filtered out",
     r.result.operatorKnowledge.articles.length === 1 &&
     r.result.operatorKnowledge.articles[0].articleId === "ok", r.result.operatorKnowledge);
+
+  r = await run({
+    dialog: { problemSummary: "нужно поменять аватарку у курьера" },
+    hits: [
+      hit("updates", {
+        articleTitle: "Обновления Додо ИС и базы знаний",
+        excerpt: "Чтобы поменять город, нужно выйти из настроек Менеджера смены."
+      }),
+      hit("kibana", {
+        articleTitle: "Инструкция по работе с Kibana",
+        excerpt: "Поиск заказа с оплатой через терминал у курьера."
+      }),
+      hit("barista", {
+        articleTitle: "Инструкция по привлечению кандидатов-бариста в Телеграме",
+        excerpt: "Как понять, что нужно идти за кандидатами."
+      })
+    ]
+  });
+  t.check("the three irrelevant articles from the live avatar trace are suppressed",
+    r.result.operatorKnowledge.articles.length === 0, r.result.operatorKnowledge);
+  t.check("no link template is requested when every candidate is noise",
+    r.env.posts.length === 1 && r.env.posts[0].body.params.name === "search_content",
+    r.env.posts.map(p => p.body.params.name));
+  t.check("the log says that candidates existed but none passed relevance",
+    /MCP 3 результатов/.test(r.logs.join("\n")) && /не пропустил ни одного/.test(r.logs.join("\n")), r.logs);
+
+  r = await run({
+    dialog: { problemSummary: "сломался кондиционер в подсобке" },
+    hits: [hit("air", {
+      articleTitle: "Обслуживание кондиционеров",
+      excerpt: "Контакты обслуживающей организации и порядок оформления заявки."
+    })]
+  });
+  t.check("one meaningful word in a curated title remains a useful hint",
+    r.result.operatorKnowledge.articles.length === 1 &&
+    r.result.operatorKnowledge.articles[0].articleId === "air", r.result.operatorKnowledge);
+
+  r = await run({
+    dialog: { problemSummary: "как поменять аватарку у курьера" },
+    hits: [hit("avatar", {
+      articleTitle: "Аватарка курьера",
+      excerpt: "Как обновить фотографию профиля сотрудника."
+    })]
+  });
+  t.check("two meaningful query words in a title are enough even when the excerpt uses synonyms",
+    r.result.operatorKnowledge.articles.length === 1 &&
+    r.result.operatorKnowledge.articles[0].articleId === "avatar", r.result.operatorKnowledge);
+
+  r = await run({ hits: [
+    hit("support-copy", { spaceId: SUPPORT_SPACE, articleTitle: "Закрытие кассовой смены" }),
+    hit("own-copy", { spaceId: OWN_SPACE, articleTitle: "Закрытие кассовой смены" }),
+    hit("archive", { spaceId: "archive", articleTitle: "Кассовые отчёты 2017" })
+  ] });
+  t.check("the same article title from two spaces is shown only once",
+    r.result.operatorKnowledge.articles.length === 2, r.result.operatorKnowledge);
+  t.check("our approved copy wins a duplicate title even when MCP returned it second",
+    r.result.operatorKnowledge.articles[0].articleId === "own-copy", r.result.operatorKnowledge);
+
+  r = await run({ hits: [
+    hit("general-exact", {
+      spaceId: "general",
+      articleTitle: "Не закрывается смена и не выходит Z-отчёт"
+    }),
+    hit("support-useful", {
+      spaceId: SUPPORT_SPACE,
+      articleTitle: "Инструкция первой линии",
+      excerpt: "Если смена не закрывается и Z-отчёт не выходит, проверьте кассу."
+    })
+  ] });
+  t.check("a relevant support article is ranked before the rest of the readable KB",
+    r.result.operatorKnowledge.articles[0].articleId === "support-useful", r.result.operatorKnowledge);
 
   r = await run({ dialog: { problemSummary: null, incomingText: "" } });
   t.check("empty problem does not become a search across the whole knowledge base",
