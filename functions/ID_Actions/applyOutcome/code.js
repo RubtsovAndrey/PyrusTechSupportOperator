@@ -359,6 +359,11 @@ if (closeBlocked) {
 // agent may be allowed to hold a partner in that loop — after this many questions in a
 // row a human takes over, and the summary tells him what the bot could not collect.
 const MAX_CLARIFY_STREAK = 3;
+// Progress resets the fruitless streak, not common sense. A faulty model could otherwise
+// alternate clarification kinds forever and make every turn look "new". Twelve useful
+// questions is already far beyond routine intake and matches the article depth ceiling;
+// after that a human should inspect either the case or the scenario.
+const MAX_CLARIFY_QUESTIONS = 12;
 // A branching article legitimately asks question after question, so the streak alone
 // cannot bound it. This does: a tree deeper than this is an error in the article, not a
 // dialog, and the partner must not pay for it.
@@ -370,8 +375,44 @@ const isClarify = effectiveOutcome === "clarify";
 const ASKING = ["clarify", "clarify_email", "clarify_answers"];
 const asksSomething = ASKING.indexOf(effectiveOutcome) >= 0;
 let clarifyStreak = asksSomething ? (Number(state.clarifyStreak) || 0) + 1 : 0;
+let clarifyQuestions = asksSomething ? (Number(state.clarifyQuestions) || 0) + 1 : 0;
 let loopBroken = false;
 let overrun = false;
+let clarificationOverrun = false;
+
+// A new fact is progress even outside a branching article. Previously only a changed
+// `treeNode` reset the streak, so the perfectly healthy intake dialog
+// «what happened?» -> «which city?» -> «which point number?» consumed the whole budget.
+// Keep only stable signals here: presence of scalar facts rather than their wording
+// (the model may paraphrase problemSummary every turn), plus the current clarification
+// kind and the explicit answers collected by an article.
+function clarificationProgressKey(facts, kind) {
+  const d = facts || {};
+  const parts = [
+    "unit:" + (d.unitFullName ? "1" : "0"),
+    "problem:" + (d.problemSummary ? "1" : "0"),
+    "email:" + (d.email ? "1" : "0"),
+    "topic:" + (d.topicKey ? String(d.topicKey) : ""),
+    "component:" + (d.componentName ? String(d.componentName) : ""),
+    // For a partially recognised unit the full catalog name is not stored yet, but the
+    // missing part changes (for example need_business -> need_point_number). That change
+    // is the durable evidence that the partner's last answer taught intake something.
+    "kind:" + String(kind || "")
+  ];
+  const answers = d.treeAnswers && typeof d.treeAnswers === "object" ? d.treeAnswers : {};
+  Object.keys(answers).sort().forEach(k => {
+    parts.push("answer:" + k + "=" + String(answers[k] == null ? "" : answers[k]).trim());
+  });
+  return parts.join("|");
+}
+
+const progressKey = asksSomething
+  ? clarificationProgressKey(data, prev.clarifyKind)
+  : null;
+const previousProgressKey = state.clarifyProgressKey == null
+  ? null
+  : String(state.clarifyProgressKey);
+const factsMoved = asksSomething && previousProgressKey !== null && progressKey !== previousProgressKey;
 
 // Counting questions was the wrong measure. Three in a row is a loop only when they
 // achieve nothing: walking the tree of an article asks «что именно менять», then «на
@@ -387,12 +428,17 @@ if (asksSomething && treeMoved) {
   treeQuestions += 1;
   clarifyStreak = 1;
 }
+if (factsMoved) clarifyStreak = 1;
+if (clarifyQuestions > MAX_CLARIFY_QUESTIONS) {
+  Log.error({ message: "applyOutcome: task " + taskId + " asked more than " + MAX_CLARIFY_QUESTIONS + " clarification questions despite making progress; handing over for scenario review" });
+  clarificationOverrun = true;
+}
 if (treeQuestions > MAX_TREE_QUESTIONS) {
   Log.error({ message: "applyOutcome: article " + (data.topicKey || "?") + " asked more than " + MAX_TREE_QUESTIONS + " questions on task " + taskId + ", its tree is probably looping" });
   overrun = true;
 }
-if (clarifyStreak > MAX_CLARIFY_STREAK || overrun) {
-  if (!overrun) Log.warn({ message: "applyOutcome: " + (clarifyStreak - 1) + " clarifying questions in a row on task " + taskId + " without moving on, handing over to an operator" });
+if (clarifyStreak > MAX_CLARIFY_STREAK || overrun || clarificationOverrun) {
+  if (!overrun && !clarificationOverrun) Log.warn({ message: "applyOutcome: " + (clarifyStreak - 1) + " clarifying questions in a row on task " + taskId + " without moving on, handing over to an operator" });
   spec = OUTCOMES.escalated;
   loopBroken = true;
   clarifyStreak = 0;
@@ -504,6 +550,8 @@ if (spec.nextStage === "escalated") {
       : loopBroken
       ? (overrun
         ? "статья задала больше " + MAX_TREE_QUESTIONS + " вопросов и не пришла ни к решению, ни к подзадаче — похоже на ошибку в самой статье"
+        : clarificationOverrun
+        ? "сценарий задал больше " + MAX_CLARIFY_QUESTIONS + " уточняющих вопросов даже с учётом прогресса — требуется проверить сценарий"
         : "бот задал подряд " + MAX_CLARIFY_STREAK + " уточняющих вопроса и не продвинулся")
       : (spec.silent ? "партнёр написал в закрытый чат" : (data.handoverReason || prev.reason || "не указана"))
   }));
@@ -540,6 +588,10 @@ const pendingOutcome = {
 if (!writeState(taskId, {
   "pendingOutcome": pendingOutcome,
   "clarifyStreak": clarifyStreak,
+  "clarifyQuestions": clarifyQuestions,
+  // Snapshot of what was known when the last question was asked. The next question can
+  // then distinguish a useful answer from another turn around the same missing fact.
+  "clarifyProgressKey": progressKey,
   // Which node the streak was last counted at, so the next turn can tell a question that
   // moved the article on from one that asked the same thing again.
   "treeStreakNode": treeNode,

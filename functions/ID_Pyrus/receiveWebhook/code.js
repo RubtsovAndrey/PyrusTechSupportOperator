@@ -744,6 +744,8 @@ if (newRequest || !documentExists) {
   patch["data"] = data;
   patch["stage"] = null;
   patch["clarifyStreak"] = 0;
+  patch["clarifyQuestions"] = 0;
+  patch["clarifyProgressKey"] = null;
   patch["subtaskId"] = null;
 } else {
   // Почему обращение уходит человеку — словами того, кто это решил. Обнуляется здесь по

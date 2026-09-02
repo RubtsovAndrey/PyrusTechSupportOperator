@@ -416,6 +416,22 @@ async function main() {
   t.check("and the streak is held at one, because every turn was progress",
     d.state.clarifyStreak === 1, d.state.clarifyStreak);
 
+  // Intake also learns in small pieces before any article exists. New stored facts and
+  // movement from one missing part of a unit to another must buy a fresh retry budget.
+  d = dialog({ data: {} });
+  await d.outcome("clarify", { agentStage: "intake", clarifyKind: "need_city_and_business" });
+  d.state.data.problemSummary = "не работает касса";
+  await d.outcome("clarify", { agentStage: "intake", clarifyKind: "need_city_and_business" });
+  t.check("learning the problem resets the fruitless-question streak",
+    d.state.clarifyStreak === 1, d.state);
+  await d.outcome("clarify", { agentStage: "intake", clarifyKind: "need_point_number" });
+  t.check("narrowing a partial unit to its missing point number is progress too",
+    d.state.clarifyStreak === 1, d.state);
+  d.state.clarifyQuestions = 12;
+  o = await d.outcome("clarify", { agentStage: "intake", clarifyKind: "need_business" });
+  t.check("even a progressing dialog has a distant hard ceiling against alternation",
+    o.kind === "escalated", d.state);
+
   // The same node three times over is the loop the counter exists for.
   d = dialog();
   d.state.data.topicKey = "profile_change";

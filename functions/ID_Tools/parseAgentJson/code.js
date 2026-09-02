@@ -643,6 +643,8 @@ if (taskId) {
     if (moreQuestions) {
       patch["subtaskId"] = null;
       patch["clarifyStreak"] = 0;
+      patch["clarifyQuestions"] = 0;
+      patch["clarifyProgressKey"] = null;
       // The tree walk starts over too, so the new question gets its full budget of
       // questions instead of inheriting the score of the one just solved.
       patch["treeStreakNode"] = null;
