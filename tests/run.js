@@ -317,10 +317,10 @@ function checkGraph() {
   return { nodes: ids.size, refs: refs.length, broken: refs.filter(([, r]) => !ids.has(r)) };
 }
 
-// gpt-5.6-luna through OpenAI Chat Completions rejects function tools together with a
-// non-zero reasoning_effort. On the platform this is a 400 at the agent node, after which
-// next-error-step safely but incorrectly hands the chat to an operator. Check the exact
-// YAML that is deployed, so a model switch or a platform export cannot restore that trap.
+// Agent Platform sends AI-agent transitions as a system `switchToState` function tool.
+// gpt-5.6-luna through its Chat Completions adapter rejects that tool because the platform
+// cannot send reasoning_effort: none (an attempted YAML field is stripped by the exporter).
+// Catch the incompatible model assignment before every ordinary request starts handing over.
 function checkToolReasoningCompatibility() {
   const problems = [];
   const integrations = {};
@@ -335,11 +335,15 @@ function checkToolReasoningCompatibility() {
     const p = y.parameters || {};
     const tools = Array.isArray(p.tools) ? p.tools : [];
     const model = integrations[p["llm-model-key"]] || "";
-    if (!tools.length || model.indexOf("gpt-5.6-luna") < 0) return;
-    const settings = p["llm-model-settings"] || {};
-    if (settings["reasoning-effort"] !== "none") {
+    if (!model) {
       problems.push(path.relative(ROOT, file).split(path.sep).join("/") +
-        ": gpt-5.6-luna with tools requires reasoning-effort: none");
+        ": unresolved llm-model-key " + String(p["llm-model-key"] || "(missing)"));
+      return;
+    }
+    const hasFunctionTools = tools.length || y["next-step"] || y["next-error-step"];
+    if (hasFunctionTools && model.indexOf("gpt-5.6-luna") >= 0) {
+      problems.push(path.relative(ROOT, file).split(path.sep).join("/") +
+        ": Agent Platform Chat Completions cannot use gpt-5.6-luna with function tools");
     }
   });
   return problems;
@@ -395,7 +399,7 @@ function checkToolReasoningCompatibility() {
     failed++;
     toolReasoning.forEach(p => console.log("  FAIL  " + p));
   } else {
-    console.log("  PASS  tool-using gpt-5.6-luna agents disable reasoning effort");
+    console.log("  PASS  every model key resolves and no tool request uses gpt-5.6-luna");
   }
 
   console.log("\nknowledge catalog");
