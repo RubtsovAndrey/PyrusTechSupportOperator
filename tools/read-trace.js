@@ -23,6 +23,50 @@ function cut(s, n) {
 
 const data = span => (span.relatedEvent && span.relatedEvent.data) || null;
 
+function taskFromPost(span) {
+  const output = span && span.outputData;
+  if (output && output.body && output.body.task) return output.body.task;
+  const eventOutput = span && span.relatedEvent && span.relatedEvent.outputData;
+  if (eventOutput && eventOutput.body && eventOutput.body.task) return eventOutput.body.task;
+  return null;
+}
+
+function postedCommentIndex(comments, body) {
+  for (let i = comments.length - 1; i >= 0; i--) {
+    const comment = comments[i] || {};
+    if (body.text != null && String(comment.text || "") !== String(body.text)) continue;
+    if (body.action != null && String(comment.action || "") !== String(body.action)) continue;
+    if (body.approval_choice != null &&
+        String(comment.approval_choice || "") !== String(body.approval_choice)) continue;
+    return i;
+  }
+  return -1;
+}
+
+function taskStateFromPost(span, body) {
+  const task = taskFromPost(span);
+  if (!task) return null;
+  const comments = Array.isArray(task.comments) ? task.comments : [];
+  const postedAt = postedCommentIndex(comments, body || {});
+  const later = postedAt >= 0 ? comments.slice(postedAt + 1) : [];
+  const laterComments = later.map(comment => ({
+    id: comment.id || null,
+    text: comment.text || "",
+    action: comment.action || null,
+    approval: comment.approval_choice || null,
+    author: (comment.author &&
+      (comment.author.name || comment.author.last_name || comment.author.first_name || comment.author.id)) || "?"
+  }));
+  return {
+    isClosed: typeof task.is_closed === "boolean" ? task.is_closed : null,
+    currentStep: task.current_step == null ? null : Number(task.current_step),
+    postedCommentId: postedAt >= 0 ? (comments[postedAt].id || null) : null,
+    lastAction: comments.reduce((value, comment) => comment && comment.action ? comment.action : value, null),
+    reopenedAfterReply: laterComments.some(comment => comment.action === "reopened"),
+    laterComments
+  };
+}
+
 function findWebhook(obj, depth) {
   if (!obj || typeof obj !== "object" || (depth || 0) > 10) return null;
   if (obj.task_id && obj.task) return obj;
@@ -55,7 +99,7 @@ function turnsOf(file) {
       at: trace.startTime || trace.traceStartTime || "",
       partner: null, taskId: null,
       replies: [], internal: [], calls: [], outcome: null,
-      path: [], logs: [], prompts: [], llmReplies: [], errors: []
+      path: [], logs: [], prompts: [], llmReplies: [], errors: [], taskState: null
     };
 
     all.forEach(span => {
@@ -99,6 +143,8 @@ function turnsOf(file) {
         };
         if (body.channel) turn.replies.push(entry);
         else turn.internal.push(entry);
+        const taskState = taskStateFromPost(span, body);
+        if (taskState) turn.taskState = taskState;
       }
 
       if (/Пользовательская функция/.test(label) && d) {
@@ -184,6 +230,17 @@ function renderDocument(document, withPrompt) {
     t.replies.forEach(r => lines.push("  БОТ: " + cut(r.text, 500) + operation(r)));
     t.internal.forEach(r => lines.push("  ОПЕРАТОРУ: " + cut(r.text, 500) + operation(r)));
 
+    if (t.taskState) {
+      const closed = t.taskState.isClosed == null ? "не указан" : (t.taskState.isClosed ? "да" : "нет");
+      lines.push("  PYRUS В ИТОГЕ: закрыта = " + closed +
+        ", этап = " + (t.taskState.currentStep == null ? "—" : t.taskState.currentStep) +
+        ", последнее действие = " + (t.taskState.lastAction || "—"));
+      t.taskState.laterComments.forEach(comment => lines.push(
+        "  ПОСЛЕ ОТВЕТА БОТА: " + cut(comment.text, 300) +
+        (comment.action ? " [action: " + comment.action + "]" : "") +
+        " [автор: " + comment.author + "]"));
+    }
+
     if (!t.replies.length && !t.internal.length) lines.push("  (в Pyrus ничего не ушло)");
     lines.push("  исход: " + (t.outcome || "—"));
     t.logs.forEach(l => lines.push("  лог: " + cut(l, 300)));
@@ -256,6 +313,22 @@ function validateScenario(turns, scenario) {
     textChecks("логи", turn.logs.join("\n"), wanted.logs);
     textChecks("путь", turn.path.join(" → "), wanted.path);
     textChecks("вызовы", turn.calls.join("\n"), wanted.calls);
+
+    if (wanted.task) {
+      const actual = turn.taskState;
+      if (wanted.task.isClosed !== undefined) add(prefix + "задача в итоге закрыта = " + wanted.task.isClosed,
+        !!actual && actual.isClosed === wanted.task.isClosed,
+        "фактически: " + (!actual ? "ответ Pyrus не найден" : String(actual.isClosed)));
+      if (wanted.task.currentStep !== undefined) add(prefix + "итоговый этап = " + wanted.task.currentStep,
+        !!actual && actual.currentStep === wanted.task.currentStep,
+        "фактически: " + (!actual ? "ответ Pyrus не найден" : String(actual.currentStep)));
+      if (wanted.task.reopenedAfterReply !== undefined) add(prefix +
+        "после ответа бота задача переоткрыта = " + wanted.task.reopenedAfterReply,
+        !!actual && actual.reopenedAfterReply === wanted.task.reopenedAfterReply,
+        "фактически: " + (!actual ? "ответ Pyrus не найден" : String(actual.reopenedAfterReply)));
+      const laterText = actual ? actual.laterComments.map(comment => comment.text || "").join("\n") : "";
+      textChecks("сообщения после ответа бота", laterText, wanted.task.laterComments);
+    }
 
     if (wanted.noErrors) add(prefix + "нет ошибок платформы", turn.errors.length === 0,
       turn.errors.join("; "));
@@ -364,7 +437,8 @@ function main(argv) {
 }
 
 module.exports = {
-  cut, findWebhook, filesOf, turnsOf, readSource, renderDocument,
+  cut, findWebhook, taskFromPost, postedCommentIndex, taskStateFromPost,
+  filesOf, turnsOf, readSource, renderDocument,
   validateScenario, loadScenario, renderChecks, parseArgs, main
 };
 

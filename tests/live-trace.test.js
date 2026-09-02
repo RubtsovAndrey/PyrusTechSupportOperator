@@ -1,7 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { filesOf, validateScenario, loadScenario, parseArgs } = require("../tools/read-trace");
+const { filesOf, turnsOf, validateScenario, loadScenario, parseArgs } = require("../tools/read-trace");
 const { suite } = require("./harness");
 
 function matchingTurn() {
@@ -91,7 +91,15 @@ function matchingSuccessfulCloseTurns() {
     logs: ["applyOutcome: solved task 1"],
     path: ["Confirmation Agent", "Outcome - solved", "finalize"],
     calls: ["ID_Actions.applyOutcome({\"outcome\":\"solved\"})"],
-    errors: []
+    errors: [],
+    taskState: {
+      isClosed: true,
+      currentStep: 2,
+      postedCommentId: 20,
+      lastAction: "finished",
+      reopenedAfterReply: false,
+      laterComments: []
+    }
   };
   return turns;
 }
@@ -194,6 +202,27 @@ async function main() {
   t.check("approval without action finished fails the positive scenario",
     checks.some(c => !c.ok && /action ответа/.test(c.label)), checks);
 
+  const reopenedAfterClose = matchingSuccessfulCloseTurns();
+  reopenedAfterClose[1].taskState = {
+    isClosed: false,
+    currentStep: 2,
+    postedCommentId: 20,
+    lastAction: "reopened",
+    reopenedAfterReply: true,
+    laterComments: [{
+      id: 21,
+      text: "Работаем над вашим вопросом. Оставайтесь в чате.",
+      action: "reopened",
+      approval: null,
+      author: "Pyrus.com"
+    }]
+  };
+  checks = validateScenario(reopenedAfterClose, successfulCloseScenario);
+  t.check("a later Pyrus reopen fails even when the bot sent approved and finished",
+    checks.some(c => !c.ok && /задача в итоге закрыта/.test(c.label)) &&
+    checks.some(c => !c.ok && /задача переоткрыта/.test(c.label)) &&
+    checks.some(c => !c.ok && /сообщения после ответа бота/.test(c.label)), checks);
+
   const printerScenario = loadScenario(scenariosFile, "unknown-label-printer-with-relevant-hint");
   checks = validateScenario([matchingLabelPrinterTurn()], printerScenario);
   t.check("the useful operator-hint scenario accepts a one-turn handover",
@@ -211,6 +240,47 @@ async function main() {
   t.check("read-trace accepts either a JSON file or its directory",
     filesOf(json).files.length === 1 && filesOf(tmp).files.length === 1,
     { file: filesOf(json), dir: filesOf(tmp) });
+
+  const traceJson = path.join(tmp, "reopened.json");
+  fs.writeFileSync(traceJson, JSON.stringify([{
+    type: "trace",
+    startTime: "2026-09-02T07:56:31.400Z",
+    children: [{
+      type: "span",
+      label: "Системная функция: Http.post",
+      relatedEvent: {
+        data: {
+          url: "https://api.pyrus.com/v4/tasks/1/comments",
+          body: {
+            text: "Рад был помочь!",
+            channel: { type: "web_widget" },
+            action: "finished",
+            approval_choice: "approved",
+            field_updates: [{ id: 23 }, { id: 16 }]
+          }
+        }
+      },
+      outputData: {
+        body: {
+          task: {
+            is_closed: false,
+            current_step: 2,
+            comments: [
+              { id: 20, text: "Рад был помочь!", action: "finished", approval_choice: "approved" },
+              { id: 21, text: "Работаем над вашим вопросом.", action: "reopened", author: { last_name: "Pyrus.com" } }
+            ]
+          }
+        }
+      },
+      children: []
+    }]
+  }]), "utf8");
+  const parsedReopen = turnsOf(traceJson).turns[0];
+  t.check("the raw Pyrus response exposes final state and comments after the bot reply",
+    parsedReopen && parsedReopen.taskState && parsedReopen.taskState.isClosed === false &&
+    parsedReopen.taskState.currentStep === 2 && parsedReopen.taskState.reopenedAfterReply === true &&
+    parsedReopen.taskState.laterComments[0].action === "reopened",
+    parsedReopen && parsedReopen.taskState);
 
   const args = parseArgs([tmp, "--scenario", "unknown-courier-avatar", "--out", "report.txt"]);
   t.check("scenario and output flags do not become input paths",

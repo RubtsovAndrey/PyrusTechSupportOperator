@@ -237,6 +237,13 @@
             "calls": {
               "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"solved\""]
             },
+            "task": {
+              "isClosed": true,
+              "reopenedAfterReply": false,
+              "laterComments": {
+                "excludes": ["Работаем над вашим вопросом"]
+              }
+            },
             "noErrors": true
           }
         ]
