@@ -317,6 +317,34 @@ function checkGraph() {
   return { nodes: ids.size, refs: refs.length, broken: refs.filter(([, r]) => !ids.has(r)) };
 }
 
+// gpt-5.6-luna through OpenAI Chat Completions rejects function tools together with a
+// non-zero reasoning_effort. On the platform this is a 400 at the agent node, after which
+// next-error-step safely but incorrectly hands the chat to an operator. Check the exact
+// YAML that is deployed, so a model switch or a platform export cannot restore that trap.
+function checkToolReasoningCompatibility() {
+  const problems = [];
+  const integrations = {};
+  const parseYaml = require("./graph").parseYaml;
+  walk(path.join(ROOT, "integrations", "llm"), []).filter(f => f.endsWith(".yml")).forEach(file => {
+    const y = parseYaml(fs.readFileSync(file, "utf8"));
+    if (y.key) integrations[y.key] = String(y.model || "");
+  });
+
+  walk(path.join(ROOT, "nodes", "agents"), []).filter(f => f.endsWith(".yml")).forEach(file => {
+    const y = parseYaml(fs.readFileSync(file, "utf8"));
+    const p = y.parameters || {};
+    const tools = Array.isArray(p.tools) ? p.tools : [];
+    const model = integrations[p["llm-model-key"]] || "";
+    if (!tools.length || model.indexOf("gpt-5.6-luna") < 0) return;
+    const settings = p["llm-model-settings"] || {};
+    if (settings["reasoning-effort"] !== "none") {
+      problems.push(path.relative(ROOT, file).split(path.sep).join("/") +
+        ": gpt-5.6-luna with tools requires reasoning-effort: none");
+    }
+  });
+  return problems;
+}
+
 (async () => {
   let total = 0, failed = 0;
 
@@ -358,6 +386,16 @@ function checkGraph() {
     graph.broken.forEach(([f, r]) => console.log("        " + f + " -> " + r));
   } else {
     console.log("  PASS  " + graph.nodes + " nodes, " + graph.refs + " references, all resolve");
+  }
+
+  console.log("\nLLM tool compatibility");
+  const toolReasoning = checkToolReasoningCompatibility();
+  total++;
+  if (toolReasoning.length) {
+    failed++;
+    toolReasoning.forEach(p => console.log("  FAIL  " + p));
+  } else {
+    console.log("  PASS  tool-using gpt-5.6-luna agents disable reasoning effort");
   }
 
   console.log("\nknowledge catalog");

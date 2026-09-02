@@ -10,6 +10,7 @@ parameters:
   llm-model-key: 1000299722-open_ai_gpt56luna-axu
   llm-model-settings:
     max-tokens: 256
+    reasoning-effort: none
     temperature: 0.2
     top-p: 1.0
     frequency-penalty: 0.0
