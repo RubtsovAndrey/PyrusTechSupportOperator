@@ -2,8 +2,8 @@
 id: func_escalate_attachment
 name: Outcome - escalate (attachment)
 position:
-  x: 2022
-  y: 390
+  x: 2056
+  y: 342
 next-step: func_finalize_p1x9k
 next-error-step: func_finalize_p1x9k
 parameters:
