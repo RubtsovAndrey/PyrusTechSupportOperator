@@ -73,6 +73,24 @@ async function main() {
   t.check("after the location the Java Script branch gives only its approved remedy",
     r.turnKind === "solution" && r.treeNode === "javascript" && /[Уу]становите его заново/.test(r.solverInstruction), r);
 
+  c = conversation("Z-отчёт не вышел после закрытия смены");
+  r = await c.step({
+    incoming: "Это пиццерия, закрыли смену, но Z-отчёт не вышел",
+    answers: {
+      posLocation: "проблема возникла на кассе ресторана",
+      problemDetails: "закрыли смену, но Z-отчёт не вышел"
+    }
+  });
+  t.check("a pizzeria is not silently turned into a restaurant cash desk",
+    r.turnKind === "questions" && r.answerKeys.indexOf("posLocation") >= 0 &&
+    !c.data.treeAnswers.posLocation, { result: r, answers: c.data.treeAnswers });
+
+  c = conversation("зетка не вышла при закрытии смены");
+  r = await c.step();
+  t.check("the partner's word «зетка» is enough for the symptom and only location is asked",
+    r.turnKind === "questions" && r.answerKeys.length === 1 &&
+    r.answerKeys[0] === "posLocation", r);
+
   c = conversation("касса ресторана: X-отчёт выходит, а Z-отчёт не выходит");
   r = await c.step();
   t.check("the X/Z symptom takes the terminal restart branch without another question",

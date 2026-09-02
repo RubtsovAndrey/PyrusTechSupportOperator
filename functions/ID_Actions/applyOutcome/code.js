@@ -460,6 +460,20 @@ let text = spec.silent ? null : (closeBlocked
   ? blockedCloseReply
   : (replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply));
 
+// Questions carry their own purpose. The new model repeatedly appended the same sentence
+// «Без этой информации не получится подобрать правильное решение» to every question,
+// including three consecutive turns of one live dialog. It adds no decision or fact and
+// makes a normal clarification sound like pressure. The prompt forbids it too; this narrow
+// output guard keeps already-generated variants out of Pyrus deterministically.
+if (asksSomething && text) {
+  text = String(text)
+    .replace(/^\s*(?:Пожалуйста,?\s*)?(?:уточните|подскажите)(?:,?\s*пожалуйста)?\s*:\s*/i, "")
+    .replace(/\s*Без (?:этой|такой) информации не (?:получится|удастся) (?:подобрать|найти) (?:правильное|подходящее) решение\.?\s*$/i, "")
+    .replace(/\s*Без этих (?:данных|сведений) не (?:получится|удастся) (?:продолжить|подобрать|найти)[^.?!]*[.?!]?\s*$/i, "")
+    .trim();
+  if (text) text = text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 // Left to itself the intake agent asked the partner to confirm a unit he had already
 // named, offered "пиццерия или кофейня" in a city with no coffee shops, and wanted to
 // know at which moment the error appears — then repeated all of it verbatim on the

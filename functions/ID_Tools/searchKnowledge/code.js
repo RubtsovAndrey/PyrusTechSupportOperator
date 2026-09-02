@@ -435,6 +435,37 @@ function readGivenAnswers(raw, topic) {
   return out;
 }
 
+// The model may paraphrase an answer, but it may not create one. This matters most for
+// neighbouring concepts: in a live chat it turned «это пиццерия» into
+// `posLocation: касса ресторана`, although a pizzeria has both a restaurant cash desk and
+// a delivery cash desk. If the model's value itself selects a declared branch, the
+// partner's own current words must select the SAME branch. Free-form answers that do not
+// select any branch (an unknown error code, a name, a phone number) remain allowed.
+function refuseUnsupportedBranchAnswers(given, topic) {
+  const accepted = Object.assign({}, given || {});
+  Object.keys(accepted).forEach(key => {
+    // `posLocation` is a controlled cross-article fact with a fixed meaning. Other
+    // article answers may legitimately have been said several turns earlier and are not
+    // always present in `PARTNER_WORDS`, so applying this evidence rule to every custom
+    // key would throw away real collected data.
+    if (key !== "posLocation") return;
+    const nodes = Object.keys(topic.nodes || {})
+      .map(id => topic.nodes[id])
+      .filter(node => branchKeyOf(node) === key);
+    for (let i = 0; i < nodes.length; i++) {
+      const claimed = branchFromWords(nodes[i], words(accepted[key]));
+      if (!claimed) continue;
+      const heard = branchFromWords(nodes[i], PARTNER_WORDS);
+      if (!heard || String(heard.go) !== String(claimed.go)) {
+        Log.warn({ message: "searchKnowledge: model supplied branch answer " + key + "=\"" + accepted[key] + "\", but the partner's own words do not support that branch; ignored" });
+        delete accepted[key];
+        break;
+      }
+    }
+  });
+  return accepted;
+}
+
 // Exact lookup: the solver already knows which topic it must follow, and gets one
 // step at a time. Handing over the whole article invited the model to dump every
 // variant in a single reply, which left nothing to try when the partner said the
@@ -457,7 +488,7 @@ if (topicKey) {
       // What the partner said earlier in the chat counts as answered, and is written down
       // right here: the caller's own report of it arrives only after this turn is over, so
       // a tool that merely read the document would ask again for what it had just been told.
-      const given = readGivenAnswers(answers, topic);
+      const given = refuseUnsupportedBranchAnswers(readGivenAnswers(answers, topic), topic);
       const known = Object.assign({}, stored, given);
       const givenPatch = {};
       Object.keys(given).forEach(k => {

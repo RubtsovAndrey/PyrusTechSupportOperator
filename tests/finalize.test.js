@@ -490,6 +490,18 @@ async function main() {
     asked.db[KEY].pendingOutcome.nextStage === "awaiting_answers", asked.db[KEY].pendingOutcome);
   t.check("and the question the solver wrote is what the partner is asked",
     /На какое значение/.test(asked.db[KEY].pendingOutcome.replyText), asked.db[KEY].pendingOutcome.replyText);
+  const concise = makeEnv({
+    prev: {
+      taskId: "11613", agentStage: "solver", kind: "questions",
+      replyText: "Пожалуйста, уточните: касса ресторана или доставки? Без этой информации не получится подобрать правильное решение."
+    },
+    db: { [KEY]: state({ stage: "awaiting_answers", pendingOutcome: null, data: { topicKey: "employee_change" } }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(concise, ["clarify_answers", null]);
+  t.check("generic pressure after an article question is removed",
+    concise.db[KEY].pendingOutcome.replyText === "Касса ресторана или доставки?",
+    concise.db[KEY].pendingOutcome.replyText);
   // Exempting it from the loop guards would be exempting the one path that asks the most.
   t.check("it still counts towards the loop guard", asked.db[KEY].clarifyStreak === 1, asked.db[KEY].clarifyStreak);
 
