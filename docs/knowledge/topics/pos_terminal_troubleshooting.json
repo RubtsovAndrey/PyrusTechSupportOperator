@@ -194,5 +194,6 @@
     "operator": {
       "end": "escalate"
     }
-  }
+  },
+  "componentName": "Технический → Для тестов"
 }

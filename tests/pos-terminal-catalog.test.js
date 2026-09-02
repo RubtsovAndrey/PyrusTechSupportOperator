@@ -50,11 +50,16 @@ async function main() {
   const topic = CATALOG.topics.find(x => x.key === KEY);
   t.check("the pilot topic remains in the growing catalog",
     !!topic, CATALOG.topics.map(x => x.key));
+  t.check("the pilot topic uses the real Pyrus component reserved for acceptance tests",
+    topic.componentName === "Технический → Для тестов", topic.componentName);
 
   let c = conversation("касса ресторана: смена превысила 24 часа");
   let r = await c.step();
   t.check("a complete shift-24 report reaches its approved instruction immediately",
     r.turnKind === "solution" && r.treeNode === "shift24" && /Тест драйвер ККТ/.test(r.solverInstruction), r);
+  t.check("the test component follows every solution branch into dialog state",
+    r.componentName === "Технический → Для тестов" &&
+    c.data.componentName === "Технический → Для тестов", { result: r.componentName, state: c.data.componentName });
   t.check("the shift-24 instruction keeps numbered steps on separate lines",
     /\n1\.[^\n]+\n2\.[^\n]+\n3\.[^\n]+\n4\./.test(r.solverInstruction), r.solverInstruction);
   t.check("the location and symptom are retained for an operator",

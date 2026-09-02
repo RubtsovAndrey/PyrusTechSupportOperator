@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "topicCount": 6,
-  "catalogSha256": "b84cda5c341461531436aaaeeff8a12c9bcbdbca916860ec3c4c61da5ed7780d",
+  "catalogSha256": "3d0484132b0320e506f902cb3e5c1a5270f68a6bd04eea156922afc83863cd1f",
   "topics": [
     {
       "key": "courier_tips_withdrawal",
@@ -20,14 +20,14 @@
     {
       "key": "notification_sounds_missing",
       "source": "docs/knowledge/topics/notification_sounds_missing.json",
-      "sourceSha256": "298d8c79d8f869dd3d6f36c36539c0e7205170cad627a22da75e039f71a6c681",
+      "sourceSha256": "5b1efb4c636b498a8f76d0ecf86670f5275c23333575de0a54fb43d013b3313d",
       "rag": "docs/rag/notification_sounds_missing.md",
-      "ragSha256": "a57cd43073bce3436b593bd4d108f69010c5b72b6cded9a45251589b78d7df10"
+      "ragSha256": "d698c6e2e0aaa9421497a9dcfff0ff82b0f6ee2ca7e14720cb8c05501d8874c4"
     },
     {
       "key": "pos_terminal_troubleshooting",
       "source": "docs/knowledge/topics/pos_terminal_troubleshooting.json",
-      "sourceSha256": "7a18f49abde368852c5bbf413e8e6b393389c01d696ec049493bef2065c65f4b",
+      "sourceSha256": "d4bf970c13e3428ee5c7c22acee2140f78329a5654fb5cf58d7a85b75a495646",
       "rag": "docs/rag/pos_terminal_troubleshooting.md",
       "ragSha256": "e00909342c7722cb7a2998f04f48c29ee9899260e9a5fed4bc41f10f612f0323"
     },
@@ -41,9 +41,9 @@
     {
       "key": "tv_board_connection",
       "source": "docs/knowledge/topics/tv_board_connection.json",
-      "sourceSha256": "4f0d3ca83c5a38487554fb7bad96ae62468771b16e712a4bf49985d9f356cbad",
+      "sourceSha256": "93401a7c999936914cf37af133a6de9a5e392be09837d7ff88c87c849b076fcb",
       "rag": "docs/rag/tv_board_connection.md",
-      "ragSha256": "e4a4a7764606cba4793fdf9d6d343a5b54f0e73f13f40e42a123a7de20cd37c5"
+      "ragSha256": "532e0c6d04afeb560d8d19d8176a60c02101f58d714458c8d41d378f03343233"
     }
   ]
 }

@@ -70,6 +70,32 @@ function matchingBlockedCloseTurns() {
   return turns;
 }
 
+function matchingSuccessfulCloseTurns() {
+  const turns = matchingPosTurns();
+  turns[0].replies[0] = {
+    text: turns[0].replies[0].text,
+    action: null,
+    approval: null,
+    fields: 0
+  };
+  turns[1] = {
+    partner: { text: "Да, помогло" },
+    outcome: "solved",
+    replies: [{
+      text: "Рад был помочь! Если появятся новые вопросы, обращайтесь.",
+      action: "finished",
+      approval: "approved",
+      fields: 2
+    }],
+    internal: [],
+    logs: ["applyOutcome: solved task 1"],
+    path: ["Confirmation Agent", "Outcome - solved", "finalize"],
+    calls: ["ID_Actions.applyOutcome({\"outcome\":\"solved\"})"],
+    errors: []
+  };
+  return turns;
+}
+
 function matchingLabelPrinterTurn() {
   return {
     partner: { text: "Тамбов-1, принтер этикеток не печатает этикетки продуктов, при этом тестовая печать работает" },
@@ -144,6 +170,29 @@ async function main() {
   checks = validateScenario(fieldsLost, blockedCloseScenario);
   t.check("losing the known unit field fails the live scenario",
     checks.some(c => !c.ok && /полей в ответе/.test(c.label)), checks);
+
+  const successfulCloseScenario = loadScenario(scenariosFile, "known-pos-success-and-close");
+  checks = validateScenario(matchingSuccessfulCloseTurns(), successfulCloseScenario);
+  t.check("a fully classified successful solution passes only with approval, two fields and close",
+    checks.length > 0 && checks.every(c => c.ok), checks.filter(c => !c.ok));
+
+  const closeWithoutApproval = matchingSuccessfulCloseTurns();
+  closeWithoutApproval[1].replies[0].approval = null;
+  checks = validateScenario(closeWithoutApproval, successfulCloseScenario);
+  t.check("a close without workflow approval fails the positive scenario",
+    checks.some(c => !c.ok && /approval ответа/.test(c.label)), checks);
+
+  const closeWithOneField = matchingSuccessfulCloseTurns();
+  closeWithOneField[1].replies[0].fields = 1;
+  checks = validateScenario(closeWithOneField, successfulCloseScenario);
+  t.check("a close without both classification fields fails the positive scenario",
+    checks.some(c => !c.ok && /полей в ответе/.test(c.label)), checks);
+
+  const approvalWithoutClose = matchingSuccessfulCloseTurns();
+  approvalWithoutClose[1].replies[0].action = null;
+  checks = validateScenario(approvalWithoutClose, successfulCloseScenario);
+  t.check("approval without action finished fails the positive scenario",
+    checks.some(c => !c.ok && /action ответа/.test(c.label)), checks);
 
   const printerScenario = loadScenario(scenariosFile, "unknown-label-printer-with-relevant-hint");
   checks = validateScenario([matchingLabelPrinterTurn()], printerScenario);

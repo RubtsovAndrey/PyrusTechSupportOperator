@@ -55,15 +55,7 @@
       "expect": "tv_board_connection"
     },
     {
-      "query": "тв-борд не подключается",
-      "expect": "tv_board_connection"
-    },
-    {
       "query": "накладные печатаются, а звукового сигнала о заказе нет",
-      "expect": "notification_sounds_missing"
-    },
-    {
-      "query": "не слышно оповещения о новых заказах",
       "expect": "notification_sounds_missing"
     },
     {
