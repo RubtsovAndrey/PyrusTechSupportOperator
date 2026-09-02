@@ -43,6 +43,20 @@ function matchingPosTurns() {
   ];
 }
 
+function matchingLabelPrinterTurn() {
+  return {
+    partner: { text: "Тамбов-1, принтер этикеток не печатает этикетки продуктов, при этом тестовая печать работает" },
+    outcome: "escalated",
+    replies: [{ text: "Добрый день! Понадобится время на изучение вопроса." }],
+    internal: [{ text: "Бот передаёт обращение оператору. Тематика: не определена. " +
+      "Возможные материалы из Базы Знаний: Принтер этикеток — Пространство техподдержки." }],
+    logs: ["findOperatorKnowledge: MCP 9 результатов, релевантных 3, после приоритета и дедупликации 3"],
+    path: ["Find knowledge for operator", "Outcome - escalate to operator", "finalize"],
+    calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],
+    errors: []
+  };
+}
+
 async function main() {
   const t = suite("live trace scenarios");
   const scenariosFile = path.join(__dirname, "live", "scenarios.json");
@@ -80,6 +94,17 @@ async function main() {
   checks = validateScenario(searchedAgain, posScenario);
   t.check("general knowledge search on a known article fails the scenario",
     checks.some(c => !c.ok && /путь не содержит.*Find knowledge for operator/.test(c.label)), checks);
+
+  const printerScenario = loadScenario(scenariosFile, "unknown-label-printer-with-relevant-hint");
+  checks = validateScenario([matchingLabelPrinterTurn()], printerScenario);
+  t.check("the useful operator-hint scenario accepts a one-turn handover",
+    checks.length > 0 && checks.every(c => c.ok), checks.filter(c => !c.ok));
+
+  const leakedPrinterHint = matchingLabelPrinterTurn();
+  leakedPrinterHint.replies[0].text += " Принтер этикеток";
+  checks = validateScenario([leakedPrinterHint], printerScenario);
+  t.check("a useful operator hint is still forbidden in the partner reply",
+    checks.some(c => !c.ok && /ответ партнёру не содержит/.test(c.label)), checks);
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pyrus-live-trace-"));
   const json = path.join(tmp, "one.json");

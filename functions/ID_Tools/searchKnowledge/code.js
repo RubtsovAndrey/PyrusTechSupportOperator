@@ -27,6 +27,18 @@ function hasToken(haystack, token) {
   return haystack.some(h => h === token || h.indexOf(stem) === 0 || token.indexOf(h.slice(0, Math.max(4, h.length - 2))) === 0);
 }
 
+// The same lexical root is one piece of evidence even when the partner repeats it in
+// different forms. Without this, «принтер не печатает, но тестовая печать работает»
+// counted «печатает» and «печать» as two matches against the single word «печатается» in
+// a POS phrasing and sent a packaging-printer request into the cash-register scenario.
+function uniqueTokens(tokens) {
+  const result = [];
+  tokens.forEach(token => {
+    if (!hasToken(result, token)) result.push(token);
+  });
+  return result;
+}
+
 // Where a branch of the dialog tree may end.
 const END_KINDS = ["close", "subtask", "escalate"];
 // A tree walked by `go` edges must not be able to hang this function.
@@ -872,7 +884,7 @@ if (topicKey) {
   Log.warn({ message: "searchKnowledge: no topic with key " + topicKey });
 }
 
-const queryTokens = tokenize(query);
+const queryTokens = uniqueTokens(tokenize(query));
 if (!queryTokens.length) {
   return { found: false, topics: [], source: "empty-query" };
 }

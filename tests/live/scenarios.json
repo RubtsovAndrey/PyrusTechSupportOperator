@@ -114,6 +114,49 @@
           }
         ]
       }
+    },
+    {
+      "id": "unknown-label-printer-with-relevant-hint",
+      "title": "Неизвестная проблема принтера этикеток передаётся оператору с релевантной статьёй общей БЗ",
+      "messages": [
+        "Тамбов-1, принтер этикеток не печатает этикетки продуктов, при этом тестовая печать работает"
+      ],
+      "expect": {
+        "turnCount": 1,
+        "turns": [
+          {
+            "partner": {
+              "includes": ["Тамбов-1", "принтер этикеток", "тестовая печать работает"]
+            },
+            "outcome": "escalated",
+            "replies": {
+              "count": 1,
+              "includes": ["Понадобится время на изучение вопроса"],
+              "excludes": ["Возможные материалы из Базы Знаний", "Принтер этикеток"]
+            },
+            "internal": {
+              "count": 1,
+              "includes": [
+                "Бот передаёт обращение оператору",
+                "Тематика: не определена",
+                "Возможные материалы из Базы Знаний",
+                "Принтер этикеток"
+              ]
+            },
+            "logs": {
+              "includes": ["findOperatorKnowledge:", "релевантных"]
+            },
+            "path": {
+              "includes": ["Find knowledge for operator", "Outcome - escalate to operator", "finalize"],
+              "excludes": ["Solver Agent"]
+            },
+            "calls": {
+              "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"escalated\""]
+            },
+            "noErrors": true
+          }
+        ]
+      }
     }
   ]
 }

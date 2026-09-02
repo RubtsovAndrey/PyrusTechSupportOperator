@@ -215,6 +215,16 @@ async function main() {
   t.check("с phrasings подбор по словам находит то, что раньше пропускал",
     r.result.found === true && keys(r)[0] === "equipment_request", r.result);
 
+  // Two inflected forms of one root are still one fact, not the two independent matches
+  // required to route a normal sentence. This exact wording came from a live chat where
+  // «печатает» and «печать» both matched one POS token and produced a false score of 1.00.
+  const repeatedRoot = JSON.parse(JSON.stringify(CATALOG));
+  repeatedRoot.topics[0].phrasings = ["не печатается отчёт"];
+  r = await route("принтер не печатает этикетки, но тестовая печать работает",
+    { config: { rag: { mode: "off" } }, catalog: repeatedRoot });
+  t.check("словоформы одного корня не изображают два независимых совпадения",
+    r.result.found === false && !keys(r).length, keys(r));
+
   // ── Ключ статьи — идентификатор, а не текст для сравнения ──
   // Ключи латиницей (`pos_down`, `no_internet`) участвовали в подборе по словам, и слово
   // «down» из английского сообщения находило статью про кассу: запрос «The internet is
