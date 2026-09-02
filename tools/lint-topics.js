@@ -87,6 +87,19 @@ function lintTopics(topics) {
       if (branches.length && ask.length > 1 && !n.branchOn) {
         say(id + " asks " + ask.length + " questions and branches, but does not say which one the branches read");
       }
+      if (n.requireBranchEvidence === true) {
+        const branchKey = n.branchOn || (ask.length === 1 ? ask[0] && ask[0].key : null);
+        if (!branches.length) say(id + " requires branch evidence but declares no branches");
+        if (!branchKey) say(id + " requires branch evidence but does not identify a branching question");
+      }
+      if (n.knowledgeRef !== undefined) {
+        const ref = n.knowledgeRef || {};
+        const articleIds = Array.isArray(ref.articleIds) ? ref.articleIds.filter(Boolean) : [];
+        if (!articleIds.length) say(id + ".knowledgeRef has no articleIds");
+        if (ref.mode && ["operator_hint", "partner_answer"].indexOf(String(ref.mode)) < 0) {
+          say(id + ".knowledgeRef.mode=\"" + ref.mode + "\" is not operator_hint or partner_answer");
+        }
+      }
       // The two states searchKnowledge has to rescue at runtime, as `tree-dead-end`.
       if (!n.advice && !ask.length && !branches.length && !n.end && !n.go) {
         say(id + " neither speaks, asks, branches nor ends: the dialog cannot leave it");

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "topicCount": 6,
-  "catalogSha256": "66174b80b9696cc0a19bc949e1a91893bf7dc33efa77d8fb5d92bd0a8fd3ac28",
+  "catalogSha256": "dec270bc57c362291b88507ae1f3996644dd98c778fd22fc5a6d5ff34536f6d8",
   "topics": [
     {
       "key": "courier_tips_withdrawal",
@@ -27,7 +27,7 @@
     {
       "key": "pos_terminal_troubleshooting",
       "source": "docs/knowledge/topics/pos_terminal_troubleshooting.json",
-      "sourceSha256": "9c03ce119c11d2e1dd1116ee2092cb30cbd351ddb0278e6406bf59c6697ad17b",
+      "sourceSha256": "4d65c91f6ff0f2413ea9ba708f11024dd7fe1a864c64dd2bca1af960ebba26be",
       "rag": "docs/rag/pos_terminal_troubleshooting.md",
       "ragSha256": "e00909342c7722cb7a2998f04f48c29ee9899260e9a5fed4bc41f10f612f0323"
     },

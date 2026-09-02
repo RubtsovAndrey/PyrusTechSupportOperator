@@ -59,7 +59,15 @@ function normalizeNodes(t) {
       advice: n.advice ? String(n.advice) : null,
       ask: (Array.isArray(n.ask) ? n.ask : [])
         .filter(q => q && q.key && q.question)
-        .map(q => ({ key: String(q.key), question: String(q.question) })),
+        .map(q => ({
+          key: String(q.key),
+          question: String(q.question),
+          // `question` is the safe fallback, not a phrase the model must copy.  The
+          // semantic fields let an article say WHAT has to be learned while the solver
+          // chooses a natural wording for this particular conversation.
+          questionGoal: q.questionGoal ? String(q.questionGoal) : null,
+          doNotAssume: q.doNotAssume ? String(q.doNotAssume) : null
+        })),
       // `when` is a list of synonyms for the model to recognise the partner's answer
       // by; `go` is the only thing the code acts on. A branch without a target is not
       // a branch, so it is dropped rather than silently leading nowhere.
@@ -75,6 +83,10 @@ function normalizeNodes(t) {
       // words matching a `when`. Optional: a node asking exactly one question needs no
       // declaration, there is nothing to confuse it with.
       branchOn: n.branchOn ? String(n.branchOn) : null,
+      // Some forks are too consequential for a model-only choice.  On those nodes the
+      // selected branch must also be supported by the partner's current message using
+      // the article's own `when` phrases.  Otherwise the question is asked again.
+      requireBranchEvidence: n.requireBranchEvidence === true,
       "else": n["else"] ? String(n["else"]) : null,
       go: n.go ? String(n.go) : null,
       end: END_KINDS.indexOf(String(n.end || "")) >= 0 ? String(n.end) : null,
@@ -136,7 +148,9 @@ function normalizeTopic(t) {
       .filter(q => q && q.question)
       .map(q => ({
         key: q.key && !/[.$]/.test(String(q.key)) ? String(q.key) : null,
-        question: String(q.question)
+        question: String(q.question),
+        questionGoal: q.questionGoal ? String(q.questionGoal) : null,
+        doNotAssume: q.doNotAssume ? String(q.doNotAssume) : null
       })),
     // Where the dialog goes when every step has been tried and nothing helped.
     onFail: String(t.onFail || "escalate") === "subtask" ? "subtask" : "escalate",
@@ -151,7 +165,12 @@ function normalizeTopic(t) {
     // every branch remembering to repeat them.
     askBeforeHandover: (Array.isArray(t.askBeforeHandover) ? t.askBeforeHandover : [])
       .filter(q => q && q.key && q.question)
-      .map(q => ({ key: String(q.key), question: String(q.question) }))
+      .map(q => ({
+        key: String(q.key),
+        question: String(q.question),
+        questionGoal: q.questionGoal ? String(q.questionGoal) : null,
+        doNotAssume: q.doNotAssume ? String(q.doNotAssume) : null
+      }))
   };
 }
 
@@ -329,6 +348,22 @@ function branchKeyOf(node) {
   if (!node.branches.length) return null;
   if (node.branchOn && node.ask.some(q => q.key === node.branchOn)) return node.branchOn;
   return node.ask.length === 1 ? node.ask[0].key : null;
+}
+
+// A question is an information contract, not necessarily a canned sentence.  The model
+// receives the exact fact to collect, the safe fallback wording and (for a branching
+// question) the outcomes the article understands.  Business routing still reads only the
+// article's branches; this object merely controls how the question sounds.
+function questionSpecs(questions, node) {
+  return (questions || []).map(q => ({
+    key: q.key,
+    goal: q.questionGoal || q.question,
+    fallbackQuestion: q.question,
+    answerOptions: node && branchKeyOf(node) === q.key
+      ? node.branches.map(b => b.when.join(" / "))
+      : [],
+    doNotAssume: q.doNotAssume || null
+  }));
 }
 
 // A node that neither speaks, asks, branches nor ends is a pure redirect and is walked
@@ -532,8 +567,31 @@ if (topicKey) {
             || at.branches.find(b => sameLabel(b.go, chosen))
             || at.branches.find(b => b.when.some(w => String(chosen).toLowerCase().indexOf(String(w).toLowerCase()) >= 0));
           if (hit) {
-            target = resolveNode(topic.nodes, hit.go);
-            how = "branch \"" + chosen + "\"";
+            // For a consequential fork the article may demand deterministic evidence in
+            // the partner's CURRENT message. `answers` is the model's interpretation and
+            // problemSummary may describe an older symptom, so neither can prove it.
+            const heardNow = at.requireBranchEvidence
+              ? branchFromWords(at, words(dialogValue.incomingText))
+              : hit;
+            if (at.requireBranchEvidence && (!heardNow || String(heardNow.go) !== String(hit.go))) {
+              const branchKey = branchKeyOf(at);
+              if (branchKey) {
+                // Do not leave the model's ambiguous paraphrase stored as an answer: that
+                // would make the node ask for another branch choice instead of asking the
+                // partner for the missing fact.
+                delete known[branchKey];
+                const clear = {};
+                clear["treeAnswers." + branchKey] = null;
+                patchData(clear);
+              }
+              target = at;
+              how = "unsupported branch \"" + chosen + "\" ignored";
+              Log.warn({ message: "searchKnowledge: branch \"" + chosen + "\" on node " + at.id +
+                " of " + topic.key + " is not supported by the partner's current words; asking for the fact again" });
+            } else {
+              target = resolveNode(topic.nodes, hit.go);
+              how = "branch \"" + chosen + "\"";
+            }
           } else if (at["else"]) {
             Log.warn({ message: "searchKnowledge: branch \"" + chosen + "\" is not declared on node " + at.id + " of " + topic.key + ", taking else" });
             target = resolveNode(topic.nodes, at["else"]);
@@ -683,6 +741,7 @@ if (topicKey) {
           treeNode: target.id,
           needsPreQuestions: true,
           preQuestions: unanswered.map(q => q.question),
+          questionSpecs: questionSpecs(unanswered, target),
           answerKeys: unanswered.map(q => q.key),
           branchOptions: target.branches.map(b => b.when.join(" / ")),
           onFail: topic.onFail,
@@ -721,6 +780,7 @@ if (topicKey) {
           treeNode: target.id,
           needsPreQuestions: true,
           preQuestions: pending.map(q => q.question),
+          questionSpecs: questionSpecs(pending, null),
           answerKeys: pending.map(q => q.key),
           onFail: topic.onFail,
           solverInstruction: null,
@@ -847,6 +907,7 @@ if (topicKey) {
         description: topic.description,
         componentName: topic.componentName,
         preQuestions: openPre.map(q => q.question),
+        questionSpecs: questionSpecs(openPre, null),
         // Куда вызывающему складывать ответы. Пусто — значит статья спрашивает строками,
         // и ответ нужен только для выбора следующего шага, дальше витка он не живёт.
         answerKeys: openPre.filter(q => q.key).map(q => q.key),

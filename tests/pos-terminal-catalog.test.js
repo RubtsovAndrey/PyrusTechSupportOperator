@@ -71,7 +71,7 @@ async function main() {
     r.turnKind === "questions" && r.answerKeys.length === 1 && r.answerKeys[0] === "posLocation", r);
   r = await c.step({ incoming: "касса доставки", answers: { posLocation: "касса доставки" } });
   t.check("after the location the Java Script branch gives only its approved remedy",
-    r.turnKind === "solution" && r.treeNode === "javascript" && /[Уу]становите его заново/.test(r.solverInstruction), r);
+    r.turnKind === "solution" && r.treeNode === "javascript" && /DodoCashReinstall\.bat/.test(r.solverInstruction), r);
 
   c = conversation("Z-отчёт не вышел после закрытия смены");
   r = await c.step({
@@ -93,13 +93,27 @@ async function main() {
 
   c = conversation("касса ресторана: X-отчёт выходит, а Z-отчёт не выходит");
   r = await c.step();
-  t.check("the X/Z symptom takes the terminal restart branch without another question",
-    r.turnKind === "solution" && r.treeNode === "terminalRestart" && /Перезагрузите терминал/.test(r.solverInstruction), r);
+  t.check("the X/Z symptom takes the approved KKM connection branch without another question",
+    r.turnKind === "solution" && r.treeNode === "terminalRestart" && /Проверьте связь ККМ/.test(r.solverInstruction), r);
 
   c = conversation("касса доставки: Z-отчёт не распечатался");
   r = await c.step();
   t.check("an ambiguous missing Z-report is clarified before choosing a remedy",
     r.turnKind === "questions" && r.answerKeys.length === 1 && r.answerKeys[0] === "zReportState", r);
+  t.check("the article describes the meaning of the question separately from its wording",
+    r.questionSpecs && r.questionSpecs.length === 1 &&
+    /Различить два случая/.test(r.questionSpecs[0].goal) &&
+    /сами по себе не означают/.test(r.questionSpecs[0].doNotAssume), r.questionSpecs);
+  const guessedCopyBranch = r.branchOptions[0];
+  r = await c.step({
+    incoming: "зетка не вышла",
+    answers: { zReportState: "зетка не вышла" },
+    branch: guessedCopyBranch
+  });
+  t.check("the model cannot assume that the shift closed from an ambiguous missing Z-report",
+    r.turnKind === "questions" && r.treeNode === "zReportKind" &&
+    r.answerKeys[0] === "zReportState" && !c.data.treeAnswers.zReportState,
+    { result: r, answers: c.data.treeAnswers });
   r = await c.step({
     incoming: "смена закрылась, только отчёт не распечатался — закончилась лента",
     answers: { zReportState: "смена закрылась, закончилась лента" }
