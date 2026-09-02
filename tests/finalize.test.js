@@ -455,11 +455,20 @@ async function main() {
     db: { [KEY]: state({
       stage: "routing",
       pendingOutcome: null,
-      data: { problemSummary: "не закрывается смена" }
+      data: {
+        problemSummary: "не закрывается смена",
+        operatorAdvice: {
+          topicKey: "pos_terminal_troubleshooting",
+          nodeId: "zReportCopy",
+          text: "Распечатайте копию последнего документа.",
+          sourceArticleIds: "article-z, article-pos"
+        }
+      }
     }) },
     contextValues: { dialog: { taskId: "11613" } }
   });
-  await applyOutcome(enriched, ["escalated", null]);
+  // Even a model that ignores `turnKind: handover` must not leak the shadow instruction.
+  await applyOutcome(enriched, ["escalated", "Распечатайте копию последнего документа прямо сейчас."]);
   const enrichedNote = enriched.db[KEY].pendingOutcome.internalNote;
   t.check("general knowledge search is appended only to the operator summary",
     /Возможные материалы/.test(enrichedNote) &&
@@ -468,6 +477,12 @@ async function main() {
     /https:\/\/kb\.example/.test(enrichedNote), enrichedNote);
   t.check("operator hints never become the partner reply",
     !/Закрытие кассовой смены/.test(enriched.db[KEY].pendingOutcome.replyText || ""),
+    enriched.db[KEY].pendingOutcome);
+  t.check("an approved shadow instruction is appended only to the operator summary",
+    /Рекомендация из внутренней статьи/.test(enrichedNote) &&
+    /Распечатайте копию последнего документа/.test(enrichedNote) &&
+    /article-z, article-pos/.test(enrichedNote) &&
+    !/Распечатайте копию/.test(enriched.db[KEY].pendingOutcome.replyText || ""),
     enriched.db[KEY].pendingOutcome);
 
   r = await run({ db: decided.db });

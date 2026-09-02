@@ -99,6 +99,9 @@ function lintTopics(topics) {
         if (ref.mode && ["operator_hint", "partner_answer"].indexOf(String(ref.mode)) < 0) {
           say(id + ".knowledgeRef.mode=\"" + ref.mode + "\" is not operator_hint or partner_answer");
         }
+        if (String(ref.mode || "") === "operator_hint" && !n.advice) {
+          say(id + ".knowledgeRef is operator_hint, but the node has no advice for the operator");
+        }
       }
       // The two states searchKnowledge has to rescue at runtime, as `tree-dead-end`.
       if (!n.advice && !ask.length && !branches.length && !n.end && !n.go) {

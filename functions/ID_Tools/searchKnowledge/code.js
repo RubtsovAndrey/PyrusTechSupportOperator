@@ -91,7 +91,15 @@ function normalizeNodes(t) {
       go: n.go ? String(n.go) : null,
       end: END_KINDS.indexOf(String(n.end || "")) >= 0 ? String(n.end) : null,
       componentName: n.componentName ? String(n.componentName) : null,
-      onFail: n.onFail ? String(n.onFail) : null
+      onFail: n.onFail ? String(n.onFail) : null,
+      // Exact sources backing this branch. `operator_hint` is an execution mode, not a
+      // comment: the recommendation must go only to the internal correspondence and the
+      // task must be handed to a human without showing the advice to the partner.
+      knowledgeRef: n.knowledgeRef && typeof n.knowledgeRef === "object" ? {
+        mode: String(n.knowledgeRef.mode || ""),
+        articleIds: (Array.isArray(n.knowledgeRef.articleIds) ? n.knowledgeRef.articleIds : [])
+          .filter(Boolean).map(String)
+      } : null
     };
   });
   return Object.keys(nodes).length ? nodes : null;
@@ -678,7 +686,14 @@ if (topicKey) {
       // handover must not be read out to the operator about a different one.
       // `treeExplain` потребляется тем витком, который его прочитал, поэтому снимается
       // здесь — на любом пути, а не только на том, где разъяснение и случилось.
-      const patch = { treeNode: target.id, treeEnd: null, treeNext: null, handoverReason: null, treeExplain: null };
+      const patch = {
+        treeNode: target.id,
+        treeEnd: null,
+        treeNext: null,
+        handoverReason: null,
+        treeExplain: null,
+        operatorAdvice: null
+      };
       if (component) patch.componentName = component;
 
       // A node that asks — with or without a recommendation above the question. The turn
@@ -807,6 +822,43 @@ if (topicKey) {
           onFail: topic.onFail,
           solverInstruction: null,
           followUpQuestion: null
+        };
+      }
+
+      // ── Shadow mode: useful answer for the operator, never for the partner ──
+      // During acceptance we want to measure the quality of approved KB instructions
+      // without letting them speak in production chat. The article owns this policy. A
+      // prompt-only rule is too weak: the model has already demonstrated that it will
+      // faithfully send `solverInstruction` to the partner whenever we hand it one.
+      const operatorHint = target.advice && target.knowledgeRef &&
+        target.knowledgeRef.mode === "operator_hint";
+      if (operatorHint) {
+        patch.treeEnd = "escalate";
+        patch.handoverReason = "статья нашла рекомендацию в теневом режиме: её передали только оператору";
+        patch.operatorAdvice = {
+          topicKey: topic.key,
+          nodeId: target.id,
+          text: target.advice,
+          sourceArticleIds: target.knowledgeRef.articleIds.join(", ")
+        };
+        patchData(patch);
+        Log.info({ message: "searchKnowledge: topic " + topic.key + " prepared node " + target.id +
+          " as an operator-only hint and handed the task over" });
+        return {
+          found: true,
+          source: "tree-operator-hint",
+          turnKind: "handover",
+          key: topic.key,
+          description: topic.description,
+          componentName: component,
+          treeNode: target.id,
+          treeEnd: "escalate",
+          solverInstruction: null,
+          // Deliberately no advice text in the tool result: the model sees tool results,
+          // while only applyOutcome is allowed to read the internal copy from task state.
+          operatorHintPrepared: true,
+          followUpQuestion: null,
+          treeAnswers: known
         };
       }
 

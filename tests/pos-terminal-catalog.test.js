@@ -55,13 +55,16 @@ async function main() {
 
   let c = conversation("касса ресторана: смена превысила 24 часа");
   let r = await c.step();
-  t.check("a complete shift-24 report reaches its approved instruction immediately",
-    r.turnKind === "solution" && r.treeNode === "shift24" && /Тест драйвер ККТ/.test(r.solverInstruction), r);
+  t.check("a complete shift-24 report prepares its approved instruction only for the operator",
+    r.turnKind === "handover" && r.treeEnd === "escalate" &&
+    r.source === "tree-operator-hint" && r.operatorHintPrepared === true &&
+    /Тест драйвер ККТ/.test(c.data.operatorAdvice.text) &&
+    !r.solverInstruction, r);
   t.check("the test component follows every solution branch into dialog state",
     r.componentName === "Технический → Для тестов" &&
     c.data.componentName === "Технический → Для тестов", { result: r.componentName, state: c.data.componentName });
   t.check("the shift-24 instruction keeps numbered steps on separate lines",
-    /\n1\.[^\n]+\n2\.[^\n]+\n3\.[^\n]+\n4\./.test(r.solverInstruction), r.solverInstruction);
+    /\n1\.[^\n]+\n2\.[^\n]+\n3\.[^\n]+\n4\./.test(c.data.operatorAdvice.text), c.data.operatorAdvice.text);
   t.check("the location and symptom are retained for an operator",
     c.data.treeAnswers.posLocation && c.data.treeAnswers.problemDetails, c.data.treeAnswers);
 
@@ -70,8 +73,9 @@ async function main() {
   t.check("a known error without a location asks only for the location",
     r.turnKind === "questions" && r.answerKeys.length === 1 && r.answerKeys[0] === "posLocation", r);
   r = await c.step({ incoming: "касса доставки", answers: { posLocation: "касса доставки" } });
-  t.check("after the location the Java Script branch gives only its approved remedy",
-    r.turnKind === "solution" && r.treeNode === "javascript" && /DodoCashReinstall\.bat/.test(r.solverInstruction), r);
+  t.check("after the location the Java Script remedy is kept inside the operator hint",
+    r.turnKind === "handover" && r.treeNode === "javascript" &&
+    /DodoCashReinstall\.bat/.test(c.data.operatorAdvice.text) && !r.solverInstruction, r);
 
   c = conversation("Z-отчёт не вышел после закрытия смены");
   r = await c.step({
@@ -93,8 +97,9 @@ async function main() {
 
   c = conversation("касса ресторана: X-отчёт выходит, а Z-отчёт не выходит");
   r = await c.step();
-  t.check("the X/Z symptom takes the approved KKM connection branch without another question",
-    r.turnKind === "solution" && r.treeNode === "terminalRestart" && /Проверьте связь ККМ/.test(r.solverInstruction), r);
+  t.check("the X/Z symptom takes the approved KKM branch as an operator-only hint",
+    r.turnKind === "handover" && r.treeNode === "terminalRestart" &&
+    /Проверьте связь ККМ/.test(c.data.operatorAdvice.text) && !r.solverInstruction, r);
 
   c = conversation("касса доставки: Z-отчёт не распечатался");
   r = await c.step();
@@ -118,8 +123,15 @@ async function main() {
     incoming: "смена закрылась, только отчёт не распечатался — закончилась лента",
     answers: { zReportState: "смена закрылась, закончилась лента" }
   });
-  t.check("a closed shift with missing print gets the copy instruction",
-    r.turnKind === "solution" && r.treeNode === "zReportCopy" && /Печать копии последнего документа/.test(r.solverInstruction), r);
+  t.check("a closed shift with missing print prepares the copy instruction only for the operator",
+    r.turnKind === "handover" && r.treeEnd === "escalate" && r.treeNode === "zReportCopy" &&
+    /Печать копии последнего документа/.test(c.data.operatorAdvice.text) && !r.solverInstruction,
+    r);
+  t.check("the exact common-KB sources survive beside the operator hint",
+    /11e4e561/.test(c.data.operatorAdvice.sourceArticleIds) && /37f22812/.test(c.data.operatorAdvice.sourceArticleIds),
+    c.data.operatorAdvice);
+  t.check("the instruction text is absent from the model-visible tool result",
+    !r.operatorAdvice && !/Печать копии/.test(JSON.stringify(r)), r);
 
   c = conversation("касса ресторана: ошибка E-777");
   r = await c.step({ answers: { posLocation: "касса ресторана", problemDetails: "ошибка E-777" } });

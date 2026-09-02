@@ -559,7 +559,7 @@ if (taskId) {
       // not reset either, so the new article started with the score of the old one.
       if (parsed.topicKey && known.topicKey && parsed.topicKey !== known.topicKey) {
         ["treeNode", "treeAnswers", "treeEnd", "treeNext", "treeAskedNode",
-         "treeHandoverAsked", "offeredStep", "openAnswerPrompts"].forEach(k => {
+         "treeHandoverAsked", "offeredStep", "openAnswerPrompts", "operatorAdvice"].forEach(k => {
           delete data[k];
           patch["data." + k] = null;
         });
@@ -581,7 +581,7 @@ if (taskId) {
        // The tree has to start from its root for the new question, and the answers to
        // the old one must not end up in the subtask of the new one.
        "treeNode", "treeAnswers", "treeEnd", "treeHandoverAsked", "treeNext",
-       "treeAskedNode", "openAnswerPrompts"].forEach(k => {
+       "treeAskedNode", "openAnswerPrompts", "operatorAdvice"].forEach(k => {
         delete data[k];
         patch["data." + k] = null;
       });
@@ -596,7 +596,7 @@ if (taskId) {
     // and a step already logged is never logged twice. Numbering the attempts by their
     // own count instead made the log lie about the article: one repeated answer became
     // a third "attempt" on a two-step article, and the counter ran past the end.
-    if (String(stage || "") === "solver" && parsed.replyText && String(parsed.kind || "solution") !== "questions") {
+    if (String(stage || "") === "solver" && parsed.replyText && String(parsed.kind || "solution") === "solution") {
       const attempts = Array.isArray(data.attempts) ? data.attempts.slice() : [];
       const topicKey = data.topicKey || null;
       const mine = attempts.filter(a => a && String(a.topicKey || "") === String(topicKey));
@@ -682,7 +682,7 @@ if (taskId) {
      // Bookkeeping of the tree walk: the node ids and the terminal are for the code and
      // the graph. Naming them in the prompt only invites the model to reason about the
      // article's internals instead of answering the partner.
-     "treeNode", "treeEnd", "treeHandoverAsked", "treeNext", "treeAskedNode",
+     "treeNode", "treeEnd", "treeHandoverAsked", "treeNext", "treeAskedNode", "operatorAdvice",
      // Printed as a labelled line in the note below; as a second copy inside the serialised
      // `dialog` value it would only say the same thing in a worse format.
      "openAnswerPrompts",

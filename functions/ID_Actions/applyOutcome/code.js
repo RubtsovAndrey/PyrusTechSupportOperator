@@ -223,6 +223,24 @@ function operatorKnowledgeBlock(knowledge) {
   return lines.join("\n");
 }
 
+// An approved scenario may run in shadow mode: it selects the exact instruction and
+// sources, but only the human operator may decide how to use them. Unlike broad search,
+// this is not a list of possible articles — it is the branch the controlled article chose.
+function operatorAdviceBlock(advice) {
+  if (!advice || !String(advice.text || "").trim()) return "";
+  const lines = [
+    "Рекомендация из внутренней статьи:",
+    "Партнёру автоматически не отправлялась — сценарий работает в теневом режиме.",
+    "",
+    String(advice.text).trim()
+  ];
+  if (advice.sourceArticleIds) {
+    lines.push("");
+    lines.push("Источники общей БЗ: " + String(advice.sourceArticleIds));
+  }
+  return lines.join("\n");
+}
+
 // The whole state machine in one table. Adding a scenario means adding a row here
 // plus one node in the graph, and nothing else changes.
 const OUTCOMES = {
@@ -460,6 +478,13 @@ let text = spec.silent ? null : (closeBlocked
   ? blockedCloseReply
   : (replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply));
 
+// Shadow advice is never a partner reply, even if the model ignores `turnKind: handover`
+// and puts something into replyText. The instruction itself never appears in the tool
+// result, and this second guard makes the delivery boundary deterministic too.
+if (effectiveOutcome === "escalated" && data.operatorAdvice) {
+  text = spec.defaultReply;
+}
+
 // Questions carry their own purpose. The new model repeatedly appended the same sentence
 // «Без этой информации не получится подобрать правильное решение» to every question,
 // including three consecutive turns of one live dialog. It adds no decision or fact and
@@ -569,6 +594,8 @@ if (spec.nextStage === "escalated") {
         : "бот задал подряд " + MAX_CLARIFY_STREAK + " уточняющих вопроса и не продвинулся")
       : (spec.silent ? "партнёр написал в закрытый чат" : (data.handoverReason || prev.reason || "не указана"))
   }));
+  const approvedAdvice = operatorAdviceBlock(data.operatorAdvice);
+  if (approvedAdvice) internalNote += "\n\n" + approvedAdvice;
   const knowledge = operatorKnowledgeBlock(prev.operatorKnowledge);
   if (knowledge) internalNote += "\n\n" + knowledge;
 }
