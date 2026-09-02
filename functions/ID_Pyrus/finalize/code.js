@@ -192,10 +192,16 @@ if (outcome.action === "finished") {
   if (!runtime.componentFieldId) missing.push("поле Pyrus «Компонент»");
 
   if (missing.length) {
-    Log.error({ message: "finalize: refusing to close task " + taskId + ": missing " + missing.join(", ") + "; handing over to an operator" });
+    Log.warn({ message: "finalize: refusing to close task " + taskId + ": missing " + missing.join(", ") + "; handing over to an operator" });
+    const oldReply = String(outcome.replyText || "");
+    const safeReply = outcome.kind === "solved"
+      ? (oldReply && !/закры/i.test(oldReply)
+        ? oldReply
+        : "Спасибо за обращение! Если появятся новые вопросы, обращайтесь.")
+      : (oldReply || "Понадобится время на изучение вопроса, мы вернёмся с ответом.");
     outcome = {
       kind: "escalated",
-      replyText: "Понадобится время на изучение вопроса, мы вернёмся с ответом.",
+      replyText: safeReply,
       internalNote: "[Внутренняя переписка]\nБот не закрыл задачу: перед закрытием не удалось заполнить " + missing.join(", ") + ". Передаю обращение оператору.",
       action: null,
       approvalChoice: "approved",

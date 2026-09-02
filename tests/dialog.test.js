@@ -177,7 +177,8 @@ async function main() {
     r.internal.length === 1 && /не закрыл задачу/i.test(r.internal[0]) &&
     /юнит/i.test(r.internal[0]) && /компонент/i.test(r.internal[0]), r.internal);
   t.check("партнёру не обещают закрытие, которого не было",
-    r.replies.length === 1 && /Понадобится время/.test(r.replies[0]) &&
+    r.replies.length === 1 && /Спасибо за обращение/.test(r.replies[0]) &&
+    !/Понадобится время/.test(r.replies[0]) &&
     !/закрываю/.test(r.replies[0]), r.replies);
 
   // Всё остальное в переоткрытом чате по-прежнему уходит человеку — включая благодарность

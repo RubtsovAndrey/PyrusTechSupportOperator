@@ -49,7 +49,7 @@ function matchingBlockedCloseTurns() {
     partner: { text: "Да, помогло" },
     outcome: "solved",
     replies: [{
-      text: "Понадобится время на изучение вопроса, мы вернёмся с ответом.",
+      text: "Рад был помочь! Если появятся новые вопросы, обращайтесь.",
       action: null,
       approval: "approved",
       fields: 1

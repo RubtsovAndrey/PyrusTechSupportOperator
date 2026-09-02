@@ -309,7 +309,8 @@ const taskId = prev.taskId || dialog.taskId || null;
 // An unknown outcome name would silently do nothing, so escalate instead of guessing.
 const requestedOutcome = String(outcome || "");
 let effectiveOutcome = OUTCOMES[requestedOutcome] ? requestedOutcome : "escalated";
-let spec = OUTCOMES[effectiveOutcome];
+const requestedSpec = OUTCOMES[effectiveOutcome];
+let spec = requestedSpec;
 if (!OUTCOMES[requestedOutcome]) {
   Log.error({ message: "applyOutcome: unknown outcome '" + outcome + "', escalating task " + taskId });
 }
@@ -345,7 +346,9 @@ if (spec.action === "finished") {
 }
 const closeBlocked = closeMissing.length > 0;
 if (closeBlocked) {
-  Log.error({ message: "applyOutcome: refusing to close task " + taskId + ": missing " + closeMissing.join(", ") + "; handing over to an operator" });
+  // This is an expected safety route, not a platform failure. It stays visible in the
+  // trace as a warning, while `noErrors` remains reserved for actual broken operations.
+  Log.warn({ message: "applyOutcome: refusing to close task " + taskId + ": missing " + closeMissing.join(", ") + "; handing over to an operator" });
   effectiveOutcome = "escalated";
   spec = OUTCOMES.escalated;
 }
@@ -395,8 +398,20 @@ if (clarifyStreak > MAX_CLARIFY_STREAK || overrun) {
   clarifyStreak = 0;
 }
 
+// A solved issue can require an operator only for classification. Telling the partner that
+// the issue still needs studying contradicts what he has just confirmed. Keep the solved
+// acknowledgement while the task itself remains open for the operator. An explicit request
+// to close is identified by the code-owned `close_request` stage; if the close is blocked,
+// replace its phrase «обращение закрываю» with a neutral farewell. Solver advice may also
+// arrive in replyText and must not be mistaken for such a request.
+const explicitCloseRequest = prev.stage === "close_request";
+const blockedCloseReply = requestedOutcome === "solved"
+  ? (explicitCloseRequest
+    ? "Спасибо за обращение! Если появятся новые вопросы, обращайтесь."
+    : (replyText || prev.replyText || requestedSpec.defaultReply))
+  : (replyText || prev.clarifyingQuestion || prev.replyText || requestedSpec.defaultReply);
 let text = spec.silent ? null : (closeBlocked
-  ? spec.defaultReply
+  ? blockedCloseReply
   : (replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply));
 
 // Left to itself the intake agent asked the partner to confirm a unit he had already

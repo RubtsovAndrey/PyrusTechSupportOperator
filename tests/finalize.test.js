@@ -278,7 +278,8 @@ async function main() {
     missingUnitPost.action === undefined && missingUnitPost.approval_choice === "approved" &&
     r.state.stage === "escalated", { post: missingUnitPost, stage: r.state.stage });
   t.check("the partner is not falsely told that an unclassified task was closed",
-    /Понадобится время/.test(missingUnitPost.text || "") && !/заработало/.test(missingUnitPost.text || ""), missingUnitPost);
+    /Рад, что всё заработало/.test(missingUnitPost.text || "") &&
+    !/Понадобится время/.test(missingUnitPost.text || ""), missingUnitPost);
 
   r = await run({ db: { [KEY]: state({
     pendingOutcome: solved,
@@ -289,6 +290,25 @@ async function main() {
   t.check("missing component blocks close too",
     missingComponentPost.action === undefined && missingComponentPost.approval_choice === "approved" &&
     r.state.stage === "escalated", { post: missingComponentPost, stage: r.state.stage });
+  t.check("a solved issue keeps its farewell even when only classification goes to the operator",
+    /Рад, что всё заработало/.test(missingComponentPost.text || "") &&
+    !/Понадобится время/.test(missingComponentPost.text || ""), missingComponentPost);
+
+  const decidedSolvedWithoutComponent = makeEnv({
+    prev: { taskId: "11613", status: "resolved", reason: "партнёр подтвердил решение" },
+    db: { [KEY]: state({
+      pendingOutcome: null,
+      data: { unitFullName: "[dodopizza.ru] Тамбов-1" },
+      runtime: Object.assign({}, runtime, { unitFieldId: 97, componentFieldId: 36 })
+    }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(decidedSolvedWithoutComponent, ["solved", null]);
+  t.check("applyOutcome answers a confirmed solution with the solved acknowledgement",
+    decidedSolvedWithoutComponent.db[KEY].pendingOutcome.kind === "escalated" &&
+    /Рад был помочь/.test(decidedSolvedWithoutComponent.db[KEY].pendingOutcome.replyText || "") &&
+    !/Понадобится время/.test(decidedSolvedWithoutComponent.db[KEY].pendingOutcome.replyText || ""),
+    decidedSolvedWithoutComponent.db[KEY].pendingOutcome);
 
   r = await run({ db: { [KEY]: state({
     pendingOutcome: solved,
