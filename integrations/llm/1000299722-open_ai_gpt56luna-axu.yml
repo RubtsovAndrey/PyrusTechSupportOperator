@@ -1,7 +1,0 @@
----
-key: 1000299722-open_ai_gpt56luna-axu
-credential-key: null
-name: OPEN_AI - gpt-5.6-luna
-provider: OPEN_AI
-model: just-ai/openai-proxy/gpt-5.6-luna
-is-direct-access: false

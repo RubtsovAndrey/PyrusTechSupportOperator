@@ -1,7 +1,0 @@
----
-key: 1000299722-open_ai_gpt53chatlat-bvl
-credential-key: null
-name: OPEN_AI - gpt-5.3-chat-latest
-provider: OPEN_AI
-model: just-ai/openai-proxy/gpt-5.3-chat-latest
-is-direct-access: false

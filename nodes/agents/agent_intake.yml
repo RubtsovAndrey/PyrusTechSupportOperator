@@ -7,7 +7,7 @@ position:
 next-step: func_parsejson_intake
 next-error-step: func_escalate_m9k4j
 parameters:
-  llm-model-key: 1000299722-open_ai_gpt53chatlat-bvl
+  llm-model-key: 1000299722-open_ai_gpt41mini-tme
   llm-model-settings:
     max-tokens: 512
     temperature: 0.3
