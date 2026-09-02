@@ -178,6 +178,41 @@ function buildFieldUpdates() {
   return updates.length ? updates : null;
 }
 
+// A second guard lives at the last possible boundary. It protects documents written by an
+// older deployment and any future caller that bypasses applyOutcome. A close is sent only
+// when both facts and both form-field ids are present. For a valid close the updates are
+// rebuilt from the current document, even if an old pendingOutcome carries a stale or
+// incomplete `fieldUpdates` array.
+let requiredCloseFieldUpdates = null;
+if (outcome.action === "finished") {
+  const missing = [];
+  if (!data.unitFullName) missing.push("юнит");
+  if (!data.componentName) missing.push("компонент");
+  if (!runtime.unitFieldId) missing.push("поле Pyrus «Юнит»");
+  if (!runtime.componentFieldId) missing.push("поле Pyrus «Компонент»");
+
+  if (missing.length) {
+    Log.error({ message: "finalize: refusing to close task " + taskId + ": missing " + missing.join(", ") + "; handing over to an operator" });
+    outcome = {
+      kind: "escalated",
+      replyText: "Понадобится время на изучение вопроса, мы вернёмся с ответом.",
+      internalNote: "[Внутренняя переписка]\nБот не закрыл задачу: перед закрытием не удалось заполнить " + missing.join(", ") + ". Передаю обращение оператору.",
+      action: null,
+      approvalChoice: "approved",
+      withFieldUpdates: true,
+      nextStage: "escalated"
+    };
+  } else {
+    // Old in-flight outcomes may not yet carry approvalChoice. Add it here rather than
+    // allowing one last unapproved close during a rolling deployment.
+    outcome = Object.assign({}, outcome, { approvalChoice: "approved", withFieldUpdates: true });
+    requiredCloseFieldUpdates = [
+      { id: Number(runtime.unitFieldId), value: { item_name: String(data.unitFullName) } },
+      { id: Number(runtime.componentFieldId), value: { item_name: String(data.componentName) } }
+    ];
+  }
+}
+
 const hasSomethingToPost = !!(outcome.replyText || outcome.action || outcome.approvalChoice || outcome.internalNote);
 
 if (!token) {
@@ -297,7 +332,7 @@ if (hasSomethingToPost) {
   }
   if (outcome.action) body.action = outcome.action;
   if (outcome.approvalChoice) body.approval_choice = outcome.approvalChoice;
-  const fieldUpdates = buildFieldUpdates();
+  const fieldUpdates = requiredCloseFieldUpdates || buildFieldUpdates();
   if (fieldUpdates) body.field_updates = fieldUpdates;
 
   if (body.text || body.action || body.approval_choice) {

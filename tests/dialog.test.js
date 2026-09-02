@@ -167,6 +167,19 @@ async function main() {
     r.replies.length === 1 && /обращение закрываю/i.test(r.replies[0]), r.replies);
   t.check("закрытие не тратит вызов модели", r.agents.length === 0, r.agents);
 
+  // A close request before intake has neither a resolved unit nor a topic/component. It
+  // used to jump straight to `action: finished`, bypassing the mandatory form fields.
+  bot = chat();
+  r = await bot.turn("Закройте чат, вопрос уже не актуален");
+  t.check("задача без юнита и компонента не закрывается",
+    r.stage === "escalated" && r.kind === "escalated", r);
+  t.check("неполная задача остаётся оператору с объяснением",
+    r.internal.length === 1 && /не закрыл задачу/i.test(r.internal[0]) &&
+    /юнит/i.test(r.internal[0]) && /компонент/i.test(r.internal[0]), r.internal);
+  t.check("партнёру не обещают закрытие, которого не было",
+    r.replies.length === 1 && /Понадобится время/.test(r.replies[0]) &&
+    !/закрываю/.test(r.replies[0]), r.replies);
+
   // Всё остальное в переоткрытом чате по-прежнему уходит человеку — включая благодарность
   // с довеском: «спасибо, а теперь другой вопрос» — это другой вопрос.
   bot = chat();

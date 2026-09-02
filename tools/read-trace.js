@@ -178,10 +178,11 @@ function renderDocument(document, withPrompt) {
     if (withPrompt) t.prompts.forEach((p, k) => lines.push("  --- промпт " + (k + 1) + " ---\n    " + p));
     t.llmReplies.forEach(r => lines.push("  LLM (ответ): " + cut(r, 500)));
     t.calls.forEach(c => lines.push("  вызов: " + c));
-    t.replies.forEach(r => lines.push("  БОТ: " + cut(r.text, 500) +
-      (r.action ? " [action: " + r.action + "]" : "") + (r.fields ? " [полей: " + r.fields + "]" : "")));
-    t.internal.forEach(r => lines.push("  ОПЕРАТОРУ: " + cut(r.text, 500) +
-      (r.approval ? " [approval: " + r.approval + "]" : "")));
+    const operation = r => (r.action ? " [action: " + r.action + "]" : "") +
+      (r.approval ? " [approval: " + r.approval + "]" : "") +
+      (r.fields ? " [полей: " + r.fields + "]" : "");
+    t.replies.forEach(r => lines.push("  БОТ: " + cut(r.text, 500) + operation(r)));
+    t.internal.forEach(r => lines.push("  ОПЕРАТОРУ: " + cut(r.text, 500) + operation(r)));
 
     if (!t.replies.length && !t.internal.length) lines.push("  (в Pyrus ничего не ушло)");
     lines.push("  исход: " + (t.outcome || "—"));
@@ -237,6 +238,15 @@ function validateScenario(turns, scenario) {
     if (wanted.replies && wanted.replies.count != null) add(prefix + "ответов партнёру = " + wanted.replies.count,
       turn.replies.length === wanted.replies.count, "получено " + turn.replies.length);
     textChecks("ответ партнёру", replies, wanted.replies);
+    if (wanted.replies) {
+      const first = turn.replies[0] || {};
+      if (wanted.replies.action !== undefined) add(prefix + "action ответа = " + String(wanted.replies.action),
+        first.action === wanted.replies.action, "фактически: " + (first.action || "—"));
+      if (wanted.replies.approval !== undefined) add(prefix + "approval ответа = " + String(wanted.replies.approval),
+        first.approval === wanted.replies.approval, "фактически: " + (first.approval || "—"));
+      if (wanted.replies.fields !== undefined) add(prefix + "полей в ответе = " + wanted.replies.fields,
+        first.fields === wanted.replies.fields, "фактически: " + Number(first.fields || 0));
+    }
 
     const internal = turn.internal.map(r => r.text || "").join("\n");
     if (wanted.internal && wanted.internal.count != null) add(prefix + "внутренних сообщений = " + wanted.internal.count,

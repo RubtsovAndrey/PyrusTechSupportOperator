@@ -249,17 +249,56 @@ async function main() {
     internalNote: null,
     action: "finished",
     approvalChoice: null,
-    fieldUpdates: [{ id: 5, value: { item_name: "Москва 12" } }],
+    // Old in-flight shape: no approval yet and a stale incomplete ready-made array.
+    fieldUpdates: [{ id: 5, value: { item_name: "старое значение" } }],
     nextStage: "closed"
   };
-  r = await run({ db: { [KEY]: state({ pendingOutcome: solved }) } });
+  r = await run({ db: { [KEY]: state({
+    pendingOutcome: solved,
+    data: { unitFullName: "[dodopizza.ru] Тамбов-1", componentName: "Касса" },
+    runtime: Object.assign({}, runtime, { unitFieldId: 97, componentFieldId: 36 })
+  }) } });
   t.check("closing uses action finished", r.posts[0].body.action === "finished", r.posts[0].body);
-  // The pre-change shape of pendingOutcome: at the moment of a deploy documents written by
-  // the previous version are still in flight, and losing the unit of one of them would
-  // leave a Pyrus field empty with nobody to notice.
-  t.check("a fieldUpdates array left by the previous version is still sent",
-    Array.isArray(r.posts[0].body.field_updates) && r.posts[0].body.field_updates.length === 1, r.posts[0].body);
+  t.check("closing approves the workflow step in the same request",
+    r.posts[0].body.approval_choice === "approved", r.posts[0].body);
+  t.check("a stale fieldUpdates array is replaced with both current required fields",
+    Array.isArray(r.posts[0].body.field_updates) && r.posts[0].body.field_updates.length === 2 &&
+    r.posts[0].body.field_updates.every(x => x.id === 97 || x.id === 36), r.posts[0].body);
   t.check("stage becomes closed", r.state.stage === "closed", r.state);
+
+  // Missing classification is never allowed to disappear behind `action: finished`.
+  // The safe fallback is an approved handover: the task stays open for the operator.
+  r = await run({ db: { [KEY]: state({
+    pendingOutcome: solved,
+    data: { componentName: "Касса" },
+    runtime: Object.assign({}, runtime, { unitFieldId: 97, componentFieldId: 36 })
+  }) } });
+  const missingUnitPost = r.posts[r.posts.length - 1].body;
+  t.check("missing unit blocks close and hands the task over",
+    missingUnitPost.action === undefined && missingUnitPost.approval_choice === "approved" &&
+    r.state.stage === "escalated", { post: missingUnitPost, stage: r.state.stage });
+  t.check("the partner is not falsely told that an unclassified task was closed",
+    /Понадобится время/.test(missingUnitPost.text || "") && !/заработало/.test(missingUnitPost.text || ""), missingUnitPost);
+
+  r = await run({ db: { [KEY]: state({
+    pendingOutcome: solved,
+    data: { unitFullName: "[dodopizza.ru] Тамбов-1" },
+    runtime: Object.assign({}, runtime, { unitFieldId: 97, componentFieldId: 36 })
+  }) } });
+  const missingComponentPost = r.posts[r.posts.length - 1].body;
+  t.check("missing component blocks close too",
+    missingComponentPost.action === undefined && missingComponentPost.approval_choice === "approved" &&
+    r.state.stage === "escalated", { post: missingComponentPost, stage: r.state.stage });
+
+  r = await run({ db: { [KEY]: state({
+    pendingOutcome: solved,
+    data: { unitFullName: "[dodopizza.ru] Тамбов-1", componentName: "Касса" },
+    runtime: Object.assign({}, runtime, { unitFieldId: 97, componentFieldId: null })
+  }) } });
+  const missingFieldPost = r.posts[r.posts.length - 1].body;
+  t.check("an unresolved Pyrus field id also blocks close",
+    missingFieldPost.action === undefined && missingFieldPost.approval_choice === "approved" &&
+    r.state.stage === "escalated", { post: missingFieldPost, stage: r.state.stage });
 
   // ── Field updates are rebuilt here, not carried in the document ──
   // Carried as a ready array they sat INSIDE the value of a $set, which the db adapter
@@ -276,6 +315,8 @@ async function main() {
   });
   const fu = r.posts[0].body.field_updates || [];
   t.check("unit and component are rebuilt from the document", fu.length === 2, fu);
+  t.check("a current close is approved as well as finished",
+    r.posts[0].body.approval_choice === "approved" && r.posts[0].body.action === "finished", r.posts[0].body);
   t.check("the unit goes into the field receiveWebhook found",
     fu[0].id === 97 && fu[0].value.item_name === "[dodopizza.ru] Тамбов-1", fu[0]);
   t.check("the component goes into its own field",

@@ -116,6 +116,73 @@
       }
     },
     {
+      "id": "known-pos-success-without-component",
+      "title": "Успешное решение без компонента не закрывает чат и передаётся оператору",
+      "messages": [
+        "Тамбов-1, на кассе ресторана ККМ не подключен",
+        "Да, помогло"
+      ],
+      "expect": {
+        "turnCount": 2,
+        "turns": [
+          {
+            "partner": {
+              "includes": ["Тамбов-1", "кассе ресторана", "ККМ не подключен"]
+            },
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": [
+                "Проверьте соединение между ККМ и моноблоком",
+                "Получилось решить вопрос"
+              ],
+              "action": null,
+              "approval": null,
+              "fields": 0
+            },
+            "internal": { "count": 0 },
+            "path": {
+              "includes": ["Solver Agent", "Outcome - reply", "finalize"]
+            },
+            "calls": {
+              "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"reply\""]
+            },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["Да, помогло"] },
+            "outcome": "solved",
+            "replies": {
+              "count": 1,
+              "includes": ["Понадобится время на изучение вопроса"],
+              "excludes": ["Рад был помочь", "обращение закрываю"],
+              "action": null,
+              "approval": "approved",
+              "fields": 1
+            },
+            "internal": {
+              "count": 1,
+              "includes": [
+                "Бот не закрыл задачу",
+                "не удалось заполнить компонент",
+                "Тематика: pos_terminal_troubleshooting"
+              ]
+            },
+            "logs": {
+              "includes": ["refusing to close", "missing компонент"]
+            },
+            "path": {
+              "includes": ["Confirmation Agent", "Outcome - solved", "finalize"]
+            },
+            "calls": {
+              "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"solved\""]
+            },
+            "noErrors": true
+          }
+        ]
+      }
+    },
+    {
       "id": "unknown-label-printer-with-relevant-hint",
       "title": "Неизвестная проблема принтера этикеток передаётся оператору с релевантной статьёй общей БЗ",
       "messages": [

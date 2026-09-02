@@ -271,6 +271,14 @@ const DEFAULT_CONFIG = {
   subjectFieldId: 47, messageFieldId: 48
 };
 
+// В рабочем webhook Pyrus присылает поля чатовой формы вместе с задачей. Именно из
+// этого payload receiveWebhook узнаёт актуальные id, поэтому e2e-диалог должен
+// воспроизводить их присутствие, а не полагаться на конфиг подзадачи.
+const DEFAULT_TASK_FIELDS = [
+  { id: 35, name: "Юнит", value: null },
+  { id: 28, name: "Компонент", value: null }
+];
+
 function conversation(options) {
   const o = options || {};
   const taskId = o.taskId || 700001;
@@ -344,7 +352,7 @@ function conversation(options) {
       task: {
         id: taskId,
         form_id: o.formId || 77,
-        fields: o.fields || [],
+        fields: o.fields || DEFAULT_TASK_FIELDS,
         comments: comments.slice()
       }
     };

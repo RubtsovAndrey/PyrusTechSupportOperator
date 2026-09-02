@@ -43,6 +43,33 @@ function matchingPosTurns() {
   ];
 }
 
+function matchingBlockedCloseTurns() {
+  const turns = matchingPosTurns();
+  turns[1] = {
+    partner: { text: "Да, помогло" },
+    outcome: "solved",
+    replies: [{
+      text: "Понадобится время на изучение вопроса, мы вернёмся с ответом.",
+      action: null,
+      approval: "approved",
+      fields: 1
+    }],
+    internal: [{ text: "Бот не закрыл задачу: перед закрытием не удалось заполнить компонент. " +
+      "Тематика: pos_terminal_troubleshooting." }],
+    logs: ["applyOutcome: refusing to close task 1: missing компонент; handing over to an operator"],
+    path: ["Confirmation Agent", "Outcome - solved", "finalize"],
+    calls: ["ID_Actions.applyOutcome({\"outcome\":\"solved\"})"],
+    errors: []
+  };
+  turns[0].replies[0] = {
+    text: turns[0].replies[0].text,
+    action: null,
+    approval: null,
+    fields: 0
+  };
+  return turns;
+}
+
 function matchingLabelPrinterTurn() {
   return {
     partner: { text: "Тамбов-1, принтер этикеток не печатает этикетки продуктов, при этом тестовая печать работает" },
@@ -94,6 +121,29 @@ async function main() {
   checks = validateScenario(searchedAgain, posScenario);
   t.check("general knowledge search on a known article fails the scenario",
     checks.some(c => !c.ok && /путь не содержит.*Find knowledge for operator/.test(c.label)), checks);
+
+  const blockedCloseScenario = loadScenario(scenariosFile, "known-pos-success-without-component");
+  checks = validateScenario(matchingBlockedCloseTurns(), blockedCloseScenario);
+  t.check("a successful solution without a component is accepted only as an approved handover",
+    checks.length > 0 && checks.every(c => c.ok), checks.filter(c => !c.ok));
+
+  const closedAnyway = matchingBlockedCloseTurns();
+  closedAnyway[1].replies[0].action = "finished";
+  checks = validateScenario(closedAnyway, blockedCloseScenario);
+  t.check("closing the incomplete task fails the live scenario",
+    checks.some(c => !c.ok && /action ответа/.test(c.label)), checks);
+
+  const notApproved = matchingBlockedCloseTurns();
+  notApproved[1].replies[0].approval = null;
+  checks = validateScenario(notApproved, blockedCloseScenario);
+  t.check("a handover without approval fails the live scenario",
+    checks.some(c => !c.ok && /approval ответа/.test(c.label)), checks);
+
+  const fieldsLost = matchingBlockedCloseTurns();
+  fieldsLost[1].replies[0].fields = 0;
+  checks = validateScenario(fieldsLost, blockedCloseScenario);
+  t.check("losing the known unit field fails the live scenario",
+    checks.some(c => !c.ok && /полей в ответе/.test(c.label)), checks);
 
   const printerScenario = loadScenario(scenariosFile, "unknown-label-printer-with-relevant-hint");
   checks = validateScenario([matchingLabelPrinterTurn()], printerScenario);

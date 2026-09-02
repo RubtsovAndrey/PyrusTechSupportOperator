@@ -269,7 +269,9 @@ const OUTCOMES = {
   solved: {
     nextStage: "closed",
     action: "finished",
-    approvalChoice: null,
+    // Closing is not allowed to bypass the workflow step: Pyrus must receive the same
+    // approval as on a handover, together with both mandatory field updates.
+    approvalChoice: "approved",
     withFieldUpdates: true,
     defaultReply: "Рад был помочь! Если появятся новые вопросы, обращайтесь."
   },
@@ -283,7 +285,7 @@ const OUTCOMES = {
   subtask_created: {
     nextStage: "closed",
     action: "finished",
-    approvalChoice: null,
+    approvalChoice: "approved",
     withFieldUpdates: true,
     defaultReply: "Обращение создано и передано специалистам. Мы вернёмся с ответом на ваш email."
   },
@@ -305,8 +307,10 @@ const dialog = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = prev.taskId || dialog.taskId || null;
 
 // An unknown outcome name would silently do nothing, so escalate instead of guessing.
-let spec = OUTCOMES[String(outcome || "")] || OUTCOMES.escalated;
-if (!OUTCOMES[String(outcome || "")]) {
+const requestedOutcome = String(outcome || "");
+let effectiveOutcome = OUTCOMES[requestedOutcome] ? requestedOutcome : "escalated";
+let spec = OUTCOMES[effectiveOutcome];
+if (!OUTCOMES[requestedOutcome]) {
   Log.error({ message: "applyOutcome: unknown outcome '" + outcome + "', escalating task " + taskId });
 }
 
@@ -326,6 +330,26 @@ try {
 const data = state.data || {};
 const runtime = state.runtime || {};
 
+// ── Closing is the most destructive outcome, so it has stronger prerequisites ──
+// `action: finished` used to be sent even when buildFieldUpdates() later returned null.
+// That let the bot close a Pyrus task without approving its step and without filling the
+// unit/component fields. A human could no longer repair the classification in the normal
+// workflow. Missing facts are not a reason to guess or to close: keep the task open and
+// hand it to an operator, who can fill what the bot could not determine.
+const closeMissing = [];
+if (spec.action === "finished") {
+  if (!data.unitFullName) closeMissing.push("юнит");
+  if (!data.componentName) closeMissing.push("компонент");
+  if (!runtime.unitFieldId) closeMissing.push("поле Pyrus «Юнит»");
+  if (!runtime.componentFieldId) closeMissing.push("поле Pyrus «Компонент»");
+}
+const closeBlocked = closeMissing.length > 0;
+if (closeBlocked) {
+  Log.error({ message: "applyOutcome: refusing to close task " + taskId + ": missing " + closeMissing.join(", ") + "; handing over to an operator" });
+  effectiveOutcome = "escalated";
+  spec = OUTCOMES.escalated;
+}
+
 // Insurance against the failure a partner actually lived through: asked for the unit,
 // then for the problem, then for the unit again, four times over. The question is now
 // composed from the task document, which removes the cause, but no future defect in an
@@ -336,12 +360,12 @@ const MAX_CLARIFY_STREAK = 3;
 // cannot bound it. This does: a tree deeper than this is an error in the article, not a
 // dialog, and the partner must not pay for it.
 const MAX_TREE_QUESTIONS = 12;
-const isClarify = String(outcome || "") === "clarify";
+const isClarify = effectiveOutcome === "clarify";
 // Every outcome that ends the turn waiting for the partner to say something. All of them
 // have to count towards the loop guards, or an article asking its questions through its own
 // stage would be exempt from the very limits that exist to stop it looping.
 const ASKING = ["clarify", "clarify_email", "clarify_answers"];
-const asksSomething = ASKING.indexOf(String(outcome || "")) >= 0;
+const asksSomething = ASKING.indexOf(effectiveOutcome) >= 0;
 let clarifyStreak = asksSomething ? (Number(state.clarifyStreak) || 0) + 1 : 0;
 let loopBroken = false;
 let overrun = false;
@@ -371,7 +395,9 @@ if (clarifyStreak > MAX_CLARIFY_STREAK || overrun) {
   clarifyStreak = 0;
 }
 
-let text = spec.silent ? null : (replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply);
+let text = spec.silent ? null : (closeBlocked
+  ? spec.defaultReply
+  : (replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply));
 
 // Left to itself the intake agent asked the partner to confirm a unit he had already
 // named, offered "пиццерия или кофейня" in a city with no coffee shops, and wanted to
@@ -458,7 +484,9 @@ if (spec.nextStage === "escalated") {
     // тот, кто передачу и решил — статья, у которой партнёр дважды ничего не спросил, или
     // сам обработчик вебхука, узнавший просьбу человека: он один знает, что именно
     // произошло, а `prev.reason` в этот момент несёт объяснение модели, то есть пересказ.
-    reason: loopBroken
+    reason: closeBlocked
+      ? "бот не закрыл задачу: перед закрытием не удалось заполнить " + closeMissing.join(", ")
+      : loopBroken
       ? (overrun
         ? "статья задала больше " + MAX_TREE_QUESTIONS + " вопросов и не пришла ни к решению, ни к подзадаче — похоже на ошибку в самой статье"
         : "бот задал подряд " + MAX_CLARIFY_STREAK + " уточняющих вопроса и не продвинулся")
@@ -480,7 +508,7 @@ if (spec.nextStage === "escalated") {
 // point write. It also puts the construction of a Pyrus payload in the only function that
 // talks to Pyrus, which is where the rest of it already lives.
 const pendingOutcome = {
-  kind: loopBroken ? "escalated" : String(outcome || "escalated"),
+  kind: loopBroken ? "escalated" : effectiveOutcome,
   replyText: text,
   internalNote: internalNote,
   action: spec.action,

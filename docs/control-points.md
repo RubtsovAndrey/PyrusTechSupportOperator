@@ -144,9 +144,9 @@ solver — к каталогу юнитов. Один агент не может
 | `clarify_email` | `awaiting_email` | — | просьба назвать email |
 | `clarify_answers` | `awaiting_answers` | — | «Уточните, пожалуйста, детали вопроса.» |
 | `reply` | `awaiting_confirmation` | — | «Понадобится время…» |
-| `solved` | `closed` | `action: finished` + поля | «Рад был помочь!…» |
+| `solved` | `closed` | `approval_choice: approved` + `action: finished` + 2 поля | «Рад был помочь!…» |
 | `escalated` | `escalated` | `approval_choice: approved` + поля | «Понадобится время…» |
-| `subtask_created` | `closed` | `action: finished` + поля | «Обращение создано и передано специалистам…» |
+| `subtask_created` | `closed` | `approval_choice: approved` + `action: finished` + 2 поля | «Обращение создано и передано специалистам…» |
 | `handover_silent` | `escalated` | `approved` + поля | ничего, партнёру не пишем |
 
 `defaultReply` — это то, что услышит партнёр, если модель ничего не сказала. Правится здесь.
@@ -160,6 +160,14 @@ solver — к каталогу юнитов. Один агент не может
 Столбец «поля» — это `withFieldUpdates`. Сам массив `field_updates` собирает `finalize` из
 `data.unitFullName`/`data.componentName` и id полей в `runtime`; в `pendingOutcome` его нет
 намеренно — массив внутри значения `$set` платформа не принимает.
+
+**Закрытие имеет жёсткий контракт:** юнит и компонент уже определены, а в webhook найдены
+id обоих полей формы. Только тогда `finalize` одним комментарием отправляет утверждение,
+`action: finished` и ровно два `field_updates`. Если отсутствует хотя бы одно условие,
+`action: finished` не отправляется: исход превращается в утверждённую передачу оператору,
+а во внутренней переписке перечисляется, чего не хватило. Эта проверка стоит и при выборе
+исхода, и непосредственно перед HTTP-запросом, поэтому защищает также незавершённые
+документы от предыдущей версии кода.
 
 ### Уточняющий вопрос (`UNIT_QUESTION` … `if (isClarify` в `applyOutcome`)
 
