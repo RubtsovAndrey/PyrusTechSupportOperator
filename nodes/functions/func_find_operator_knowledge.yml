@@ -2,8 +2,8 @@
 id: func_find_operator_knowledge
 name: Find knowledge for operator
 position:
-  x: 4930
-  y: -480
+  x: 5014
+  y: -928
 next-step: func_escalate_m9k4j
 next-error-step: func_escalate_m9k4j
 parameters:
