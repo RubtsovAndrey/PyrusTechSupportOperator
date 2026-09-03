@@ -4,8 +4,8 @@ name: hand over to subtask?
 position:
   x: 4684
   y: 604
-next-step: func_createsubtask_v5r8k
+next-step: agent_summary_subtask
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).next === 'subtask'"
-  false-step: func_escalate_m9k4j
+  false-step: agent_summary_handover

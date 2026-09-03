@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "topicCount": 5,
-  "catalogSha256": "f4bba1888d087abe9c2c383fa43d297365e4f81afe288ed4c25c449b16a842e7",
+  "catalogSha256": "a7271431d9f89cbf9d7f12aeca391f1ad9a458296413b2820fade734a0bcf35f",
   "topics": [
     {
       "key": "cash_receipt_error_148",
@@ -34,7 +34,7 @@
     {
       "key": "ratings_questions",
       "source": "docs/knowledge/topics/ratings_questions.json",
-      "sourceSha256": "22fe6f0e9d457220899f4186a789957459ca412c106103ea1ac3c04f30a61608",
+      "sourceSha256": "61a97fb2146ace3930ce967ba31981bdc651ae8864aef93b990426cf3d2e4546",
       "rag": "docs/rag/ratings_questions.md",
       "ragSha256": "7adca6f4bde588f7b0d3d43235ecc6b697945a54aecd66606b1cc5ae7a002f28"
     }

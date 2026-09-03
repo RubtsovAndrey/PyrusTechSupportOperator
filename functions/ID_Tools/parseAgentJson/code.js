@@ -7,31 +7,6 @@ function normalize(s) {
   return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[.,«»'"()\[\]]/g, " ").replace(/[\s-]+/g, " ").trim();
 }
 
-// A negative verdict on the advice outranks the model calling the rest of the same
-// request a "new question".  This happened in the first live ratings acceptance chat:
-// «эта информация не помогла, нужно, чтобы специалисты проверили результат» was labelled
-// `more_questions`, which deliberately clears the current topic and starts intake over.
-// The tree then forgot that the partner had already said «Рейтинг стандартов», asked for
-// it again and served the same KB answer a second time.  The model still handles natural
-// language in general; this narrow guard only recognises an explicit failure statement,
-// where clearing the current problem can never be the safe interpretation.
-function explicitAdviceFailure(text) {
-  const said = normalize(text);
-  if (!said) return false;
-  const tokens = said.split(" ").filter(Boolean);
-  // JavaScript's `\b` treats only Latin letters and digits as word characters on the
-  // platform, so a regexp like `\bпомогла\b` never matches. Compare normalised tokens
-  // and stems instead; inflection then comes for free without an exhaustive word list.
-  for (let i = 0; i < tokens.length - 1; i++) {
-    if (tokens[i] === "не" && ["помог", "сработ", "получ", "реш"].some(stem =>
-      tokens[i + 1].indexOf(stem) === 0)) return true;
-  }
-  return said.indexOf("did not help") >= 0 || said.indexOf("didn t help") >= 0 ||
-    said.indexOf("does not help") >= 0 || said.indexOf("doesn t help") >= 0 ||
-    said.indexOf("still not working") >= 0 || said.indexOf("still not resolved") >= 0 ||
-    said.indexOf("still not solved") >= 0;
-}
-
 // "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)" -> "Тамбов-1".
 function nameOf(entry) {
   let s = String(entry || "").trim();
@@ -513,6 +488,22 @@ if (parsed.topicKey) parsed.topicKey = validateTopicKey(
 );
 if (parsed.componentName) parsed.componentName = validateComponent(parsed.componentName);
 
+// An uninterrupted MVP chat has one problem. Partners almost never switch to an unrelated
+// subject halfway through it; treating an ambiguous continuation as a new request proved
+// much more expensive than keeping the established context: the article, its answers and
+// its component were erased, then the same instruction was sent again. A genuinely new
+// context arrives through Pyrus' `reopened` event and is handed to an operator before any
+// agent runs. Until then, a selected topic is sticky. Curiosity belongs before this point:
+// routing may ask a discriminating question instead of selecting a topic prematurely.
+if (String(stage || "") === "routing" && known.topicKey) {
+  if (parsed.topicKey && String(parsed.topicKey) !== String(known.topicKey)) {
+    Log.warn({ message: "parseAgentJson: routing tried to replace sticky topic " + known.topicKey +
+      " with " + parsed.topicKey + " on task " + taskId + "; keeping the established topic" });
+  }
+  parsed.topicKey = known.topicKey;
+  parsed.route = known.topicRoute || "solver";
+}
+
 // The component of a known topic belongs to the catalog, not to the model's guess:
 // once the topic is resolved, the catalog value wins outright. A branching article is
 // the exception — there the component belongs to the branch, and searchKnowledge has
@@ -526,21 +517,18 @@ if (parsed.topicKey) {
   else if (isTree) delete parsed.componentName;
 }
 
-// The confirmation answer that means решилось, но есть другой вопрос. A small model
-// may still call an explicit «не помогло» a new question when the partner asks for a
-// specialist in the same sentence. Keep the current problem in that case and let the
-// article's deterministic onFail route decide what comes next.
-if (String(stage || "") === "confirmation" &&
-    String(parsed.status || "") === "more_questions" &&
-    explicitAdviceFailure(dialog.incomingText)) {
+// `more_questions` used to mean “erase the problem and start intake again”. That is the
+// wrong default for a continuous chat: in the live ratings run «нет, нам бы передать
+// специалисту ситуацию» lost the chosen rating and repeated the same KB answer. Keep the
+// old value as an input-compatibility shim for models deployed with the previous prompt,
+// but interpret it as an unresolved continuation of the current topic. A language switch
+// may deliberately assign `more_questions` again below; that path is marked separately
+// and returns to intake only to collect the safe minimum before handover.
+if (String(stage || "") === "confirmation" && String(parsed.status || "") === "more_questions") {
   parsed.status = "failed";
-  Log.warn({ message: "parseAgentJson: explicit advice failure on task " + taskId +
-    " overrode confirmation status more_questions" });
+  Log.warn({ message: "parseAgentJson: sticky topic on task " + taskId +
+    " converted confirmation status more_questions to failed" });
 }
-
-// The confirmation answer that means решилось, но есть другой вопрос.
-const moreQuestions = String(stage || "") === "confirmation" &&
-  String(parsed.status || "") === "more_questions";
 
 if (taskId) {
   try {
@@ -558,6 +546,22 @@ if (taskId) {
         patch["data." + key] = parsed[key];
       }
     });
+
+    // A summary is advisory text for a human, never a routing fact. Only the dedicated
+    // terminal agent may write it, and a bad or empty answer simply leaves the old,
+    // deterministic problemSummary fallback in place. One line is easier to render in
+    // both a subtask field and internal correspondence; the raw partner wording remains
+    // separately available in treeAnswerEvidence.
+    if (String(stage || "") === "summary") {
+      const caseSummary = String(parsed.caseSummary || "").replace(/\s+/g, " ").trim();
+      if (caseSummary) {
+        data.caseSummary = caseSummary.slice(0, 900);
+        patch["data.caseSummary"] = data.caseSummary;
+        parsed.caseSummary = data.caseSummary;
+      } else {
+        delete parsed.caseSummary;
+      }
+    }
 
     // ── A question with nothing left to ask ──
     // Intake needs exactly two facts: the unit and the essence of the problem. When both
@@ -637,11 +641,24 @@ if (taskId) {
       patch["data.handoverReason"] = data.handoverReason;
     }
     if (restrictedNow && String(stage || "") === "confirmation") {
-      // The existing graph returns `more_questions` to intake. Unlike a genuine new
-      // question, this value is assigned after `moreQuestions` was computed above, so the
-      // current problem facts are preserved for the handover.
+      // This is the sole remaining use of `more_questions`: not a new topic, but a return
+      // to safe intake after the language boundary changed during an active scenario.
       parsed.status = "more_questions";
       parsed.languageBoundary = true;
+    }
+
+    // Record what the partner said about the latest KB answer. The old summary printed a
+    // 200-character prefix of the bot's own recommendation under «Что уже пробовали» —
+    // neither a real attempt nor useful context. This exact partner reply lets both human
+    // destinations state the outcome without reproducing the instruction.
+    if (String(stage || "") === "confirmation" && Array.isArray(data.attempts) && data.attempts.length &&
+        ["resolved", "failed", "question", "unclear"].indexOf(String(parsed.status || "")) >= 0) {
+      data.knowledgeOutcome = {
+        status: String(parsed.status),
+        partnerText: String(dialog.incomingText || "").trim(),
+        at: Date.now()
+      };
+      patch["data.knowledgeOutcome"] = data.knowledgeOutcome;
     }
 
     // What the partner answered to the questions of a branching article. The names of
@@ -651,7 +668,9 @@ if (taskId) {
     if (parsed.answers && typeof parsed.answers === "object" && !Array.isArray(parsed.answers)) {
       const allowed = answerKeysOfTopic(data.topicKey || parsed.topicKey);
       const stored = Object.assign({}, data.treeAnswers);
+      const evidence = Object.assign({}, data.treeAnswerEvidence);
       const refused = [];
+      let learnedAnswer = false;
       const currentCommentId = state.runtime && state.runtime.incomingCommentId != null
         ? String(state.runtime.incomingCommentId) : null;
       const suppressed = data.suppressAnswerCommentId != null &&
@@ -665,10 +684,23 @@ if (taskId) {
         // point write outright. Only what a partner can actually say is kept.
         if (value === null || value === undefined || value === "") return;
         if (typeof value === "object") { refused.push(k); return; }
-        stored[k] = String(value);
-        patch["data.treeAnswers." + k] = String(value);
+        const answer = String(value);
+        if (stored[k] !== answer) {
+          learnedAnswer = true;
+          // The model supplies the semantic value used by the tree. The human-facing
+          // evidence is the partner's actual message from which that value was learned.
+          // This makes “verbatim” a data property rather than merely a prompt request.
+          const raw = String(dialog.incomingText || "").trim();
+          if (raw) {
+            evidence[k] = raw;
+            patch["data.treeAnswerEvidence." + k] = raw;
+          }
+        }
+        stored[k] = answer;
+        patch["data.treeAnswers." + k] = answer;
       });
       data.treeAnswers = stored;
+      data.treeAnswerEvidence = evidence;
       if (refused.length) {
         Log.warn({ message: "parseAgentJson: answers " + refused.join(", ") + " are not declared by article " + (data.topicKey || parsed.topicKey) + ", not persisting" });
       }
@@ -677,6 +709,29 @@ if (taskId) {
         delete data.suppressAnswerCommentId;
         patch["data.suppressAnswerKeys"] = null;
         patch["data.suppressAnswerCommentId"] = null;
+      }
+
+      // searchKnowledge is called before the solver returns its JSON. A small model may
+      // notice an answer only while composing that JSON, which used to persist the fact
+      // and still send the already-answered question. Re-enter the solver once in the same
+      // webhook: the tool now sees the stored answer and either reaches the terminal or
+      // asks only what is genuinely still missing. The comment-scoped counter prevents an
+      // agent that reveals one answer per call from forming an internal loop.
+      if (String(stage || "") === "solver" && String(parsed.kind || "") === "questions" &&
+          learnedAnswer && !data.treeEnd) {
+        const current = currentCommentId || "no-comment";
+        const used = String(data.solverRetryCommentId || "") === current
+          ? Number(data.solverRetryCount) || 0 : 0;
+        if (used < 1) {
+          parsed.retrySolver = true;
+          parsed.replyText = "";
+          data.solverRetryCommentId = current;
+          data.solverRetryCount = used + 1;
+          patch["data.solverRetryCommentId"] = current;
+          patch["data.solverRetryCount"] = used + 1;
+          Log.info({ message: "parseAgentJson: task " + taskId +
+            " learned an article answer after the tool call; retrying solver once without replying" });
+        }
       }
     }
 
@@ -760,50 +815,6 @@ if (taskId) {
         data.topicRoute = route;
         patch["data.topicRoute"] = route;
       }
-      // ── A different article means a different walk ──
-      // `treeNode`, `treeAnswers` and the rest are named in the vocabulary of ONE article.
-      // Left in place across a change of topic they do not fail loudly: searchKnowledge
-      // looks up `topic.nodes[treeNode]`, finds nothing, and quietly restarts the article
-      // from its root — while the answers collected under the previous article's keys stay
-      // in the document and end up in the subtask of the new one. The question budget did
-      // not reset either, so the new article started with the score of the old one.
-      if (parsed.topicKey && known.topicKey && parsed.topicKey !== known.topicKey) {
-        ["treeNode", "treeAnswers", "treeEnd", "treeNext", "treeAskedNode",
-         "treeHandoverAsked", "offeredStep", "solutionAuthorization", "requiredKnowledgeNotice",
-         "requiredFollowUpQuestion",
-         "knowledgeSourceIds", "openAnswerPrompts", "operatorAdvice", "suppressAnswerKeys",
-         "suppressAnswerCommentId"].forEach(k => {
-          delete data[k];
-          // A later point write to `data.treeAnswers.someKey` cannot descend through
-          // MongoDB null (error 28). An empty object means the same thing to every reader
-          // and remains a valid parent for the next answer.
-          patch["data." + k] = k === "treeAnswers" ? {} : null;
-        });
-        patch["treeQuestions"] = 0;
-        patch["treeStreakNode"] = null;
-        Log.warn({ message: "parseAgentJson: topic changed " + known.topicKey + " -> " + parsed.topicKey + " on task " + taskId + ", the tree walk of the previous article is reset" });
-      }
-    }
-
-    // The partner confirms the old problem is gone and asks about something else. Left
-    // in place, the facts of the solved problem sent the next turn back into the old
-    // article: the solver read topicKey and served the next step of an article that no
-    // longer applies, while the attempts log kept growing under the wrong topic.
-    if (moreQuestions) {
-      // Cleared by writing null rather than by removing the key: only $set is available.
-      // `treeAnswers` is the exception and becomes `{}`, so later nested answer writes
-      // remain legal for MongoDB.
-      ["problemSummary", "topicKey", "componentName", "topicRoute",
-       "attempts", "offeredStep", "solutionAuthorization", "preQuestionsAsked",
-       // The tree has to start from its root for the new question, and the answers to
-       // the old one must not end up in the subtask of the new one.
-       "treeNode", "treeAnswers", "treeEnd", "treeHandoverAsked", "treeNext",
-       "treeAskedNode", "requiredKnowledgeNotice", "requiredFollowUpQuestion", "knowledgeSourceIds",
-       "openAnswerPrompts", "operatorAdvice", "suppressAnswerKeys", "suppressAnswerCommentId"].forEach(k => {
-        delete data[k];
-        patch["data." + k] = k === "treeAnswers" ? {} : null;
-      });
-      Log.info({ message: "parseAgentJson: task " + taskId + " moved on to a new question, previous problem facts cleared" });
     }
 
     // Every solution handed to the partner is logged: searchKnowledge reads this to
@@ -853,27 +864,6 @@ if (taskId) {
       parsed.treeEnd = "escalate";
       patch["data.handoverReason"] = "статья говорит, что этот случай решает специалист";
       Log.info({ message: "parseAgentJson: solver reports a handover on task " + taskId + " and the article set no ending — escalating" });
-    }
-
-    // `subtaskId` guards against creating the subtask twice for ONE problem. A new
-    // question in the same task is a different problem and may need its own subtask,
-    // and the streak counter must not carry a stale score into it either.
-    if (moreQuestions) {
-      patch["subtaskId"] = null;
-      patch["subtaskRequestKey"] = String(taskId) + ":" + String(
-        state.runtime && state.runtime.incomingCommentId != null
-          ? state.runtime.incomingCommentId : Date.now()
-      );
-      patch["subtaskClaim"] = null;
-      patch["subtaskClaimAt"] = null;
-      patch["subtaskIntegrity"] = null;
-      patch["clarifyStreak"] = 0;
-      patch["clarifyQuestions"] = 0;
-      patch["clarifyProgressKey"] = null;
-      // The tree walk starts over too, so the new question gets its full budget of
-      // questions instead of inheriting the score of the one just solved.
-      patch["treeStreakNode"] = null;
-      patch["treeQuestions"] = 0;
     }
 
     // No document means receiveWebhook could not create one; writeState notices that the

@@ -42,6 +42,22 @@ async function main() {
   t.check("статья закрыла чат сама", r.kind === "solved" && r.stage === "closed", r);
   t.check("юнит опознан и записан", bot.data.unitFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", bot.data);
 
+  // Before a topic is selected the router may be curious instead of committing to its
+  // first plausible guess. The clarification enriches the same problem; only then does
+  // the sticky topic appear.
+  bot = chat();
+  r = await bot.turn("Тамбов-1, касса работает неправильно", {
+    unit: "Тамбов-1",
+    routingClarify: "Что именно происходит на кассе?"
+  });
+  t.check("неуверенный маршрутизатор задаёт один различающий вопрос",
+    r.stage === "gathering" && /Что именно происходит/.test(r.replies.join(" ")) &&
+    !bot.data.topicKey, { result: r, data: bot.data });
+  r = await bot.turn("Не печатает чек");
+  t.check("уточнение дополняет проблему и только затем фиксирует тему",
+    bot.data.topicKey === "pos_down" && r.stage === "awaiting_confirmation",
+    { result: r, data: bot.data });
+
   // ── Подзадача: три витка, и все данные статьи доехали до неё ──
   bot = chat();
   await bot.turn("Нужно изменить номер телефона у сотрудника, Тамбов-1", { unit: "Тамбов-1" });
@@ -69,8 +85,10 @@ async function main() {
     bot.turns.slice(0, 4).every(x => x.stage === "awaiting_confirmation"), bot.turns.map(x => x.stage));
   t.check("шаги кончились — обращение у человека",
     bot.turns[4].stage === "escalated" && bot.turns[4].internal.length === 1, bot.turns[4]);
-  t.check("оператор видит, что уже пробовали",
-    /Что уже пробовали/.test(bot.turns[4].internal[0]), bot.turns[4].internal[0]);
+  t.check("оператор видит результат помощи без обрезанной инструкции",
+    /Что произошло до передачи/.test(bot.turns[4].internal[0]) &&
+    /Партнёр: «Не помогло»/.test(bot.turns[4].internal[0]) &&
+    !/Что уже пробовали/.test(bot.turns[4].internal[0]), bot.turns[4].internal[0]);
 
   // ── Сбор данных сжимается с каждым ответом и не зацикливается ──
   bot = chat();

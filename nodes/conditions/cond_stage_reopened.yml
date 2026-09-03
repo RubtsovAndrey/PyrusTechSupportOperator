@@ -1,6 +1,6 @@
 ---
 id: cond_stage_reopened
-name: reopened after close?
+name: conversation reopened?
 position:
   x: 755
   y: -61

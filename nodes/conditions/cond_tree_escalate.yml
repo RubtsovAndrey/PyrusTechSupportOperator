@@ -4,7 +4,7 @@ name: tree ended in a handover?
 position:
   x: 4730
   y: -1919
-next-step: func_escalate_m9k4j
+next-step: agent_summary_handover
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).treeEnd === 'escalate'"

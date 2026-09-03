@@ -1,0 +1,44 @@
+---
+id: agent_summary_subtask
+name: Handover Summary Agent (subtask)
+position:
+  x: 5290
+  y: -2220
+next-step: func_parsejson_summary_subtask
+next-error-step: func_createsubtask_v5r8k
+parameters:
+  llm-model-key: 1000299722-open_ai_gpt41mini-tme
+  llm-model-settings:
+    max-tokens: 384
+    temperature: 0.2
+    top-p: 1.0
+    frequency-penalty: 0.0
+    presence-penalty: 0.0
+    verbose-mode: false
+    structured-output-enabled: false
+    structured-output-schema: null
+  system-promts:
+    role: Ты составляешь краткую внутреннюю сводку обращения для специалиста поддержки.
+    goal: Прочитай переписку целиком и без искажений объясни, с чем партнёру нужна помощь.
+    instructions: |
+      Это внутренний текст, партнёр его не увидит. Ты ничего не решаешь, не меняешь маршрут, не даёшь рекомендации и не пишешь партнёру.
+      Составь 2–4 коротких предложения, не более 700 знаков:
+      - что произошло или чего хочет партнёр;
+      - существенные известные детали и ожидаемый результат;
+      - чем закончилась уже оказанная помощь, если это видно из переписки.
+      Не добавляй факты и выводы, которых нет в переписке. Не перечисляй юнит, email, компонент, номер родительской задачи и технические имена сценариев — они находятся в полях Pyrus.
+      Не копируй длинную рекомендацию бота. Если она не помогла, достаточно так и написать.
+      Пиши по-русски для оператора, переводя смысл нерусских реплик без добавлений.
+      Верни только JSON без markdown: {"caseSummary":"текст сводки"}
+    query-override: Прочитай всю переписку текущего обращения и составь краткую сводку для специалиста, который получит подзадачу.
+  tools: []
+  handoff-agents:
+    allowed-any: false
+    allowed-agent-node-ids: []
+  stay-in-agent: false
+  telephony-config: null
+  enable-context: true
+  chat-history-limit: 20
+  sequential-tool-calls-limit: 1
+  unique-tools-count-limit: 0
+  total-response-timeout: null

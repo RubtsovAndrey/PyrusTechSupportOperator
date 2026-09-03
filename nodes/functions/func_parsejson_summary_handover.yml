@@ -1,10 +1,10 @@
 ---
-id: func_parsejson_solver
-name: parseSolver
+id: func_parsejson_summary_handover
+name: parseSummaryForOperator
 position:
-  x: 4054
-  y: -1812
-next-step: cond_solver_retry
+  x: 5480
+  y: -1900
+next-step: func_escalate_m9k4j
 next-error-step: func_escalate_m9k4j
 parameters:
   type: USER
@@ -14,7 +14,7 @@ parameters:
   parameters:
     stage:
       type: STRING
-      value: solver
+      value: summary
       filled-ai: false
   context-config: null
   hitl-tool-config: null

@@ -196,9 +196,11 @@ function summaryFields(o) {
   const labels = o.labels || {};
   const includeInSubtaskSummary = o.includeInSubtaskSummary || null;
   const answers = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
+  const evidence = data.treeAnswerEvidence && typeof data.treeAnswerEvidence === "object"
+    ? data.treeAnswerEvidence : {};
   const attempts = Array.isArray(data.attempts) ? data.attempts : [];
-  // Блок печатается только когда в нём что-то есть: «Уже пробовали: ничего» занимает две
-  // строки и не сообщает ничего.
+  // Блок печатается только когда в нём что-то есть: пустой заголовок занимает две строки
+  // и не сообщает ничего.
   const block = (title, rows) => (rows.length ? "\n" + title + ":\n" + rows.join("\n") + "\n" : "");
   const short = s => {
     const one = String(s || "").replace(/\s+/g, " ").trim();
@@ -215,16 +217,27 @@ function summaryFields(o) {
     topic: data.topicKey
       ? data.topicKey + (o.description ? " — " + short(o.description) : "") + (o.topicNote || "")
       : "не определена — подходящей статьи в базе нет",
-    problem: data.problemSummary || "не описана",
+    // caseSummary is written by the terminal summariser. It may fail without blocking the
+    // business action, in which case the short intake summary remains a safe fallback.
+    problem: data.caseSummary || data.problemSummary || "не описана",
     // Порядок — тот, в котором статья спрашивала: в нём ответы и читаются.
     collected: block("Собрано у партнёра",
       Object.keys(answers)
         .filter(k => !includeInSubtaskSummary || includeInSubtaskSummary[k] !== false)
-        .map(k => "  " + (labels[k] || k) + ": " + answers[k])),
-    // Без вердикта: совет записывается в момент выдачи, а помог ли он — ровно то, чего мы
-    // в момент передачи не знаем.
-    tried: block("Что уже пробовали",
-      attempts.map((a, i) => "  " + (a.step || i + 1) + ") " + (a.advice || "—"))),
+        // Routing uses the compact semantic answer. Humans get the exact partner message
+        // captured when that answer was learned, so a model paraphrase cannot become the
+        // only surviving evidence.
+        .map(k => "  " + (labels[k] || k) + ": " + (evidence[k] || answers[k]))),
+    // The placeholder name stays `tried` for backwards compatibility with config.summary,
+    // but its meaning is corrected. Reprinting a truncated bot answer told the operator
+    // neither what the partner actually did nor whether it helped. The exact confirmation
+    // is shorter and more useful; the full dialogue remains linked from Pyrus.
+    tried: block("Что произошло до передачи", attempts.length ? [
+      "  Бот предоставил ответ из Базы знаний.",
+      data.knowledgeOutcome && data.knowledgeOutcome.partnerText
+        ? "  Партнёр: «" + String(data.knowledgeOutcome.partnerText).replace(/\s+/g, " ").trim() + "»"
+        : null
+    ].filter(Boolean) : []),
     reason: o.reason || "не указана",
     component: data.componentName || "не определён",
     parent: o.parent || "—"

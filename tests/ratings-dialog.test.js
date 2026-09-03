@@ -96,6 +96,40 @@ async function main() {
   t.check("явно подтверждённый ответ с юнитом и компонентом закрывает чат",
     r.stage === "closed" && r.kind === "solved" && r.internal.length === 0, r);
 
+  // Exact shape of the live acceptance failure: the partner rejects the answer, asks for
+  // a specialist and volunteers email. The old confirmation model called it a new topic,
+  // which erased the article and repeated the same answer. Later it extracted the requested
+  // result only after its tool call and asked for that result a second time.
+  c = bot("standards", "answer");
+  await c.turn("Тамбов-1, хотим подать апелляцию по рейтингу стандартов", {
+    unit: "Тамбов-1",
+    externalAnswer: "Подайте апелляцию в Pyrus до срока и приложите подтверждения."
+  });
+  r = await c.turn("Нет, нам бы передать специалисту ситуацию, наша почта a@b.ru", {
+    status: "more_questions",
+    // A request for a specialist is not yet the business outcome or the details of the check.
+    answers: {}
+  });
+  t.check("просьба специалиста после ответа остаётся в рейтинговой теме",
+    c.data.topicKey === "ratings_questions" && c.data.email === "a@b.ru" &&
+    r.stage === "awaiting_answers", { result: r, data: c.data });
+  t.check("ответ БЗ не повторяется — начинается сбор для подзадачи",
+    /Какой результат/.test(r.replies.join(" ")) &&
+    !/Подайте апелляцию/.test(r.replies.join(" ")), r.replies);
+  r = await c.turn("За первое сентября проверка, ожидаем возврата баллов", {
+    answers: { expectedResult: "За первое сентября проверка, ожидаем возврата баллов" },
+    // Reproduce the live ordering bug: final JSON has the answer, the first tool call does not.
+    toolAnswers: {}
+  });
+  t.check("поздно извлечённый ответ продвигает статью без повторной реплики партнёра",
+    r.kind === "subtask_created" && r.stage === "closed" &&
+    r.agents.filter(x => x === "agent_solver").length === 2, r);
+  t.check("в подзадаче остаются дословные данные и исходный ответ об отказе",
+    c.data.treeAnswerEvidence &&
+    c.data.treeAnswerEvidence.expectedResult === "За первое сентября проверка, ожидаем возврата баллов" &&
+    c.data.knowledgeOutcome.partnerText === "Нет, нам бы передать специалисту ситуацию, наша почта a@b.ru",
+    c.data);
+
   // Статья прочитана, но конкретный спор ею не закрыт: никаких фиктивных ссылок или
   // вопроса «помогло ли» на витке сбора, затем ровно одна подзадача.
   c = bot("rko", "answer");
@@ -112,11 +146,11 @@ async function main() {
   r = await c.turn("Хотим объяснение и пересчёт за август, partner@example.test", {
     answers: { expectedResult: "Получить объяснение и пересчёт за август" }
   });
-  t.check("после ожидаемого результата агент отдельно запрашивает email",
-    r.kind === "clarify_email" && r.stage === "awaiting_email", r);
-  r = await c.turn("partner@example.test");
-  t.check("собранные ожидаемый результат и email создают подзадачу",
+  t.check("добровольно присланный email не спрашивается повторно",
+    c.data.email === "partner@example.test" &&
     r.kind === "subtask_created" && r.stage === "closed" && !!r.subtaskId, r);
+  t.check("собранные ожидаемый результат и email создают подзадачу в том же витке",
+    c.turns.length === 2 && r.kind === "subtask_created" && r.stage === "closed", r);
   t.check("подзадача создаётся не более одного раза",
     c.env.posts.filter(p => /\/tasks$/.test(p.url)).length <= 1, c.env.posts.map(p => p.url));
 

@@ -1,11 +1,11 @@
 ---
-id: func_parsejson_solver
-name: parseSolver
+id: func_parsejson_summary_subtask
+name: parseSummaryForSubtask
 position:
-  x: 4054
-  y: -1812
-next-step: cond_solver_retry
-next-error-step: func_escalate_m9k4j
+  x: 5480
+  y: -2130
+next-step: func_createsubtask_v5r8k
+next-error-step: func_createsubtask_v5r8k
 parameters:
   type: USER
   collection: ID_Tools
@@ -14,7 +14,7 @@ parameters:
   parameters:
     stage:
       type: STRING
-      value: solver
+      value: summary
       filled-ai: false
   context-config: null
   hitl-tool-config: null

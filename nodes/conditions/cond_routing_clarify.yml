@@ -1,0 +1,11 @@
+---
+id: cond_routing_clarify
+name: routing needs one clarification?
+position:
+  x: 4100
+  y: -950
+next-step: func_clarify
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).route === 'clarify'"
+  false-step: cond_routing_subtask

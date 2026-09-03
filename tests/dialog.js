@@ -138,6 +138,9 @@ const AGENTS = {
 
     let problemSummary = dialog.problemSummary || null;
     if (!problemSummary && describesProblem(said)) problemSummary = said.replace(GREETING, "").trim();
+    else if (problemSummary && describesProblem(said) && !saysAll(problemSummary, said)) {
+      problemSummary = problemSummary + "; " + said.replace(GREETING, "").trim();
+    }
 
     const enough = !!unitFullName && !!problemSummary;
     return json({
@@ -153,12 +156,19 @@ const AGENTS = {
   // Промпт: выбирай только из тематик, которые вернул инструмент; ничего не выдумывай.
   async agent_routing(env, turn) {
     const dialog = env.values.dialog || {};
-    const query = dialog.problemSummary || dialog.incomingText || "";
+    const query = [dialog.problemSummary, dialog.incomingText]
+      .filter((x, i, a) => x && a.indexOf(x) === i).join("; ");
     const partnerLanguage = turn.partnerLanguage || partnerLanguageOf(dialog.incomingText, dialog.partnerLanguage);
     const r = await callTool(env, "searchKnowledge", { query: query, answers: "{}" }) || {};
     const topics = Array.isArray(r.topics) ? r.topics : [];
     if (!r.found || !topics.length) {
       return json({ topicKey: null, route: "escalate", componentName: null, partnerLanguage, reason: "подходящей тематики нет" });
+    }
+    if (turn.routingClarify) {
+      return json({
+        topicKey: null, route: "clarify", componentName: null, partnerLanguage,
+        clarifyingQuestion: turn.routingClarify, reason: "нужно различить возможные темы"
+      });
     }
     // Маршрутизатор выбирает по описанию; образцовый — лучший по счёту, если сценарий не
     // сказал иначе. Подсказка нужна там, где проверяется поведение при неверном выборе.
@@ -188,9 +198,13 @@ const AGENTS = {
       const open = openKeys(env);
       answers = open.length === 1 && describesProblem(said) ? { [open[0]]: said } : {};
     }
+    // A live small-model failure discovered the answer while composing its final JSON but
+    // omitted it from the earlier tool call. Tests can reproduce that sequencing without
+    // making the reference agent generally disobedient.
+    const toolAnswers = turn.toolAnswers !== undefined ? turn.toolAnswers : answers;
 
     let r = await callTool(env, "searchKnowledge", {
-      query: said, topicKey: topicKey, answers: JSON.stringify(answers)
+      query: said, topicKey: topicKey, answers: JSON.stringify(toolAnswers)
     }) || {};
 
     if (r.turnKind === "choose-branch") {
@@ -200,7 +214,7 @@ const AGENTS = {
         || options[0]
         || null;
       r = await callTool(env, "searchKnowledge", {
-        query: said, topicKey: topicKey, branch: chosen, answers: JSON.stringify(answers)
+        query: said, topicKey: topicKey, branch: chosen, answers: JSON.stringify(toolAnswers)
       }) || {};
     }
 
@@ -314,6 +328,21 @@ const AGENTS = {
       return json({ status: "question", partnerLanguage, reason: "партнёр спрашивает про сам совет" });
     }
     return json({ status: "unclear", partnerLanguage, reason: "по тексту не понять" });
+  },
+
+  // The production summary agent is deliberately non-decisional. This reference version
+  // proves the graph and fallback contract without pretending to reproduce free-text
+  // summarisation quality locally.
+  async agent_summary_subtask(env, turn) {
+    const dialog = env.values.dialog || {};
+    const base = turn.caseSummary || dialog.problemSummary || dialog.incomingText || "Обращение партнёра";
+    const outcome = dialog.knowledgeOutcome && dialog.knowledgeOutcome.status === "failed"
+      ? " Ответ из Базы знаний не решил вопрос." : "";
+    return json({ caseSummary: String(base).replace(/[.\s]+$/, "") + "." + outcome });
+  },
+
+  async agent_summary_handover(env, turn) {
+    return AGENTS.agent_summary_subtask(env, turn);
   }
 };
 

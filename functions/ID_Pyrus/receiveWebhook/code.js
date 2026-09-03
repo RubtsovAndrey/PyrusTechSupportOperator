@@ -409,26 +409,14 @@ if (incomingCommentId && String(stored.lastProcessedCommentId || "") === incomin
 let storedStage = stored.stage || null;
 let data = Object.assign({}, stored.data);
 
-// ── A reopen after the operator closed the task is a NEW обращение ──
-// Otherwise `escalated` is a trap: it exists to keep the bot quiet while a human owns
-// the thread, tasks are reused for months, and nothing ever cleared it — the bot went
-// silent in that chat forever. This is the one signal that says the human is done.
-// The reopen must come from the partner through his external channel. An operator can
-// reopen a task himself, and on that comment the bot would otherwise wake up and start
-// answering a colleague in the middle of his work. If a partner ever arrives without a
-// channel the bot stays quiet instead — the failure that leaves a human in charge.
+// ── A reopened conversation belongs to an operator ──
+// A reopen is the only realistic point at which a partner may bring a different topic.
+// The MVP deliberately does not try to split two requests inside one reused Pyrus task:
+// it hands the thread over silently and preserves the old state as context for the human.
+// The reopen must come from the partner through an external channel. An operator can
+// reopen a task himself, and the internal-comment guard above keeps the bot asleep.
 const reopenedByPartner = !!(lastComment.channel && lastComment.channel.direction === "inbound");
-const newRequest = commentAction === "reopened" && storedStage === "escalated" && reopenedByPartner;
-if (newRequest) {
-  // The unit and the address belong to the partner, not to the problem he had last
-  // time, so they are carried over — asking for them again would be the very loop that
-  // was removed everywhere else. Everything about the previous problem goes.
-  data = {};
-  if (stored.data && stored.data.unitFullName) data.unitFullName = stored.data.unitFullName;
-  if (stored.data && stored.data.email) data.email = stored.data.email;
-  storedStage = null;
-  Log.info({ message: "receiveWebhook: task " + taskId + " reopened after handover, starting a new request" });
-}
+const reopenedForOperator = commentAction === "reopened" && reopenedByPartner;
 
 // ── Stage the graph should enter (this replaces the separate routeStage function) ──
 // Only these stages are reachable. Anything else falls back to intake, which is
@@ -469,7 +457,12 @@ function isJustThanks(text) {
 }
 
 let stage = "intake";
-if (storedStage === "closed") {
+if (reopenedForOperator) {
+  stage = "reopened";
+  Log.info({ message: "receiveWebhook: task " + taskId +
+    " reopened by the partner; MVP hands the conversation to an operator" });
+}
+else if (storedStage === "closed") {
   stage = isJustThanks(incomingText) ? "gratitude" : "reopened";
   if (stage === "gratitude") {
     Log.info({ message: "receiveWebhook: task " + taskId + " — в закрытый чат пришла только благодарность, отвечаем и закрываем снова, оператора не беспокоим" });
@@ -552,10 +545,24 @@ function asksForHuman(text) {
 }
 
 let handoverReason = null;
-if (incomingText && asksForHuman(incomingText) && stage !== "escalated" && stage !== "reopened") {
+const asksHumanNow = incomingText && asksForHuman(incomingText);
+// Ratings are the MVP's one explicit subtask workflow. «Передайте специалисту» in that
+// workflow means “create the specialist subtask”, not “connect me to the chat operator”.
+// Keep this exception deliberately narrower than asksForHuman: an explicit «позовите
+// оператора» must still be honoured immediately. It applies on every collection stage so
+// the same business request cannot change meaning merely because the article just asked
+// for the expected result or email.
+const asksRatingSpecialist = /(?:переда|направ)\S*(?:\s+\S+){0,3}\s+специалист\S*/i.test(String(incomingText || ""));
+const ratingCollectionStage = ["awaiting_confirmation", "awaiting_answers", "awaiting_email"].indexOf(stage) >= 0;
+const ratingSpecialistContinuation = asksHumanNow && asksRatingSpecialist && ratingCollectionStage &&
+  String(data.topicKey || "") === "ratings_questions";
+if (asksHumanNow && !ratingSpecialistContinuation && stage !== "escalated" && stage !== "reopened") {
   stage = "handover_request";
   handoverReason = "партнёр попросил связать его с человеком";
   Log.info({ message: "receiveWebhook: task " + taskId + " — партнёр просит человека, обращение уходит оператору со стадии " + (storedStage || "начало диалога") });
+} else if (ratingSpecialistContinuation) {
+  Log.info({ message: "receiveWebhook: task " + taskId +
+    " — просьба специалиста продолжает подтверждённый рейтинговый сценарий подзадачи" });
 }
 
 // MVP does not analyse attachments. A caption may be retained in the internal history,
@@ -566,18 +573,26 @@ if (attachmentCount && stage !== "escalated" && stage !== "reopened") {
   Log.info({ message: "receiveWebhook: " + attachmentCount + " attachment(s) on task " + taskId + ", handing over without analysing them" });
 }
 
-// An address is recognisable without a model, and the one stage that waits for it must
-// not depend on an agent noticing it: the subtask branch asks for the email and the
-// answer goes straight back to creating the subtask, with no intake in between.
-// Only read on that stage — picked up anywhere, the regex also captures addresses the
-// partner merely quotes ("письмо от noreply@… не пришло") and puts them in the subtask.
+// An address is recognisable without a model, and the stage that waits for it must not
+// depend on an agent noticing it. Partners who know the support process also volunteer
+// their address earlier: the live ratings dialog said «наша почта a@b.ru» while answering
+// whether the KB article helped. A sticky topic correctly keeps that turn out of intake,
+// so email capture must not be an accidental side effect of restarting the whole flow.
+//
+// Broad harvesting is still unsafe: «письмо от noreply@… не пришло» describes a symptom,
+// not a return address. Outside awaiting_email we therefore accept an address only in the
+// ratings subtask scenario or next to an explicit mail marker.
 let emailHarvested = false;
-if (stage === "awaiting_email" && !data.email) {
-  const emailMatch = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.exec(incomingText || "");
-  if (emailMatch) {
+if (!data.email) {
+  const source = String(incomingText || "");
+  const emailMatch = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.exec(source);
+  const explicitMail = /(почт|e-?mail|email|мейл)/i.test(source);
+  const ratingsScenario = String(data.topicKey || "") === "ratings_questions";
+  if (emailMatch && (stage === "awaiting_email" || explicitMail || ratingsScenario)) {
     data.email = emailMatch[0];
     emailHarvested = true;
-    Log.info({ message: "receiveWebhook: picked up email " + data.email + " from the message on task " + taskId });
+    Log.info({ message: "receiveWebhook: picked up volunteered email " + data.email +
+      " from the message on task " + taskId + " at stage " + stage });
   }
 }
 
@@ -585,8 +600,7 @@ if (stage === "awaiting_email" && !data.email) {
 // which got the greeting wrong in both directions during testing. Pyrus may truncate
 // task.comments from the tail, so a scan of the thread alone would start greeting the
 // partner again in the middle of a long dialog: once true, the flag stays true.
-// A new обращение weeks later does deserve a greeting, though.
-const isFirstBotReply = newRequest || !(stored.botHasReplied === true || comments.some(c => isBot(c.author)));
+const isFirstBotReply = !(stored.botHasReplied === true || comments.some(c => isBot(c.author)));
 
 const runtimeValue = {
   apiUrl: apiUrl,
@@ -645,10 +659,9 @@ const patch = {
   // invariant becomes checkable in one line: pendingOutcome is non-empty ⇒ this turn set it.
   "pendingOutcome": null
 };
-if (newRequest || !documentExists) {
-  // The leftovers of the finished обращение must go, so here the whole subtree is
-  // replaced by the carried-over facts on purpose. A document being created needs the
-  // subtree too, or the facts of the very first turn would have nowhere to land.
+if (!documentExists) {
+  // A document being created needs the whole subtree, or the facts of the very first
+  // turn would have nowhere to land.
   // `data.handoverReason` must be folded into that subtree rather than added as a second
   // dotted path: MongoDB rejects one $set that updates both `data` and its child.
   data.handoverReason = handoverReason;

@@ -38,7 +38,8 @@ async function main() {
   t.check("successful close still creates no internal message",
     r.internal.length === 0, r.internal);
 
-  // Known answer -> explicit failure -> one operator summary containing the attempt.
+  // Known answer -> explicit failure -> one operator summary containing the outcome,
+  // not a cut-off copy of the long recommendation.
   bot = chat();
   await bot.turn(
     "Тамбов-1, на кассе доставки чек не закрывается, ошибка 148",
@@ -48,8 +49,9 @@ async function main() {
   t.check("a failed known answer is handed over",
     r.kind === "escalated" && r.stage === "escalated", r);
   t.check("handover creates exactly one internal summary",
-    r.internal.length === 1 && /Что уже пробовали/.test(r.internal[0]) &&
-    /ИНН/.test(r.internal[0]) && /не помогла партнёру/.test(r.internal[0]), r.internal);
+    r.internal.length === 1 && /Что произошло до передачи/.test(r.internal[0]) &&
+    /Партнёр: «Не помогло»/.test(r.internal[0]) &&
+    !/Что уже пробовали/.test(r.internal[0]) && /не помогла партнёру/.test(r.internal[0]), r.internal);
   t.check("failed delivery cash keeps the delivery component",
     bot.data.componentName === DELIVERY, bot.data.componentName);
 

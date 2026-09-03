@@ -4,7 +4,7 @@ name: tree ended in a subtask?
 position:
   x: 4730
   y: -2069
-next-step: func_createsubtask_v5r8k
+next-step: agent_summary_subtask
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).treeEnd === 'subtask'"

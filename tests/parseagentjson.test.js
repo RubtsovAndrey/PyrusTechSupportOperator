@@ -30,7 +30,11 @@ const CATALOGS = {
     topics: [
       { key: "printer_no_receipt", description: "не печатает чек", componentName: "Касса", route: "solver" },
       { key: "access_request", description: "нужен доступ", componentName: "Доступы", route: "subtask" },
-      { key: "payment_dispute", description: "спор по оплате", componentName: "Оплаты", route: "escalate" }
+      { key: "payment_dispute", description: "спор по оплате", componentName: "Оплаты", route: "escalate" },
+      {
+        key: "answer_retry", description: "проверка позднего ответа", start: "collect",
+        nodes: { collect: { ask: [{ key: "details", label: "Детали", question: "Что произошло?" }], end: "subtask" } }
+      }
     ]
   }
 };
@@ -428,11 +432,10 @@ async function main() {
   r = await run("routing", json({ route: "мимо", topicKey: "printer_no_receipt" }));
   t.check("unknown route value is not recorded", !r.state.data.topicRoute, r.state.data);
 
-  // ── A different article means a different walk ──
-  // `treeNode` and `treeAnswers` speak the vocabulary of ONE article. Carried across a
-  // change of topic they fail silently: searchKnowledge looks up a node the new article does
-  // not have, quietly restarts it from the root, and the answers collected under the old
-  // article's keys end up in the subtask of the new one.
+  // ── A selected topic is sticky for one uninterrupted chat ──
+  // What looks like a new question is normally a clarification of the same problem. A new
+  // context is signalled by Pyrus reopening the chat and is handed to an operator before
+  // routing; an ordinary model turn may therefore never replace an established article.
   const midWalk = {
     taskId: 11613,
     stage: "awaiting_answers",
@@ -449,14 +452,15 @@ async function main() {
     }
   };
   r = await run("routing", json({ route: "subtask", topicKey: "access_request" }), midWalk);
-  t.check("changing the topic resets the tree walk",
-    !r.state.data.treeNode && r.state.data.treeAnswers &&
-    Object.keys(r.state.data.treeAnswers).length === 0 && !r.state.data.treeAskedNode &&
-    !r.state.data.treeHandoverAsked && !r.state.data.offeredStep, r.state.data);
-  t.check("and the new article gets its full question budget",
-    r.state.treeQuestions === 0 && r.state.treeStreakNode === null,
+  t.check("routing cannot replace an established topic",
+    r.state.data.topicKey === "printer_no_receipt" &&
+    r.state.data.treeNode === "ask_what" && r.state.data.treeAnswers.whatToChange === "фамилию",
+    r.state.data);
+  t.check("a refused topic replacement does not reset the current article budget",
+    r.state.treeQuestions === 4 && r.state.treeStreakNode === "ask_what",
     { q: r.state.treeQuestions, n: r.state.treeStreakNode });
-  t.check("the new topic itself is recorded", r.state.data.topicKey === "access_request", r.state.data);
+  t.check("the established route is kept with the topic",
+    r.result.topicKey === "printer_no_receipt" && r.result.route === "solver", r.result);
 
   // The same topic confirmed again is not a change and must not throw the walk away.
   r = await run("routing", json({ route: "solver", topicKey: "printer_no_receipt" }), midWalk);
@@ -464,7 +468,7 @@ async function main() {
     r.state.data.treeNode === "ask_what" && r.state.data.treeAnswers.whatToChange === "фамилию",
     r.state.data);
 
-  // ── A new question in the same task must not inherit the solved problem ──
+  // ── Confirmation never starts a second topic inside the same chat ──
   const afterSolved = {
     stage: "awaiting_confirmation",
     subtaskId: "555",
@@ -486,19 +490,16 @@ async function main() {
     }
   };
   r = await run("confirmation", json({ status: "more_questions" }), afterSolved);
-  t.check("solved problem is cleared on a new question",
-    !r.state.data.problemSummary && !r.state.data.topicKey && !r.state.data.componentName &&
-    !r.state.data.topicRoute && !r.state.data.attempts && !r.state.data.offeredStep &&
-    !r.state.data.preQuestionsAsked, r.state.data);
-  t.check("unit survives the new question",
-    r.state.data.unitFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", r.state.data);
-  t.check("email survives the new question", r.state.data.email === "p@x.ru", r.state.data);
-  t.check("subtaskId is cleared so the new question can get its own subtask",
-    r.state.subtaskId === null, r.state.subtaskId);
-  t.check("new question also resets the subtask claim and gives the problem a new scope",
-    r.state.subtaskRequestKey !== "11613:old" && r.state.subtaskClaim === null &&
-    r.state.subtaskClaimAt === null && r.state.subtaskIntegrity === null, r.state);
-  t.check("clarify streak is cleared", r.state.clarifyStreak === 0, r.state.clarifyStreak);
+  t.check("legacy more_questions is treated as an unresolved continuation",
+    r.result.status === "failed", r.result);
+  t.check("the current problem, article and attempts all survive",
+    r.state.data.problemSummary === "не печатает чек" &&
+    r.state.data.topicKey === "printer_no_receipt" && r.state.data.componentName === "Касса" &&
+    Array.isArray(r.state.data.attempts) && r.state.data.attempts.length === 1,
+    r.state.data);
+  t.check("the existing subtask ownership is not reopened inside one chat",
+    r.state.subtaskId === "555" && r.state.subtaskRequestKey === "11613:old" &&
+    r.state.subtaskClaim === "old-claim" && r.state.subtaskIntegrity === "complete", r.state);
 
   // Live ratings acceptance: the model called this a new request because the second
   // sentence asks for specialists, even though the first one explicitly says that the
@@ -517,9 +518,9 @@ async function main() {
   r = await run("confirmation", json({ status: "more_questions" }), Object.assign({}, afterSolved, {
     data: Object.assign({}, afterSolved.data, { treeAnswers: { kind: "старый ответ" } })
   }));
-  t.check("clearing a genuine old problem leaves treeAnswers writable, not null",
+  t.check("a continuation keeps already collected article answers",
     r.state.data.treeAnswers && typeof r.state.data.treeAnswers === "object" &&
-    Object.keys(r.state.data.treeAnswers).length === 0, r.state.data.treeAnswers);
+    r.state.data.treeAnswers.kind === "старый ответ", r.state.data.treeAnswers);
 
   // The other confirmation answers must not wipe anything.
   r = await run("confirmation", json({ status: "not_resolved" }), afterSolved);
@@ -566,6 +567,33 @@ async function main() {
   });
   t.check("a question is not logged as an attempted solution",
     !r.state.data.attempts, r.state.data.attempts);
+
+  // Live solver sequencing: the tool call omitted an answer that the final JSON did
+  // extract. The partner must not receive the already-answered question once more.
+  r = await run("solver", json({
+    replyText: "Что произошло?", kind: "questions", answers: { details: "сняли баллы" }
+  }), {
+    runtime: { incomingCommentId: "answer-42" },
+    data: { topicKey: "answer_retry" }
+  }, { incomingText: "За проверку первого сентября сняли баллы" });
+  t.check("a newly learned answer retries solver without sending the stale question",
+    r.result.retrySolver === true && r.result.replyText === "", r.result);
+  t.check("the semantic answer and exact partner evidence are stored separately",
+    r.state.data.treeAnswers.details === "сняли баллы" &&
+    r.state.data.treeAnswerEvidence.details === "За проверку первого сентября сняли баллы",
+    r.state.data);
+
+  r = await run("solver", json({
+    replyText: "Что произошло?", kind: "questions", answers: { details: "нужно вернуть баллы" }
+  }), r.state, { incomingText: "За проверку первого сентября сняли баллы" });
+  t.check("the same partner comment can trigger no more than one internal retry",
+    r.result.retrySolver !== true, r.result);
+
+  r = await run("summary", json({
+    caseSummary: "  Партнёр оспаривает проверку.   Ответ БЗ не помог.  "
+  }), r.state, { incomingText: "За проверку первого сентября сняли баллы" });
+  t.check("only the terminal summary stage persists a compact human summary",
+    r.state.data.caseSummary === "Партнёр оспаривает проверку. Ответ БЗ не помог.", r.state.data.caseSummary);
 
   // ── What reaches the prompt ──
   r = await run("solver", json({ replyText: "Проверьте кабель", kind: "solution" }), {

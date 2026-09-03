@@ -458,9 +458,26 @@ async function main() {
     { [KEY]: { stage: "awaiting_email" } });
   t.check("address is taken on awaiting_email", r.state.data.email === "ivan@shop.ru", r.state.data);
 
-  // ── A reopen after a handover is a NEW обращение ──
-  // `escalated` used to be a trap: tasks are reused for months and nothing cleared it,
-  // so the bot went silent in that chat forever.
+  r = await run([{ id: 32, author: PARTNER,
+    text: "Нет, передайте специалисту ситуацию, наша почта partner@example.ru", channel: CHAN }],
+    { [KEY]: { stage: "awaiting_confirmation", data: { topicKey: "ratings_questions" } } });
+  t.check("a volunteered ratings email is kept without restarting intake",
+    r.state.data.email === "partner@example.ru" && r.result.stage === "awaiting_confirmation", r.state.data);
+
+  r = await run([{ id: 33, author: PARTNER,
+    text: "Передайте специалисту: ожидаю пересмотра результата", channel: CHAN }],
+    { [KEY]: { stage: "awaiting_answers", data: { topicKey: "ratings_questions" } } });
+  t.check("a ratings specialist request keeps collecting the subtask on an article question",
+    r.result.stage === "awaiting_answers", r.result);
+
+  r = await run([{ id: 34, author: PARTNER, text: "Позовите живого оператора", channel: CHAN }],
+    { [KEY]: { stage: "awaiting_confirmation", data: { topicKey: "ratings_questions" } } });
+  t.check("an explicit chat operator request still overrides the ratings workflow",
+    r.result.stage === "handover_request", r.result);
+
+  // ── A reopen after a handover remains with an operator ──
+  // A different topic is possible here, but the MVP deliberately does not try to split
+  // two requests inside one reused task.
   const seed = {
     [KEY]: {
       stage: "escalated",
@@ -483,23 +500,14 @@ async function main() {
     { id: 13, author: PARTNER, text: "У меня остался еще один вопрос", action: "reopened", channel: CHAN }
   ];
   r = await run(reopenThread, seed);
-  t.check("reopen by the partner starts a new request", r.result.stage === "intake" && r.result.skip === false, r.result);
-  t.check("unit is carried over", r.state.data.unitFullName === "Москва 12", r.state.data);
-  t.check("email is carried over", r.state.data.email === "p@x.ru", r.state.data);
-  t.check("facts of the solved problem are dropped",
-    !r.state.data.problemSummary && !r.state.data.topicKey && !r.state.data.componentName &&
-    !r.state.data.attempts && !r.state.data.preQuestionsAsked, r.state.data);
-  t.check("subtaskId is cleared so a new subtask is possible", r.state.subtaskId === null, r.state.subtaskId);
-  t.check("reopen starts a fresh subtask idempotency scope",
-    r.state.subtaskRequestKey === "11613:13" && r.state.subtaskClaim === null &&
-    r.state.subtaskIntegrity === null, r.state);
-  t.check("clarify streak is cleared", r.state.clarifyStreak === 0, r.state.clarifyStreak);
-  t.check("stale pendingOutcome is cleared", r.state.pendingOutcome === null, r.state.pendingOutcome);
-  t.check("the new request is greeted again", r.state.runtime.isFirstBotReply === true, r.state.runtime);
-
-  const dialogNotes = r.notes.filter(n => /^(Партнёр|Ассистент):/.test(n));
-  t.check("prompt history starts after the close",
-    dialogNotes.length === 1 && /остался еще один вопрос/.test(dialogNotes[0]), dialogNotes);
+  t.check("reopen by the partner is sent to an operator", r.result.stage === "reopened" && r.result.skip === false, r.result);
+  t.check("reopen does not start a new automated request",
+    r.state.data.problemSummary === "старая проблема" && r.state.data.topicKey === "old_topic" &&
+    r.state.data.componentName === "Касса", r.state.data);
+  t.check("reopen keeps the existing subtask idempotency scope",
+    r.state.subtaskId === "999" && !r.state.subtaskRequestKey, r.state);
+  t.check("reopen does not greet the partner again", r.state.runtime.isFirstBotReply === false, r.state.runtime);
+  t.check("a stale turn decision is still cleared", r.state.pendingOutcome === null, r.state.pendingOutcome);
 
   // The operator may reopen the task himself — the bot must not answer a colleague.
   r = await run([

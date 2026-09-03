@@ -4,7 +4,7 @@ name: routing subtask?
 position:
   x: 4320
   y: -1032
-next-step: func_createsubtask_v5r8k
+next-step: agent_summary_subtask
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).route === 'subtask'"

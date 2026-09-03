@@ -1,11 +1,11 @@
 ---
 id: cond_confirmation_more
-name: more_questions?
+name: language boundary returns to intake?
 position:
   x: 3212
   y: 628
 next-step: agent_intake
 next-error-step: null
 parameters:
-  condition: "(Context.getLastFunctionResult() || {}).status === 'more_questions'"
+  condition: "(Context.getLastFunctionResult() || {}).status === 'more_questions' && (Context.getLastFunctionResult() || {}).languageBoundary === true"
   false-step: func_nextstep_h4t8q

@@ -585,8 +585,8 @@ async function main() {
     /Email: не указан/.test(note) && /Юнит: /.test(note) && !/Партнёр:/.test(note), note);
   t.check("the topic line carries the article's own description",
     /Тематика: profile_change — изменить данные сотрудника/.test(note), note);
-  t.check("nothing was tried, so there is no block saying so",
-    !/Что уже пробовали/.test(note), note);
+  t.check("no KB answer means there is no interaction block",
+    !/Что произошло до передачи/.test(note), note);
   t.check("and the reason for the handover closes the summary",
     /Причина передачи: /.test(note), note);
 
