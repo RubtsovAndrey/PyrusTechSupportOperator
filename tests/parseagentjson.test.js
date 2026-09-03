@@ -574,20 +574,14 @@ async function main() {
     replyText: "Что произошло?", kind: "questions", answers: { details: "сняли баллы" }
   }), {
     runtime: { incomingCommentId: "answer-42" },
-    data: { topicKey: "answer_retry" }
+    data: { topicKey: "answer_retry", treeNode: "collect" }
   }, { incomingText: "За проверку первого сентября сняли баллы" });
-  t.check("a newly learned answer retries solver without sending the stale question",
-    r.result.retrySolver === true && r.result.replyText === "", r.result);
+  t.check("a newly learned last answer completes a direct terminal without a graph cycle",
+    r.result.treeEnd === "subtask" && r.result.replyText === "", r.result);
   t.check("the semantic answer and exact partner evidence are stored separately",
     r.state.data.treeAnswers.details === "сняли баллы" &&
     r.state.data.treeAnswerEvidence.details === "За проверку первого сентября сняли баллы",
     r.state.data);
-
-  r = await run("solver", json({
-    replyText: "Что произошло?", kind: "questions", answers: { details: "нужно вернуть баллы" }
-  }), r.state, { incomingText: "За проверку первого сентября сняли баллы" });
-  t.check("the same partner comment can trigger no more than one internal retry",
-    r.result.retrySolver !== true, r.result);
 
   r = await run("summary", json({
     caseSummary: "  Партнёр оспаривает проверку.   Ответ БЗ не помог.  "

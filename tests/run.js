@@ -304,6 +304,7 @@ function checkProtected() {
 function checkGraph() {
   const ids = new Set();
   const refs = [];
+  const edges = [];
   const dir = path.join(ROOT, "nodes");
   const files = walk(dir, []).filter(f => f.endsWith(".yml"));
   files.forEach(file => {
@@ -313,10 +314,43 @@ function checkGraph() {
     if (id) ids.add(id[1]);
     [/^next-step:\s*(\S+)/m, /^next-error-step:\s*(\S+)/m, /^\s+false-step:\s*(\S+)/m].forEach(re => {
       const m = re.exec(src);
-      if (m && m[1] !== "null") refs.push([rel, m[1]]);
+      if (m && m[1] !== "null") {
+        refs.push([rel, m[1]]);
+        if (id) edges.push([id[1], m[1]]);
+      }
     });
   });
-  return { nodes: ids.size, refs: refs.length, broken: refs.filter(([, r]) => !ids.has(r)) };
+  const adjacency = {};
+  edges.forEach(([from, to]) => {
+    if (!ids.has(to)) return;
+    if (!adjacency[from]) adjacency[from] = [];
+    adjacency[from].push(to);
+  });
+  const visited = new Set();
+  const active = new Set();
+  const stack = [];
+  const cycles = [];
+  function visit(id) {
+    if (active.has(id)) {
+      const at = stack.indexOf(id);
+      cycles.push(stack.slice(at).concat(id));
+      return;
+    }
+    if (visited.has(id)) return;
+    visited.add(id);
+    active.add(id);
+    stack.push(id);
+    (adjacency[id] || []).forEach(visit);
+    stack.pop();
+    active.delete(id);
+  }
+  ids.forEach(visit);
+  return {
+    nodes: ids.size,
+    refs: refs.length,
+    broken: refs.filter(([, r]) => !ids.has(r)),
+    cycles: cycles
+  };
 }
 
 // Agent Platform sends AI-agent transitions as a system `switchToState` function tool.
@@ -386,12 +420,18 @@ function checkToolReasoningCompatibility() {
   console.log("\nnode graph");
   const graph = checkGraph();
   total++;
-  if (graph.broken.length) {
+  if (graph.broken.length || graph.cycles.length) {
     failed++;
-    console.log("  FAIL  dangling references:");
-    graph.broken.forEach(([f, r]) => console.log("        " + f + " -> " + r));
+    if (graph.broken.length) {
+      console.log("  FAIL  dangling references:");
+      graph.broken.forEach(([f, r]) => console.log("        " + f + " -> " + r));
+    }
+    if (graph.cycles.length) {
+      console.log("  FAIL  workflow cycles (Agent Platform resumes them after finalize):");
+      graph.cycles.forEach(c => console.log("        " + c.join(" -> ")));
+    }
   } else {
-    console.log("  PASS  " + graph.nodes + " nodes, " + graph.refs + " references, all resolve");
+    console.log("  PASS  " + graph.nodes + " nodes, " + graph.refs + " references, all resolve and no cycles exist");
   }
 
   console.log("\nLLM tool compatibility");

@@ -34,7 +34,7 @@ function matchingPosTurns() {
       outcome: "escalated",
       replies: [{ text: "Понадобится время на изучение вопроса." }],
       internal: [{ text: "Бот передаёт обращение оператору. Тематика: pos_terminal_troubleshooting. " +
-        "Что произошло до передачи: Бот предоставил ответ из Базы знаний. Партнёр: «Не помогло»" }],
+        "Суть: ККМ не подключена. Ответ из Базы знаний не решил вопрос." }],
       logs: ["nextSolutionStep: article exhausted"],
       path: ["Confirmation Agent", "Outcome - escalate to operator", "finalize"],
       calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],

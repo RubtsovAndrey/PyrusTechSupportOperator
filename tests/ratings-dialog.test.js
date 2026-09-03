@@ -123,7 +123,7 @@ async function main() {
   });
   t.check("поздно извлечённый ответ продвигает статью без повторной реплики партнёра",
     r.kind === "subtask_created" && r.stage === "closed" &&
-    r.agents.filter(x => x === "agent_solver").length === 2, r);
+    r.agents.filter(x => x === "agent_solver").length === 1, r);
   t.check("в подзадаче остаются дословные данные и исходный ответ об отказе",
     c.data.treeAnswerEvidence &&
     c.data.treeAnswerEvidence.expectedResult === "За первое сентября проверка, ожидаем возврата баллов" &&

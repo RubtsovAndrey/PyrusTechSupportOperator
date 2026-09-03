@@ -85,10 +85,10 @@ async function main() {
     bot.turns.slice(0, 4).every(x => x.stage === "awaiting_confirmation"), bot.turns.map(x => x.stage));
   t.check("шаги кончились — обращение у человека",
     bot.turns[4].stage === "escalated" && bot.turns[4].internal.length === 1, bot.turns[4]);
-  t.check("оператор видит результат помощи без обрезанной инструкции",
-    /Что произошло до передачи/.test(bot.turns[4].internal[0]) &&
-    /Партнёр: «Не помогло»/.test(bot.turns[4].internal[0]) &&
-    !/Что уже пробовали/.test(bot.turns[4].internal[0]), bot.turns[4].internal[0]);
+  t.check("оператор получает один связный пересказ вместо обрывков переписки",
+    /Суть: .*Ответ из Базы знаний не решил вопрос/.test(bot.turns[4].internal[0]) &&
+    !/Собрано у партнёра|Что произошло до передачи|Что уже пробовали/.test(bot.turns[4].internal[0]),
+    bot.turns[4].internal[0]);
 
   // ── Сбор данных сжимается с каждым ответом и не зацикливается ──
   bot = chat();

@@ -559,25 +559,27 @@ async function main() {
     r.turnKind === "questions" && r.preQuestions.length === 1 &&
     JSON.stringify(r.answerKeys) === JSON.stringify(["changeKind"]), r);
 
-  // ── Собранное попадает оператору ──
+  // ── Итог полагается на связный пересказ, а не на обрывки полей ──
   d = dialog();
   d.state.data.topicKey = "profile_change";
   d.state.data.treeAnswers = { employee: "Иванов Иван", newValue: "+7 900", reason: "опечатка" };
+  d.state.data.caseSummary = "Партнёр просит исправить номер телефона сотрудника из-за опечатки.";
   await d.outcome("escalated", {});
-  t.check("the operator's summary lists what the article managed to collect",
-    /Иванов Иван/.test(d.state.pendingOutcome.internalNote) &&
-    /\+7 900/.test(d.state.pendingOutcome.internalNote), d.state.pendingOutcome.internalNote);
+  t.check("the operator's summary uses the coherent case summary",
+    /Суть: Партнёр просит исправить номер телефона сотрудника/.test(d.state.pendingOutcome.internalNote),
+    d.state.pendingOutcome.internalNote);
+  t.check("isolated collected fragments are not repeated in the summary",
+    !/Иванов Иван|\+7 900|Собрано у партнёра/.test(d.state.pendingOutcome.internalNote),
+    d.state.pendingOutcome.internalNote);
   t.check("and the summary has no empty lines printed as null",
     !/null|undefined/.test(d.state.pendingOutcome.internalNote), d.state.pendingOutcome.internalNote);
 
   // ── Форма сути обращения ──
-  // Одна и та же у подзадачи и у внутренней переписки, и заполняется по правилу:
-  // обязательное печатается даже пустым, необязательное — только когда есть.
+  // Одна и та же у подзадачи и у внутренней переписки: обязательная метаинформация и
+  // единый связный пересказ без второго, конкурирующего описания из отдельных полей.
   let note = d.state.pendingOutcome.internalNote;
-  t.check("the human label from the article replaces the internal key",
-    /Сотрудник: Иванов Иван/.test(note) && !/employee:/.test(note), note);
-  t.check("a key without a label still prints, as itself",
-    /reason: опечатка/.test(note), note);
+  t.check("semantic routing keys do not leak into the human summary",
+    !/employee:|reason:|newValue:/.test(note), note);
   // Имени партнёра в сводке нет намеренно: у обращения из веб-виджета автором комментария
   // числится служебный аккаунт Pyrus, и оператор читал «Партнёр: Pyrus.com». А вот
   // отсутствие email печатается — по нему видно, что спросить его не удалось.
@@ -590,15 +592,15 @@ async function main() {
   t.check("and the reason for the handover closes the summary",
     /Причина передачи: /.test(note), note);
 
-  // Один ключ живёт в двух ветках под разными подписями, и правильная только та, что
-  // из ветки этого разговора.
+  // Даже красиво подписанное отдельное поле не должно конкурировать с пересказом.
   d = dialog();
   d.state.data.topicKey = "profile_change";
   d.state.data.treeNode = "phone";
   d.state.data.treeAnswers = { newValue: "+7 900" };
+  d.state.data.caseSummary = "Партнёр просит изменить телефон сотрудника.";
   await d.outcome("escalated", {});
-  t.check("the label comes from the branch the dialog ended in",
-    /Новый номер: \+7 900/.test(d.state.pendingOutcome.internalNote), d.state.pendingOutcome.internalNote);
+  t.check("a branch fragment is omitted when the conversation is available in Pyrus",
+    !/Новый номер|\+7 900/.test(d.state.pendingOutcome.internalNote), d.state.pendingOutcome.internalNote);
 
   // Ни статьи, ни собранного: обязательные строки всё равно на месте.
   d = dialog();
@@ -666,8 +668,9 @@ async function main() {
     d.data.treeAnswers.scope === "на одной кассе", d.data.treeAnswers);
 
   await d.outcome("escalated", {});
-  t.check("the operator sees it under the label the article gave it",
-    /Где тормозит: на одной кассе/.test(d.state.pendingOutcome.internalNote),
+  t.check("the operator gets a coherent summary instead of a routing-answer fragment",
+    /Суть: тест/.test(d.state.pendingOutcome.internalNote) &&
+    !/Где тормозит/.test(d.state.pendingOutcome.internalNote),
     d.state.pendingOutcome.internalNote);
 
   return t.report();

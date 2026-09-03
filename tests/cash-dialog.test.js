@@ -49,9 +49,9 @@ async function main() {
   t.check("a failed known answer is handed over",
     r.kind === "escalated" && r.stage === "escalated", r);
   t.check("handover creates exactly one internal summary",
-    r.internal.length === 1 && /Что произошло до передачи/.test(r.internal[0]) &&
-    /Партнёр: «Не помогло»/.test(r.internal[0]) &&
-    !/Что уже пробовали/.test(r.internal[0]) && /не помогла партнёру/.test(r.internal[0]), r.internal);
+    r.internal.length === 1 && /Суть: .*Ответ из Базы знаний не решил вопрос/.test(r.internal[0]) &&
+    !/Собрано у партнёра|Что произошло до передачи|Что уже пробовали/.test(r.internal[0]) &&
+    /не помогла партнёру/.test(r.internal[0]), r.internal);
   t.check("failed delivery cash keeps the delivery component",
     bot.data.componentName === DELIVERY, bot.data.componentName);
 
@@ -87,7 +87,8 @@ async function main() {
   t.check("no Test Driver produces no unsafe partner instruction",
     r.stage === "escalated" && !/Сформировать отчёт/.test(r.replies.join(" ")), r.replies);
   t.check("the setup stop condition produces one operator summary",
-    r.internal.length === 1 && /Доступность драйвера ККТ/.test(r.internal[0]), r.internal);
+    r.internal.length === 1 && /Суть:/.test(r.internal[0]) &&
+    !/Собрано у партнёра|Что произошло до передачи/.test(r.internal[0]), r.internal);
 
   // Z report: the bot asks every safety question and stays out of internal correspondence.
   bot = chat();
@@ -132,7 +133,8 @@ async function main() {
   t.check("a later fiscal document blocks the copy instruction",
     r.stage === "escalated" && !/Печать копии/.test(r.replies.join(" ")), r.replies);
   t.check("that stop condition is visible only in one operator summary",
-    r.internal.length === 1 && /Документы после закрытия/.test(r.internal[0]), r.internal);
+    r.internal.length === 1 && /Суть:/.test(r.internal[0]) &&
+    !/Собрано у партнёра|Что произошло до передачи/.test(r.internal[0]), r.internal);
 
   // Country and role boundaries go through the same real graph.
   bot = chat({ units: ["[dodopizza.by] Минск-1 (улица Ленина, 1)"] });

@@ -4,7 +4,7 @@ name: parseSolver
 position:
   x: 4054
   y: -1812
-next-step: cond_solver_retry
+next-step: cond_tree_subtask
 next-error-step: func_escalate_m9k4j
 parameters:
   type: USER

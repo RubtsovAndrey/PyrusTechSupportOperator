@@ -186,9 +186,10 @@ async function main() {
   });
   const ratingsCreate = created(r.posts)[0];
   const ratingsMessage = ratingsCreate.body.fields.find(f => Number(f.id) === MESSAGE).value;
-  t.check("an article can hide a routing answer already represented by a form field",
+  t.check("routing answers stay in fields and chat instead of becoming message fragments",
     !/Вид рейтинга/.test(ratingsMessage) &&
-    /Ожидаемый результат и детали: Пересмотреть снятые баллы/.test(ratingsMessage),
+    !/Ожидаемый результат и детали/.test(ratingsMessage) &&
+    /Суть: нужен доступ к отчётам/.test(ratingsMessage),
     ratingsMessage);
   t.check("no correspondence or foreign workflow action is posted",
     !r.posts.some(p => p.body && (p.body.text || p.body.action)), r.posts);

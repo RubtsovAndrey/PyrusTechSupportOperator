@@ -130,8 +130,9 @@
   «Тест драйвер не открывается» и преждевременно передавала чат оператору.
 - **Саммари оператору.** Перед известным терминальным действием отдельный агент читает
   переписку и формирует 2–4 коротких предложения; при его сбое остаётся краткая суть из
-  intake. Во внутреннюю переписку без `channel` уходят эта сводка, тематика, дословно
-  собранные данные, исход ответа БЗ и причина передачи.
+  intake. Во внутреннюю переписку без `channel` уходят эта цельная сводка, служебные
+  метаданные и причина передачи. Отдельные ответы дерева остаются в состоянии и полной
+  переписке, но не печатаются обрывочными блоками.
 - **Подзадачи.** Поля исходного чата и подзадачи заполняются, в подзадачу уходит внутренний
   комментарий и `action: "finished"` — этап переводится, исходный чат закрывается.
 - **Переоткрытые чаты.** Любое внешнее событие `reopened` молча уходит оператору, без
@@ -677,9 +678,7 @@ trigger_webhook_pyrus → receiveWebhook → skip?
         action=clarify  → Outcome - clarify  → finalize
         action=route    → agent_routing → parseRouting
           route=clarify → Outcome - clarify → finalize
-          route=solver  → agent_solver → parseSolver → learned answer after tool call?
-                             yes → agent_solver once more in the same webhook
-                             no  → tree ended?
+          route=solver  → agent_solver → parseSolver → tree ended?
                              treeEnd=subtask  → summary → createSubtask
                              treeEnd=escalate → summary → Outcome - escalate
                              treeEnd=close    → Outcome - solved

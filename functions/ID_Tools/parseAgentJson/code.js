@@ -647,10 +647,9 @@ if (taskId) {
       parsed.languageBoundary = true;
     }
 
-    // Record what the partner said about the latest KB answer. The old summary printed a
-    // 200-character prefix of the bot's own recommendation under «Что уже пробовали» —
-    // neither a real attempt nor useful context. This exact partner reply lets both human
-    // destinations state the outcome without reproducing the instruction.
+    // Record what the partner said about the latest KB answer. This remains structured
+    // routing/observability state; terminal messages use one coherent summary of the full
+    // conversation instead of printing isolated answer fragments.
     if (String(stage || "") === "confirmation" && Array.isArray(data.attempts) && data.attempts.length &&
         ["resolved", "failed", "question", "unclear"].indexOf(String(parsed.status || "")) >= 0) {
       data.knowledgeOutcome = {
@@ -713,24 +712,34 @@ if (taskId) {
 
       // searchKnowledge is called before the solver returns its JSON. A small model may
       // notice an answer only while composing that JSON, which used to persist the fact
-      // and still send the already-answered question. Re-enter the solver once in the same
-      // webhook: the tool now sees the stored answer and either reaches the terminal or
-      // asks only what is genuinely still missing. The comment-scoped counter prevents an
-      // agent that reveals one answer per call from forming an internal loop.
+      // and still send the already-answered question. Never solve that with a graph edge
+      // back to the same AI node: Agent Platform treats it as a workflow cycle and resumes
+      // the solver after every terminal finalize. For the common safe case — the current
+      // node asks fields and then ends directly — complete that terminal here from the
+      // catalog. More complex branches keep the answer for the next ordinary turn.
       if (String(stage || "") === "solver" && String(parsed.kind || "") === "questions" &&
           learnedAnswer && !data.treeEnd) {
-        const current = currentCommentId || "no-comment";
-        const used = String(data.solverRetryCommentId || "") === current
-          ? Number(data.solverRetryCount) || 0 : 0;
-        if (used < 1) {
-          parsed.retrySolver = true;
+        const topic = topicByKey(data.topicKey || parsed.topicKey);
+        const nodes = topic && topic.nodes && typeof topic.nodes === "object" ? topic.nodes : null;
+        const node = nodes && data.treeNode ? nodes[data.treeNode] : null;
+        const questions = node && Array.isArray(node.ask) ? node.ask : [];
+        const requiredKeys = questions.map(q => q && q.key ? String(q.key) : "").filter(Boolean);
+        const directEnd = node && ["subtask", "escalate", "close"].indexOf(String(node.end || "")) >= 0
+          ? String(node.end) : null;
+        const allAnswered = requiredKeys.length && requiredKeys.every(k => String(stored[k] || "").trim());
+        if (directEnd && allAnswered && !node.go && !node.branches) {
+          data.treeEnd = directEnd;
+          patch["data.treeEnd"] = directEnd;
+          parsed.treeEnd = directEnd;
           parsed.replyText = "";
-          data.solverRetryCommentId = current;
-          data.solverRetryCount = used + 1;
-          patch["data.solverRetryCommentId"] = current;
-          patch["data.solverRetryCount"] = used + 1;
+          if (node.componentName) {
+            data.componentName = String(node.componentName);
+            patch["data.componentName"] = data.componentName;
+            parsed.componentName = data.componentName;
+          }
+          if (directEnd === "escalate") parsed.kind = "handover";
           Log.info({ message: "parseAgentJson: task " + taskId +
-            " learned an article answer after the tool call; retrying solver once without replying" });
+            " learned the last answer after the tool call; completing direct terminal " + directEnd });
         }
       }
     }

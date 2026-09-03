@@ -175,14 +175,12 @@ const SUMMARY = {
     "Email: {email}",
     "Тематика: {topic}",
     "Суть: {problem}",
-    "{collected}{tried}",
     "Причина передачи: {reason}"
   ].join("\n"),
   subtask: [
     "Обращение передано ботом техподдержки.",
     "",
-    "Суть: {problem}",
-    "{collected}{tried}"
+    "Суть: {problem}"
   ].join("\n")
 };
 
@@ -193,15 +191,6 @@ const TOPIC_DESCRIPTION_LIMIT = 70;
 
 function summaryFields(o) {
   const data = o.data || {};
-  const labels = o.labels || {};
-  const includeInSubtaskSummary = o.includeInSubtaskSummary || null;
-  const answers = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
-  const evidence = data.treeAnswerEvidence && typeof data.treeAnswerEvidence === "object"
-    ? data.treeAnswerEvidence : {};
-  const attempts = Array.isArray(data.attempts) ? data.attempts : [];
-  // Блок печатается только когда в нём что-то есть: пустой заголовок занимает две строки
-  // и не сообщает ничего.
-  const block = (title, rows) => (rows.length ? "\n" + title + ":\n" + rows.join("\n") + "\n" : "");
   const short = s => {
     const one = String(s || "").replace(/\s+/g, " ").trim();
     return one.length > TOPIC_DESCRIPTION_LIMIT ? one.slice(0, TOPIC_DESCRIPTION_LIMIT) + "…" : one;
@@ -220,24 +209,12 @@ function summaryFields(o) {
     // caseSummary is written by the terminal summariser. It may fail without blocking the
     // business action, in which case the short intake summary remains a safe fallback.
     problem: data.caseSummary || data.problemSummary || "не описана",
-    // Порядок — тот, в котором статья спрашивала: в нём ответы и читаются.
-    collected: block("Собрано у партнёра",
-      Object.keys(answers)
-        .filter(k => !includeInSubtaskSummary || includeInSubtaskSummary[k] !== false)
-        // Routing uses the compact semantic answer. Humans get the exact partner message
-        // captured when that answer was learned, so a model paraphrase cannot become the
-        // only surviving evidence.
-        .map(k => "  " + (labels[k] || k) + ": " + (evidence[k] || answers[k]))),
-    // The placeholder name stays `tried` for backwards compatibility with config.summary,
-    // but its meaning is corrected. Reprinting a truncated bot answer told the operator
-    // neither what the partner actually did nor whether it helped. The exact confirmation
-    // is shorter and more useful; the full dialogue remains linked from Pyrus.
-    tried: block("Что произошло до передачи", attempts.length ? [
-      "  Бот предоставил ответ из Базы знаний.",
-      data.knowledgeOutcome && data.knowledgeOutcome.partnerText
-        ? "  Партнёр: «" + String(data.knowledgeOutcome.partnerText).replace(/\s+/g, " ").trim() + "»"
-        : null
-    ].filter(Boolean) : []),
+    // Older config.summary templates may still contain these placeholders. They now
+    // render empty deliberately: a model-generated case summary is more stable than
+    // stitching isolated chat fragments into a second, competing account of the case.
+    // The complete conversation remains available in the parent Pyrus chat.
+    collected: "",
+    tried: "",
     reason: o.reason || "не указана",
     component: data.componentName || "не определён",
     parent: o.parent || "—"
