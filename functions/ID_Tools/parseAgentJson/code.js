@@ -7,6 +7,31 @@ function normalize(s) {
   return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[.,«»'"()\[\]]/g, " ").replace(/[\s-]+/g, " ").trim();
 }
 
+// A negative verdict on the advice outranks the model calling the rest of the same
+// request a "new question".  This happened in the first live ratings acceptance chat:
+// «эта информация не помогла, нужно, чтобы специалисты проверили результат» was labelled
+// `more_questions`, which deliberately clears the current topic and starts intake over.
+// The tree then forgot that the partner had already said «Рейтинг стандартов», asked for
+// it again and served the same KB answer a second time.  The model still handles natural
+// language in general; this narrow guard only recognises an explicit failure statement,
+// where clearing the current problem can never be the safe interpretation.
+function explicitAdviceFailure(text) {
+  const said = normalize(text);
+  if (!said) return false;
+  const tokens = said.split(" ").filter(Boolean);
+  // JavaScript's `\b` treats only Latin letters and digits as word characters on the
+  // platform, so a regexp like `\bпомогла\b` never matches. Compare normalised tokens
+  // and stems instead; inflection then comes for free without an exhaustive word list.
+  for (let i = 0; i < tokens.length - 1; i++) {
+    if (tokens[i] === "не" && ["помог", "сработ", "получ", "реш"].some(stem =>
+      tokens[i + 1].indexOf(stem) === 0)) return true;
+  }
+  return said.indexOf("did not help") >= 0 || said.indexOf("didn t help") >= 0 ||
+    said.indexOf("does not help") >= 0 || said.indexOf("doesn t help") >= 0 ||
+    said.indexOf("still not working") >= 0 || said.indexOf("still not resolved") >= 0 ||
+    said.indexOf("still not solved") >= 0;
+}
+
 // "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)" -> "Тамбов-1".
 function nameOf(entry) {
   let s = String(entry || "").trim();
@@ -501,6 +526,18 @@ if (parsed.topicKey) {
   else if (isTree) delete parsed.componentName;
 }
 
+// The confirmation answer that means решилось, но есть другой вопрос. A small model
+// may still call an explicit «не помогло» a new question when the partner asks for a
+// specialist in the same sentence. Keep the current problem in that case and let the
+// article's deterministic onFail route decide what comes next.
+if (String(stage || "") === "confirmation" &&
+    String(parsed.status || "") === "more_questions" &&
+    explicitAdviceFailure(dialog.incomingText)) {
+  parsed.status = "failed";
+  Log.warn({ message: "parseAgentJson: explicit advice failure on task " + taskId +
+    " overrode confirmation status more_questions" });
+}
+
 // The confirmation answer that means решилось, но есть другой вопрос.
 const moreQuestions = String(stage || "") === "confirmation" &&
   String(parsed.status || "") === "more_questions";
@@ -717,7 +754,10 @@ if (taskId) {
          "knowledgeSourceIds", "openAnswerPrompts", "operatorAdvice", "suppressAnswerKeys",
          "suppressAnswerCommentId"].forEach(k => {
           delete data[k];
-          patch["data." + k] = null;
+          // A later point write to `data.treeAnswers.someKey` cannot descend through
+          // MongoDB null (error 28). An empty object means the same thing to every reader
+          // and remains a valid parent for the next answer.
+          patch["data." + k] = k === "treeAnswers" ? {} : null;
         });
         patch["treeQuestions"] = 0;
         patch["treeStreakNode"] = null;
@@ -730,8 +770,9 @@ if (taskId) {
     // article: the solver read topicKey and served the next step of an article that no
     // longer applies, while the attempts log kept growing under the wrong topic.
     if (moreQuestions) {
-      // Cleared by writing null rather than by removing the key: only $set is available,
-      // and every reader treats null as «not collected» anyway.
+      // Cleared by writing null rather than by removing the key: only $set is available.
+      // `treeAnswers` is the exception and becomes `{}`, so later nested answer writes
+      // remain legal for MongoDB.
       ["problemSummary", "topicKey", "componentName", "topicRoute",
        "attempts", "offeredStep", "solutionAuthorization", "preQuestionsAsked",
        // The tree has to start from its root for the new question, and the answers to
@@ -740,7 +781,7 @@ if (taskId) {
        "treeAskedNode", "requiredKnowledgeNotice", "requiredFollowUpQuestion", "knowledgeSourceIds",
        "openAnswerPrompts", "operatorAdvice", "suppressAnswerKeys", "suppressAnswerCommentId"].forEach(k => {
         delete data[k];
-        patch["data." + k] = null;
+        patch["data." + k] = k === "treeAnswers" ? {} : null;
       });
       Log.info({ message: "parseAgentJson: task " + taskId + " moved on to a new question, previous problem facts cleared" });
     }

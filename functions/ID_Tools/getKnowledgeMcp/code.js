@@ -43,6 +43,11 @@ const DEFAULT_LIMIT = 3;
 // лучше отсеивать из запаса, чем возвращать меньше, чем просили.
 const SEARCH_MULTIPLIER = 3;
 const MAX_SEARCH_LIMIT = 50;
+// In policy mode a semantic search can return one broad allowed article and omit a more
+// exact allowed one altogether. Probe only a small bounded number of missing reviewed
+// sources by their exact titles. This is deterministic, stays inside the allowlist and
+// avoids turning a topic with many sources into an unbounded sequence of MCP calls.
+const MAX_POLICY_TITLE_PROBES = 3;
 
 function parseSpaces(csv) {
   const list = String(csv || "").split(",").map(s => s.trim()).filter(Boolean);
@@ -377,8 +382,54 @@ const hits = search && Array.isArray(search.results) ? search.results : [];
 const allowedIds = externalPolicy
   ? externalPolicy.sources.map(s => s.articleId)
   : null;
-const ours = hits.filter(h => h && spaces.indexOf(String(h.spaceId)) >= 0 &&
+let ours = hits.filter(h => h && spaces.indexOf(String(h.spaceId)) >= 0 &&
   (!allowedIds || allowedIds.indexOf(String(h.articleId)) >= 0));
+
+if (externalPolicy && ours.length < resultLimit) {
+  const seen = {};
+  ours.forEach(hit => { seen[String(hit.articleId)] = true; });
+  const missing = externalPolicy.sources.filter(source => !seen[source.articleId] && source.title);
+  for (let i = 0; i < missing.length && i < MAX_POLICY_TITLE_PROBES && ours.length < resultLimit; i++) {
+    const source = missing[i];
+    try {
+      const probe = await rpc(auth.token, "search_content", {
+        request: { query: source.title, limit: searchLimit, spaces: [source.spaceId] }
+      });
+      const candidates = probe && Array.isArray(probe.results) ? probe.results : [];
+      const exact = candidates.find(hit => hit &&
+        String(hit.articleId) === source.articleId && String(hit.spaceId) === source.spaceId);
+      if (exact) {
+        ours.push(exact);
+        seen[source.articleId] = true;
+        Log.info({ message: "getKnowledgeMcp: approved article " + source.articleId +
+          " was absent from the partner-query results and was recovered by its reviewed title" });
+      }
+    } catch (e) {
+      // The original search is still valid. A failed supplementary probe must not turn a
+      // grounded answer into an outage; it only means fewer approved sources are offered.
+      Log.warn({ message: "getKnowledgeMcp: title probe for approved article " +
+        source.articleId + " failed: " + e });
+    }
+  }
+}
+
+// The server's first hit remains the tie-breaker, but a title that shares more concrete
+// words with the partner's question comes first once title probes have filled the gaps.
+// For «как подать апелляцию» this puts «правила подачи апелляций» ahead of the broad
+// «принципы и правила» article; for a generic criteria question the server order wins.
+function titleRelevance(hit) {
+  const wordsOf = value => String(value || "").toLowerCase().replace(/ё/g, "е")
+    .split(/[^0-9a-zа-я]+/).filter(word => word.length >= 5)
+    .map(word => word.slice(0, 6));
+  const queryWords = wordsOf(text);
+  const title = hit.articleTitle || hit.title || "";
+  return wordsOf(title).filter((word, index, all) =>
+    all.indexOf(word) === index && queryWords.some(q => q === word || q.indexOf(word) === 0 || word.indexOf(q) === 0)
+  ).length;
+}
+ours = ours.map((hit, index) => ({ hit: hit, index: index, score: titleRelevance(hit) }))
+  .sort((a, b) => b.score - a.score || a.index - b.index)
+  .map(row => row.hit);
 
 if (!ours.length) {
   Log.info({ message: "getKnowledgeMcp: «" + text.slice(0, 120) + "» — ничего в " +
@@ -492,9 +543,11 @@ function articleUrl(template, spaceId, articleId) {
 }
 
 articles.forEach(a => { a.url = articleUrl(articleTemplate, a.spaceId, a.articleId); });
-const sourceLines = articles.map(a => "- [" + (a.title || "Материал Базы знаний") + "](" + a.url + ")");
-const notice = [externalPolicy.warning || null, sourceLines.join("\n")].filter(Boolean).join("\n\n");
 const state = loadState();
+const noticeLanguage = String(state.data && state.data.partnerLanguage || "ru").toLowerCase();
+const sourceLabel = noticeLanguage === "ru" ? "Ссылка" : "Link";
+const sourceLines = articles.map(a => "- [" + sourceLabel + "](" + a.url + ")");
+const notice = [externalPolicy.warning || null, sourceLines.join("\n")].filter(Boolean).join("\n\n");
 const currentCommentId = state.runtime && state.runtime.incomingCommentId != null
   ? String(state.runtime.incomingCommentId) : null;
 writePaths({

@@ -37,7 +37,7 @@
   },
   "variantSelection": {
     "required": true,
-    "maxClarifications": 2,
+    "maxClarifications": 1,
     "question": "Уточните, пожалуйста, вопрос относится к Рейтингу клиентского опыта (РКО) или к Рейтингу стандартов?",
     "onUnknown": "handover_to_operator",
     "doNotGuess": true

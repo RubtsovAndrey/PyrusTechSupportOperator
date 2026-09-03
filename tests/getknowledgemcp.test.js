@@ -31,8 +31,11 @@ const ARTICLE_MD = [
 ].join("\n");
 
 const EXTERNAL_ARTICLE_ID = "272d65f9-ca3b-4d54-a1ce-5a9fff4a04eb";
+const EXTERNAL_APPEAL_ID = "8e0617e4-bead-4be1-8796-12b18b214dc5";
 const EXTERNAL_SPACE_ID = "2622c14a-ffac-4cb1-b3fa-ee41563c1b70";
 const EXTERNAL_UPDATED_AT = "2026-05-22T09:01:53.619596";
+const EXTERNAL_APPEAL_UPDATED_AT = "2025-09-23T09:58:49.752124";
+const EXTERNAL_APPEAL_TITLE = "Правила подачи апелляций по рейтингу клиентского опыта";
 const EXTERNAL_CONTENT = "# Рейтинг клиентского опыта\n\nАпелляцию можно подать по правилам статьи.";
 
 function hit(overrides) {
@@ -98,6 +101,13 @@ function runExternal(options) {
     title: "Рейтинг клиентского опыта: принципы и правила",
     reviewedUpdatedAt: EXTERNAL_UPDATED_AT
   };
+  const appealSource = {
+    articleId: EXTERNAL_APPEAL_ID,
+    spaceId: EXTERNAL_SPACE_ID,
+    title: EXTERNAL_APPEAL_TITLE,
+    reviewedUpdatedAt: EXTERNAL_APPEAL_UPDATED_AT
+  };
+  const policySources = o.secondSource ? [source, appealSource] : [source];
   const db = {
     [stateKey]: {
       taskId: taskId,
@@ -111,7 +121,7 @@ function runExternal(options) {
           rkoKnowledge: {
             onFail: "rkoCollect",
             externalKnowledge: {
-              sources: [source],
+              sources: policySources,
               fallbackNode: "rkoCollect",
               warning: "Материал подобран автоматически.",
               followUpQuestion: "Эта информация помогла?"
@@ -142,6 +152,12 @@ function runExternal(options) {
     status: "published",
     updatedAt: EXTERNAL_UPDATED_AT
   };
+  const appealHit = Object.assign({}, approvedHit, {
+    articleId: EXTERNAL_APPEAL_ID,
+    articleTitle: appealSource.title,
+    excerpt: "правила подачи апелляций…",
+    updatedAt: EXTERNAL_APPEAL_UPDATED_AT
+  });
   const env = makeEnv({
     db: db,
     contextValues: { dialog: { taskId: String(taskId), incomingText: "Как подать апелляцию по РКО?" } },
@@ -151,6 +167,7 @@ function runExternal(options) {
       const request = a.body.params.arguments.request || {};
       if (o.failOn === name) throw new Error("сеть отвалилась");
       if (name === "search_content") {
+        if (o.searchResults) return wrap({ results: o.searchResults(request, approvedHit, appealHit) });
         const unwanted = Object.assign({}, approvedHit, {
           articleId: "unapproved",
           articleTitle: "Казахстан: похожая статья"
@@ -158,11 +175,12 @@ function runExternal(options) {
         return wrap({ results: o.hits === undefined ? [unwanted, approvedHit] : o.hits });
       }
       if (name === "get_content") {
+        const selected = policySources.find(s => s.articleId === request.id) || source;
         return wrap({
           id: request.id,
-          title: source.title,
+          title: selected.title,
           content: EXTERNAL_CONTENT,
-          updatedAt: o.updatedAt || EXTERNAL_UPDATED_AT,
+          updatedAt: o.updatedAt || selected.reviewedUpdatedAt,
           space: { id: EXTERNAL_SPACE_ID, title: "Стандарты" }
         });
       }
@@ -367,7 +385,25 @@ async function main() {
     r.state.data.solutionAuthorization.incomingCommentId === "42" &&
     /Материал подобран/.test(r.state.data.requiredKnowledgeNotice) &&
     /knowledgebase\.example/.test(r.state.data.requiredKnowledgeNotice) &&
+    /\[Ссылка\]\(/.test(r.state.data.requiredKnowledgeNotice) &&
+    !/\[Рейтинг клиентского опыта:/.test(r.state.data.requiredKnowledgeNotice) &&
     r.state.data.requiredFollowUpQuestion === "Эта информация помогла?", r.state.data);
+
+  r = await runExternal({
+    secondSource: true,
+    searchResults: (request, broad, appeal) =>
+      request.query === EXTERNAL_APPEAL_TITLE ? [appeal, broad] : [broad]
+  });
+  t.check("policy search recovers an omitted reviewed source by its exact title",
+    r.result.articles.length === 2 &&
+    r.result.articles.some(a => a.articleId === EXTERNAL_APPEAL_ID),
+    r.result.articles.map(a => a.articleId));
+  t.check("the appeal article outranks the broad rules article for an appeal query",
+    r.result.articles[0] && r.result.articles[0].articleId === EXTERNAL_APPEAL_ID,
+    r.result.articles.map(a => a.title));
+  t.check("the supplementary retrieval is bounded to one title probe in this two-source policy",
+    r.env.posts.filter(p => p.body.params.name === "search_content").length === 2,
+    r.env.posts.map(p => p.body.params.name));
 
   r = await runExternal({ canReadFully: false });
   t.check("слишком большая статья читается через search_in_content, а не целиком",

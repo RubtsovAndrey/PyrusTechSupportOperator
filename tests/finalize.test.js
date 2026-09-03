@@ -504,6 +504,24 @@ async function main() {
     (alreadyAsked.db[KEY].pendingOutcome.replyText.match(/Получилось решить вопрос/g) || []).length === 1,
     alreadyAsked.db[KEY].pendingOutcome.replyText);
 
+  const compactLinks = makeEnv({
+    prev: {
+      taskId: "11613", agentStage: "solver",
+      replyText: "Подайте апелляцию по ссылке: https://kb.example/article/appeal."
+    },
+    db: { [KEY]: state({ pendingOutcome: null, data: {
+      partnerLanguage: "ru",
+      requiredKnowledgeNotice: "Материал подобран автоматически.\n\n- [Правила апелляций](https://kb.example/article/source)"
+    } }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(compactLinks, ["reply", null]);
+  const compactReply = compactLinks.db[KEY].pendingOutcome.replyText;
+  t.check("raw and titled instruction links are compacted for the Pyrus chat",
+    compactReply.includes("[Ссылка](https://kb.example/article/appeal)") &&
+    compactReply.includes("[Ссылка](https://kb.example/article/source)") &&
+    !compactReply.includes("[Правила апелляций]"), compactReply);
+
   const enriched = makeEnv({
     prev: {
       taskId: "11613",

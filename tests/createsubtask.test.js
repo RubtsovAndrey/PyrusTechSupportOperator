@@ -154,9 +154,42 @@ async function main() {
       [UNIT, COMPONENT, EMAIL, SUBJECT, MESSAGE].sort((a, b) => a - b).join(","), create.body.fields);
   t.check("exact «Тема» wins over adjacent similarly named fields",
     !!field(SUBJECT) && !create.body.fields.some(f => Number(f.id) === 25 || Number(f.id) === 26), create.body.fields);
-  t.check("the mandatory message carries the operator summary and recovery marker",
-    /Тамбов-1/.test(field(MESSAGE)) && /Доступы/.test(field(MESSAGE)) && /№11613/.test(field(MESSAGE)) &&
+  t.check("the mandatory message carries the problem and recovery marker without duplicating form fields",
+    /Суть: нужен доступ к отчётам/.test(field(MESSAGE)) &&
+    !/Юнит:|Email:|Компонент:|Родительская задача:/.test(field(MESSAGE)) &&
     field(MESSAGE).includes("Идентификатор обращения ИИ: " + REQUEST_KEY), field(MESSAGE));
+
+  r = await run({
+    state: { data: Object.assign({}, facts, {
+      topicKey: "ratings_questions",
+      componentName: "Стандарты|Маркетинг → Контроллинг → Рейтинг стандартов",
+      treeNode: "standardsCollect",
+      treeAnswers: {
+        ratingKind: "Рейтинг стандартов",
+        expectedResult: "Пересмотреть снятые баллы"
+      }
+    }) },
+    db: { knowledge_catalog: { topics: [{
+      key: "ratings_questions",
+      description: "Вопросы по рейтингам",
+      nodes: {
+        ratingKindFirst: { ask: [{
+          key: "ratingKind", label: "Вид рейтинга",
+          includeInSubtaskSummary: false, question: "Какой рейтинг?"
+        }] },
+        standardsCollect: { ask: [{
+          key: "expectedResult", label: "Ожидаемый результат и детали",
+          question: "Какой результат ожидаете?"
+        }] }
+      }
+    }] } }
+  });
+  const ratingsCreate = created(r.posts)[0];
+  const ratingsMessage = ratingsCreate.body.fields.find(f => Number(f.id) === MESSAGE).value;
+  t.check("an article can hide a routing answer already represented by a form field",
+    !/Вид рейтинга/.test(ratingsMessage) &&
+    /Ожидаемый результат и детали: Пересмотреть снятые баллы/.test(ratingsMessage),
+    ratingsMessage);
   t.check("no correspondence or foreign workflow action is posted",
     !r.posts.some(p => p.body && (p.body.text || p.body.action)), r.posts);
   const postsAfterCreate = r.posts.length;

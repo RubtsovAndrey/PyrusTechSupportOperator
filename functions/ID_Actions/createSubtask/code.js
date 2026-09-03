@@ -101,10 +101,11 @@ function writeState(taskId, paths, who) {
   }
 }
 
-// ── Одна форма на подзадачу и на внутреннюю переписку ──
-// Читает их один и тот же человек, поэтому и скелет один: кто и где → что случилось →
-// что собрали → что пробовали → куда это идёт. Раньше форм было две, с разными
-// названиями одних и тех же блоков, и в подзадаче не было сказано даже, кто обращается.
+// ── Один форматтер для подзадачи и внутренней переписки ──
+// Операторская заметка содержит контекст маршрутизации, которого нет в полях неизвестной
+// темы. Подзадача, наоборот, не повторяет юнит, email, компонент и родительскую связь:
+// они уже структурированы самой формой Pyrus. Общими остаются подписи содержательных
+// ответов и блок выданных рекомендаций.
 //
 // Что печатается всегда, а что только при наличии, решено так: обязательное печатается
 // даже пустым, потому что пустота здесь — тоже факт («email не указан» говорит, что
@@ -113,11 +114,10 @@ function writeState(taskId, paths, who) {
 // советы — печатается только когда есть: блок «Уже пробовали: ничего» занимает две
 // строки и не сообщает ничего.
 //
-// Один и тот же текст собирается в двух функциях, потому что функции платформы не
-// импортируют друг друга. Правку нужно вносить в обе — иначе оператор снова начнёт
-// получать два разных документа об одном и том же.
+// Один и тот же форматтер собирается в двух функциях, потому что функции платформы не
+// импортируют друг друга. Правку нужно вносить в обе — это проверяет tests/run.js.
 function topicForm(topicKey, nodeId, who) {
-  const out = { labels: {}, description: null };
+  const out = { labels: {}, includeInSubtaskSummary: {}, description: null };
   if (!topicKey) return out;
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: "knowledge_catalog" });
@@ -135,7 +135,10 @@ function topicForm(topicKey, nodeId, who) {
     const take = force => q => {
       if (!q || !q.key || !q.label) return;
       const key = String(q.key);
-      if (force || !out.labels[key]) out.labels[key] = String(q.label);
+      if (force || !out.labels[key]) {
+        out.labels[key] = String(q.label);
+        out.includeInSubtaskSummary[key] = q.includeInSubtaskSummary !== false;
+      }
     };
     Object.keys(topic.nodes || {}).forEach(id => {
       const node = topic.nodes[id] || {};
@@ -182,13 +185,8 @@ const SUMMARY = {
   subtask: [
     "Обращение передано ботом техподдержки.",
     "",
-    "Юнит: {unit}",
-    "Email: {email}",
-    "Тематика: {topic}",
     "Суть: {problem}",
-    "{collected}{tried}",
-    "Компонент: {component}",
-    "Родительская задача: №{parent}"
+    "{collected}{tried}"
   ].join("\n")
 };
 
@@ -200,6 +198,7 @@ const TOPIC_DESCRIPTION_LIMIT = 70;
 function summaryFields(o) {
   const data = o.data || {};
   const labels = o.labels || {};
+  const includeInSubtaskSummary = o.includeInSubtaskSummary || null;
   const answers = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
   const attempts = Array.isArray(data.attempts) ? data.attempts : [];
   // Блок печатается только когда в нём что-то есть: «Уже пробовали: ничего» занимает две
@@ -223,7 +222,9 @@ function summaryFields(o) {
     problem: data.problemSummary || "не описана",
     // Порядок — тот, в котором статья спрашивала: в нём ответы и читаются.
     collected: block("Собрано у партнёра",
-      Object.keys(answers).map(k => "  " + (labels[k] || k) + ": " + answers[k])),
+      Object.keys(answers)
+        .filter(k => !includeInSubtaskSummary || includeInSubtaskSummary[k] !== false)
+        .map(k => "  " + (labels[k] || k) + ": " + answers[k])),
     // Без вердикта: совет записывается в момент выдачи, а помог ли он — ровно то, чего мы
     // в момент передачи не знаем.
     tried: block("Что уже пробовали",
@@ -461,6 +462,7 @@ const form = topicForm(data.topicKey, data.treeNode, "createSubtask");
 const summaryText = render(summaryTemplate(cfg, "subtask"), summaryFields({
   data: data,
   labels: form.labels,
+  includeInSubtaskSummary: form.includeInSubtaskSummary,
   description: form.description,
   parent: taskId
 })) + "\n\n" + requestMarker;

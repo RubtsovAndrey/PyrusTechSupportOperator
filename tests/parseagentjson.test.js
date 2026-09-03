@@ -422,7 +422,8 @@ async function main() {
   };
   r = await run("routing", json({ route: "subtask", topicKey: "access_request" }), midWalk);
   t.check("changing the topic resets the tree walk",
-    !r.state.data.treeNode && !r.state.data.treeAnswers && !r.state.data.treeAskedNode &&
+    !r.state.data.treeNode && r.state.data.treeAnswers &&
+    Object.keys(r.state.data.treeAnswers).length === 0 && !r.state.data.treeAskedNode &&
     !r.state.data.treeHandoverAsked && !r.state.data.offeredStep, r.state.data);
   t.check("and the new article gets its full question budget",
     r.state.treeQuestions === 0 && r.state.treeStreakNode === null,
@@ -470,6 +471,27 @@ async function main() {
     r.state.subtaskRequestKey !== "11613:old" && r.state.subtaskClaim === null &&
     r.state.subtaskClaimAt === null && r.state.subtaskIntegrity === null, r.state);
   t.check("clarify streak is cleared", r.state.clarifyStreak === 0, r.state.clarifyStreak);
+
+  // Live ratings acceptance: the model called this a new request because the second
+  // sentence asks for specialists, even though the first one explicitly says that the
+  // KB answer did not help. Clearing the topic here restarts the article and repeats both
+  // the rating-kind question and the same instruction.
+  r = await run("confirmation", json({ status: "more_questions" }), afterSolved, {
+    incomingText: "Нет, эта информация не помогла. Нужно, чтобы специалисты проверили результат."
+  });
+  t.check("an explicit failed advice cannot be reclassified as a new question",
+    r.result.status === "failed", r.result);
+  t.check("the failed advice keeps the current topic and its collected facts",
+    r.state.data.topicKey === "printer_no_receipt" &&
+    Array.isArray(r.state.data.attempts) && r.state.data.attempts.length === 1,
+    r.state.data);
+
+  r = await run("confirmation", json({ status: "more_questions" }), Object.assign({}, afterSolved, {
+    data: Object.assign({}, afterSolved.data, { treeAnswers: { kind: "старый ответ" } })
+  }));
+  t.check("clearing a genuine old problem leaves treeAnswers writable, not null",
+    r.state.data.treeAnswers && typeof r.state.data.treeAnswers === "object" &&
+    Object.keys(r.state.data.treeAnswers).length === 0, r.state.data.treeAnswers);
 
   // The other confirmation answers must not wipe anything.
   r = await run("confirmation", json({ status: "not_resolved" }), afterSolved);
