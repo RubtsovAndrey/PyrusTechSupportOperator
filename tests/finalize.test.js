@@ -76,6 +76,8 @@ async function main() {
   r = await run({ db: { [KEY]: state({ pendingOutcome: clarify }) } });
   t.check("reply is posted once", r.posts.length === 1, r.posts);
   t.check("reply text reaches Pyrus", r.posts[0].body.text === clarify.replyText, r.posts[0].body);
+  t.check("every textual reply also carries Pyrus formatted_text",
+    r.posts[0].body.formatted_text === clarify.replyText, r.posts[0].body);
   t.check("reply goes out through the partner's channel",
     r.posts[0].body.channel && r.posts[0].body.channel.direction === "outbound", r.posts[0].body);
   t.check("stage is advanced after a successful post", r.state.stage === "awaiting_confirmation", r.state);
@@ -517,10 +519,25 @@ async function main() {
   });
   await applyOutcome(compactLinks, ["reply", null]);
   const compactReply = compactLinks.db[KEY].pendingOutcome.replyText;
-  t.check("raw and titled instruction links are compacted for the Pyrus chat",
-    compactReply.includes("[Ссылка](https://kb.example/article/appeal)") &&
+  t.check("model links are removed and only the policy source reaches the Pyrus chat",
+    !compactReply.includes("https://kb.example/article/appeal") &&
     compactReply.includes("[Ссылка](https://kb.example/article/source)") &&
     !compactReply.includes("[Правила апелляций]"), compactReply);
+
+  const formattedLinks = await run({ db: { [KEY]: state({
+    pendingOutcome: Object.assign({}, clarify, {
+      replyText: "Откройте [Ссылка](https://kb.example/article/appeal?x=1&y=2).\n\n<Не вставлять как HTML>"
+    })
+  }) } });
+  const formattedBody = formattedLinks.posts[0].body;
+  t.check("Markdown syntax is absent from the plain Pyrus fallback",
+    formattedBody.text.includes("Ссылка: https://kb.example/article/appeal?x=1&y=2") &&
+    !formattedBody.text.includes("[Ссылка]("), formattedBody);
+  t.check("Pyrus receives its documented HTML hyperlink representation",
+    formattedBody.formatted_text.includes(
+      '<a href="https://kb.example/article/appeal?x=1&amp;y=2">Ссылка</a>') &&
+    formattedBody.formatted_text.includes("<br/><br/>") &&
+    formattedBody.formatted_text.includes("&lt;Не вставлять как HTML&gt;"), formattedBody);
 
   const enriched = makeEnv({
     prev: {

@@ -83,6 +83,34 @@ async function main() {
     r.result.kind === "handover" && r.result.treeEnd === "escalate" && !r.result.replyText,
     r.result);
 
+  // Live ratings acceptance, task 377005885: searchKnowledge had already walked the
+  // approved article to `end: subtask`. The model nevertheless wrote that specialists
+  // had received the request. The generic grounding guard used to turn the correct
+  // terminal into an operator handover, so createSubtask never got a chance to ask email.
+  r = await run("solver", json({
+    replyText: "Ваш запрос передан специалистам, ожидайте ответа.",
+    kind: "solution",
+    answers: {
+      ratingKind: "Рейтинг стандартов",
+      expectedResult: "1 сентября была проверка, ожидаю возврата баллов"
+    }
+  }), {
+    runtime: { incomingCommentId: "live-comment" },
+    data: {
+      topicKey: "ratings_questions",
+      treeNode: "standardsCollect",
+      treeEnd: "subtask",
+      treeAnswers: {
+        ratingKind: "Рейтинг стандартов",
+        expectedResult: "1 сентября была проверка, ожидаю возврата баллов"
+      }
+    }
+  });
+  t.check("a deterministic subtask terminal outranks later model prose",
+    r.result.treeEnd === "subtask" && !r.result.replyText, r.result);
+  t.check("preserving the subtask terminal does not invent a handover reason",
+    !r.state.data.handoverReason && r.state.data.treeEnd === "subtask", r.state.data);
+
   let threw = false;
   try {
     await run("routing", "Думаю, это про принтер");

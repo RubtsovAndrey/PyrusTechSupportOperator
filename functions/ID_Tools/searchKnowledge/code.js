@@ -552,8 +552,9 @@ try {
 
 // ── Как подбирается тема ──
 // `rag.mode`: off — только по словам; shadow — RAG спрашиваем и печатаем в лог, решает
-// подбор по словам; on — решает RAG. По умолчанию shadow: шкала счёта у каждой базы знаний
-// своя, порог наугад не ставится, а выкладка этой правки не должна менять поведение.
+// подбор по словам; on — решает RAG. По умолчанию off: живой MVP подтвердил, что прежняя
+// тестовая интеграция больше не существует, а shadow только добавляет ошибку и задержку,
+// не участвуя в решении. Эксперимент по-прежнему можно включить явно через config.
 // `rag.minScore` — ниже этого счёта кандидат не рассматривается. Порог обязателен:
 // семантический поиск всегда возвращает ближайшее, «ничего не нашлось» у него нет, и без
 // порога любое постороннее обращение уедет в ближайшую статью вместо оператора.
@@ -568,14 +569,14 @@ function ragSettings() {
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: "config" });
     const rag = (doc && doc.value && doc.value.rag) || {};
-    const mode = String(rag.mode || "shadow");
+    const mode = String(rag.mode || "off");
     RAG_SETTINGS = {
-      mode: ["off", "shadow", "on"].indexOf(mode) >= 0 ? mode : "shadow",
+      mode: ["off", "shadow", "on"].indexOf(mode) >= 0 ? mode : "off",
       minScore: Number(rag.minScore) >= 0 ? Number(rag.minScore) : 0
     };
   } catch (e) {
-    Log.warn({ message: "searchKnowledge: config read failed, RAG stays in shadow: " + e });
-    RAG_SETTINGS = { mode: "shadow", minScore: 0 };
+    Log.warn({ message: "searchKnowledge: config read failed, RAG stays off: " + e });
+    RAG_SETTINGS = { mode: "off", minScore: 0 };
   }
   return RAG_SETTINGS;
 }
@@ -1438,10 +1439,8 @@ const margin = scored => (scored.length > 1 ? (scored[0].score - scored[1].score
 
 // ── Кто принимает решение ──
 // `off` — только по словам, RAG не трогаем.
-// `shadow` — RAG спрашиваем и печатаем, но решает по-прежнему подбор по словам. Значение по
-//   умолчанию, и оно выбрано намеренно: шкала счёта у RAG своя, порог наугад поставить нельзя,
-//   а деплой этой правки не должен менять поведение. Читаете логи, видите шкалу, ставите
-//   `rag.minScore`, переключаете на `on`.
+// `shadow` — RAG спрашиваем и печатаем, но решает по-прежнему подбор по словам. Включается
+//   только явно для измерения шкалы перед отдельным экспериментом.
 // `on` — решает RAG, подбор по словам остаётся страховкой на случай пустого ответа.
 const RAG_MODE = ragSettings().mode;
 const byWords = topicsFromWords();

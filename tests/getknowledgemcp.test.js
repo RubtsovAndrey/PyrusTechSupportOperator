@@ -122,6 +122,8 @@ function runExternal(options) {
             onFail: "rkoCollect",
             externalKnowledge: {
               sources: policySources,
+              answerSourceLimit: o.answerSourceLimit || 1,
+              answerGuidance: "Ответьте не более чем тремя короткими пунктами.",
               fallbackNode: "rkoCollect",
               warning: "Материал подобран автоматически.",
               followUpQuestion: "Эта информация помогла?"
@@ -388,19 +390,25 @@ async function main() {
     /\[Ссылка\]\(/.test(r.state.data.requiredKnowledgeNotice) &&
     !/\[Рейтинг клиентского опыта:/.test(r.state.data.requiredKnowledgeNotice) &&
     r.state.data.requiredFollowUpQuestion === "Эта информация помогла?", r.state.data);
+  t.check("policy answer guidance reaches the solver as data, not hard-coded prose",
+    /тремя короткими пунктами/.test(r.result.answerGuidance || ""), r.result);
 
   r = await runExternal({
     secondSource: true,
     searchResults: (request, broad, appeal) =>
       request.query === EXTERNAL_APPEAL_TITLE ? [appeal, broad] : [broad]
   });
-  t.check("policy search recovers an omitted reviewed source by its exact title",
-    r.result.articles.length === 2 &&
-    r.result.articles.some(a => a.articleId === EXTERNAL_APPEAL_ID),
+  t.check("policy search recovers an omitted reviewed source and selects only it",
+    r.result.articles.length === 1 &&
+    r.result.articles[0].articleId === EXTERNAL_APPEAL_ID,
     r.result.articles.map(a => a.articleId));
   t.check("the appeal article outranks the broad rules article for an appeal query",
     r.result.articles[0] && r.result.articles[0].articleId === EXTERNAL_APPEAL_ID,
     r.result.articles.map(a => a.title));
+  t.check("only the selected article is exposed in the source notice",
+    r.state.data.knowledgeSourceIds === EXTERNAL_APPEAL_ID &&
+    (r.state.data.requiredKnowledgeNotice.match(/\[Ссылка\]\(/g) || []).length === 1,
+    r.state.data);
   t.check("the supplementary retrieval is bounded to one title probe in this two-source policy",
     r.env.posts.filter(p => p.body.params.name === "search_content").length === 2,
     r.env.posts.map(p => p.body.params.name));

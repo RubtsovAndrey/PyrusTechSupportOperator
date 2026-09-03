@@ -66,10 +66,11 @@ async function main() {
   const t = suite("routing");
 
   // ── Режимы ──
-  // По умолчанию — shadow: базу знаний спрашиваем и печатаем в лог, но решает по-прежнему
-  // подбор по словам. Так выкладка этой правки не меняет поведение, а шкала счёта, которая
-  // у каждой базы знаний своя, становится видна до того, как на неё завяжут порог.
+  // Shadow remains an explicit diagnostic mode: it asks the semantic index but does not
+  // let it route. The live MVP has no such integration now, so the safe default below is
+  // off and does not produce a guaranteed platform error on every fresh topic.
   let r = await route("касса не включается", {
+    config: { rag: { mode: "shadow" } },
     onRag: () => ({ chunks: [chunk("employee_card_change.md", 0.99)] })
   });
   t.check("shadow: базу знаний спрашивают", r.rags.length === 1, r.rags);
@@ -80,12 +81,11 @@ async function main() {
     /режим: shadow/.test(r.logs), r.logs);
 
   r = await route("касса не включается", {
-    config: { rag: { mode: "off" } },
     onRag: () => ({ chunks: [chunk("employee_card_change.md", 0.99)] })
   });
-  t.check("off: базу знаний не трогают вовсе", r.rags.length === 0, r.rags);
-  t.check("off: решает подбор по словам", keys(r)[0] === "pos_down", r.result);
-  t.check("off: и в логе так и сказано", /RAG: не спрашивали/.test(r.logs), r.logs);
+  t.check("off by default: базу знаний не трогают вовсе", r.rags.length === 0, r.rags);
+  t.check("off by default: решает подбор по словам", keys(r)[0] === "pos_down", r.result);
+  t.check("off by default: и в логе так и сказано", /RAG: не спрашивали/.test(r.logs), r.logs);
 
   r = await route("касса не включается", {
     config: on(),

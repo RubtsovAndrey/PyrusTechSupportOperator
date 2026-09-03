@@ -258,6 +258,12 @@ function describeTopic(topic) {
         n.externalKnowledge.sources.forEach(source => {
           out.push("  - " + (source.title || source.articleId) + " (`" + source.articleId + "`)");
         });
+        if (n.externalKnowledge.answerSourceLimit) {
+          out.push("- В один ответ берёт источников: " + n.externalKnowledge.answerSourceLimit);
+        }
+        if (n.externalKnowledge.answerGuidance) {
+          out.push("- Профиль ответа: " + n.externalKnowledge.answerGuidance);
+        }
         if (n.externalKnowledge.fallbackNode || n.onFail) {
           out.push("- Если прямого ответа нет → " + (n.externalKnowledge.fallbackNode || n.onFail));
         }

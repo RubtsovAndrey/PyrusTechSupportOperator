@@ -686,6 +686,26 @@ if (taskId) {
     // the till. Prompt wording cannot be the security boundary. searchKnowledge writes a
     // one-turn permit only when it actually returns a solution; a permit from an earlier
     // partner message cannot be reused because its comment id no longer matches.
+    // A tree terminal is a business decision made by searchKnowledge, not by the model.
+    // In the second live ratings acceptance the tool had already returned
+    // `treeEnd: "subtask"`, but the model continued after the tool call and invented a
+    // partner-facing «your request has been sent to specialists». The ungrounded-answer
+    // guard below correctly rejected that text, then incorrectly replaced the real
+    // terminal with `escalate` before the graph could see it. Once an article has ended,
+    // no prose from this model turn is actionable: preserve the terminal and discard the
+    // text. createSubtask will ask for email itself if that terminal is `subtask`.
+    const deterministicTreeEnd = String(stage || "") === "solver" && data.treeEnd
+      ? String(data.treeEnd) : null;
+    if (deterministicTreeEnd) {
+      if (parsed.replyText) {
+        Log.warn({ message: "parseAgentJson: ignored solver reply after deterministic tree terminal " +
+          deterministicTreeEnd + " on task " + taskId });
+      }
+      parsed.replyText = "";
+      parsed.treeEnd = deterministicTreeEnd;
+      if (deterministicTreeEnd === "escalate") parsed.kind = "handover";
+    }
+
     const solverClaimsSolution = String(stage || "") === "solver" && parsed.replyText &&
       String(parsed.kind || "solution") === "solution";
     if (solverClaimsSolution) {

@@ -89,6 +89,8 @@
     "answerOnlyFromReadSources": true,
     "rejectUnapprovedArticleIds": true,
     "rejectWrongRegion": true,
+    "answerSourceLimit": 1,
+    "answerGuidance": "Отвечать только на непосредственный вопрос; не объяснять уже названные партнёром термины; для подачи апелляции оставить способ, срок и необходимость подтверждений; не более трёх коротких пунктов и 600 знаков; ссылку добавляет система.",
     "emptyOrUnavailable": "collect_for_subtask",
     "partnerWarning": "Материал подобран автоматически и может не учитывать особенности вашей ситуации.",
     "confirmationQuestion": "Эта информация помогла решить ваш вопрос?"

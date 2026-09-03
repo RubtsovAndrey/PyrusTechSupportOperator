@@ -27,6 +27,43 @@ function isBot(author) {
   return BOT_AUTHOR_IDS.indexOf(Number(author.id)) >= 0;
 }
 
+// Pyrus task comments do not render Markdown. The second live ratings acceptance showed
+// `[Ссылка](https://...)` literally both in the operator task and in the web widget.
+// Its comments API has a separate `formatted_text` field and supports a small HTML
+// allowlist including `<a href="...">`. Keep `text` as a readable transport fallback and
+// derive the HTML ourselves: model-produced HTML is never trusted or forwarded.
+function plainCommentText(value) {
+  return String(value || "").replace(
+    /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    (all, label, url) => String(label).trim() + ": " + url
+  );
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formattedCommentText(value) {
+  return escapeHtml(value)
+    .replace(
+      /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,
+      (all, label, url) => '<a href="' + url + '">' + String(label).trim() + "</a>"
+    )
+    .replace(/\r?\n/g, "<br/>");
+}
+
+function commentTextBody(value) {
+  return {
+    text: plainCommentText(value),
+    formatted_text: formattedCommentText(value)
+  };
+}
+
 // ── How a point write addresses its document ──
 // `filters` match fields **inside `value`**, and so do the paths in `operator`. Both were
 // settled by experiment, and both had been wrong: a filter on `documentKey` or on `key`
@@ -324,7 +361,7 @@ if (hasSomethingToPost) {
       await Http.post({
         url: apiUrl + "tasks/" + taskId + "/comments",
         headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-        body: { text: outcome.internalNote }
+        body: commentTextBody(outcome.internalNote)
       });
       writeState(taskId, { "internalNotePostedFor": processedId || null }, "finalize");
     } catch (e) {
@@ -334,7 +371,9 @@ if (hasSomethingToPost) {
 
   const body = {};
   if (outcome.replyText) {
-    body.text = outcome.replyText;
+    const replyBody = commentTextBody(outcome.replyText);
+    body.text = replyBody.text;
+    body.formatted_text = replyBody.formatted_text;
     if (channel) body.channel = channel;
   }
   if (outcome.action) body.action = outcome.action;

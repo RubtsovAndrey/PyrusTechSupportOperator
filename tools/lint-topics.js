@@ -178,6 +178,14 @@ function lintTopics(topics) {
         });
         if (!String(external.warning || "").trim()) say(id + ".externalKnowledge has no partner warning");
         if (!String(external.followUpQuestion || "").trim()) say(id + ".externalKnowledge has no follow-up question");
+        if (external.answerSourceLimit !== undefined &&
+            (!Number.isInteger(Number(external.answerSourceLimit)) || Number(external.answerSourceLimit) < 1 ||
+             Number(external.answerSourceLimit) > sources.length)) {
+          say(id + ".externalKnowledge.answerSourceLimit must be an integer from 1 to sources.length");
+        }
+        if (external.answerGuidance !== undefined && !String(external.answerGuidance || "").trim()) {
+          say(id + ".externalKnowledge.answerGuidance is empty");
+        }
         if (!String(external.fallbackNode || n.onFail || "").trim()) {
           say(id + ".externalKnowledge has no fallbackNode or node onFail");
         }

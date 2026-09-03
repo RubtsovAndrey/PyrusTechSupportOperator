@@ -61,11 +61,9 @@ function writeState(taskId, paths, who) {
   }
 }
 
-// Long raw URLs dominate a short support reply in Pyrus. The widget renders Markdown,
-// so partner-facing Russian answers use one compact, predictable label. This is enforced
-// after the model reply and the mandatory KB notice have been joined: relying on the
-// model to remember formatting left the live acceptance chat with a full encoded URL in
-// the middle of a numbered step.
+// Keep one internal link notation until finalize derives Pyrus `formatted_text` HTML and
+// a readable plain-text fallback from it. The widget does not render Markdown itself; the
+// notation is only a safe intermediate representation shared by the model and the code.
 function compactPartnerLinks(value, language) {
   if (!value || String(language || "").toLowerCase() !== "ru") return value;
   let result = String(value).replace(
@@ -82,6 +80,21 @@ function compactPartnerLinks(value, language) {
     return before + "[Ссылка](" + url + ")" + suffix;
   });
   return result;
+}
+
+// Approved external knowledge owns its source link in `requiredKnowledgeNotice`. The
+// solver in the live ratings chat copied an older URL out of the article despite an
+// explicit prompt not to, producing three links after the two system sources were added.
+// Remove model-supplied URLs before appending the one policy-selected source. Link labels
+// remain as ordinary words so an instruction does not lose the sentence around a link.
+function stripModelLinks(value) {
+  return String(value || "")
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, "$1")
+    .replace(/https?:\/\/[^\s<>\]]+/g, "")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/[ \t]+([.,!?;:])/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // ── Один форматтер для подзадачи и внутренней переписки ──
@@ -622,6 +635,7 @@ if (!text) {
 // searchKnowledge and enforcing it here keeps the dialog contract independent of whether
 // the model remembered to copy a field from the tool result.
 if (effectiveOutcome === "reply" && data.requiredKnowledgeNotice && text && !mvpAutomationBlocked) {
+  text = stripModelLinks(text);
   const notice = String(data.requiredKnowledgeNotice).trim();
   if (notice && String(text).indexOf(notice) < 0) {
     text = String(text).trim() + "\n\n" + notice;

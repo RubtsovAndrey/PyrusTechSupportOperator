@@ -257,6 +257,15 @@ function externalPolicyOf(key) {
       })),
       warning: String(policy.warning || ""),
       followUpQuestion: String(policy.followUpQuestion || ""),
+      // A policy may approve several sources while allowing only the best matching one
+      // into a single partner answer. The remaining sources are still searched and
+      // ranked, so a broad first hit cannot hide a specific appeal article.
+      answerSourceLimit: Math.max(1, Math.min(
+        Number(policy.answerSourceLimit) || 1,
+        policy.sources.length,
+        10
+      )),
+      answerGuidance: policy.answerGuidance ? String(policy.answerGuidance) : null,
       fallbackNode: fallbackId || null,
       fallbackQuestions: fallback && Array.isArray(fallback.ask)
         ? fallback.ask.filter(q => q && q.key && q.question).map(q => ({
@@ -345,13 +354,16 @@ if (topicKey && !externalPolicy) {
     error: "topic has no approved external knowledge at the current node" };
 }
 
-const resultLimit = externalPolicy
+const candidateLimit = externalPolicy
   ? Math.max(1, Math.min(externalPolicy.sources.length, 10))
+  : null;
+const resultLimit = externalPolicy
+  ? externalPolicy.answerSourceLimit
   : Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, 10));
 const spaces = externalPolicy
   ? externalPolicy.sources.map(s => s.spaceId).filter((v, i, a) => a.indexOf(v) === i)
   : parseSpaces(spaceIds);
-const searchLimit = Math.min(resultLimit * SEARCH_MULTIPLIER, MAX_SEARCH_LIMIT);
+const searchLimit = Math.min((candidateLimit || resultLimit) * SEARCH_MULTIPLIER, MAX_SEARCH_LIMIT);
 const text = String(query || "").trim();
 
 if (!text) {
@@ -385,11 +397,11 @@ const allowedIds = externalPolicy
 let ours = hits.filter(h => h && spaces.indexOf(String(h.spaceId)) >= 0 &&
   (!allowedIds || allowedIds.indexOf(String(h.articleId)) >= 0));
 
-if (externalPolicy && ours.length < resultLimit) {
+if (externalPolicy && ours.length < candidateLimit) {
   const seen = {};
   ours.forEach(hit => { seen[String(hit.articleId)] = true; });
   const missing = externalPolicy.sources.filter(source => !seen[source.articleId] && source.title);
-  for (let i = 0; i < missing.length && i < MAX_POLICY_TITLE_PROBES && ours.length < resultLimit; i++) {
+  for (let i = 0; i < missing.length && i < MAX_POLICY_TITLE_PROBES && ours.length < candidateLimit; i++) {
     const source = missing[i];
     try {
       const probe = await rpc(auth.token, "search_content", {
@@ -572,6 +584,7 @@ return {
   key: externalPolicy.topicKey,
   articles: articles,
   answerRule: "Answer only with facts directly supported by these articles. If they do not directly answer the question, ask fallbackQuestions and do not invent an answer.",
+  answerGuidance: externalPolicy.answerGuidance,
   fallbackQuestions: externalPolicy.fallbackQuestions.map(q => q.question),
   questionSpecs: externalPolicy.fallbackQuestions.map(q => ({
     key: q.key,
