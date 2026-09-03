@@ -590,6 +590,13 @@ async function main() {
   t.check("only the terminal summary stage persists a compact human summary",
     r.state.data.caseSummary === "Партнёр оспаривает проверку. Ответ БЗ не помог.", r.state.data.caseSummary);
 
+  const previousSummary = r.state.data.caseSummary;
+  r = await run("summary", "", r.state, { incomingText: "Почта нужна будет?" });
+  t.check("an empty summary result is advisory and does not fail the terminal action",
+    r.result && typeof r.result === "object", r.result);
+  t.check("an empty summary result keeps the last usable human summary",
+    r.state.data.caseSummary === previousSummary, r.state.data.caseSummary);
+
   // ── What reaches the prompt ──
   r = await run("solver", json({ replyText: "Проверьте кабель", kind: "solution" }), {
     data: {

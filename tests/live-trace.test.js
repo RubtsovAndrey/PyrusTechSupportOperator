@@ -118,6 +118,59 @@ function matchingLabelPrinterTurn() {
   };
 }
 
+function matchingRatingsSubtaskTurns() {
+  return [{
+    partner: { text: "вечер добрый Тамбов 1 как подать апелляцию на почту контроллингу? рко" },
+    outcome: "reply",
+    replies: [{ text: "Подать апелляцию можно в Пайрус. Ссылка. Эта информация помогла решить ваш вопрос?" }],
+    internal: [],
+    logs: [],
+    path: ["Solver Agent", "Outcome - reply", "finalize"],
+    calls: ["ID_Tools.getKnowledgeMcp({})", "ID_Actions.applyOutcome({\"outcome\":\"reply\"})"],
+    errors: []
+  }, {
+    partner: { text: "нет нам именно отправить запрос напрямую их специалистам ответственным" },
+    outcome: "clarify_email",
+    replies: [],
+    internal: [],
+    logs: ["finalize: superseded on task 1, newer message wins"],
+    path: ["Handover Summary Agent (subtask)", "Outcome - clarify email", "finalize"],
+    calls: [],
+    errors: []
+  }, {
+    partner: { text: "почта нужна будет да?" },
+    outcome: "clarify_email",
+    replies: [{ text: "Укажите email — на него придёт ответ." }],
+    internal: [],
+    logs: [],
+    path: ["Handover Summary Agent (subtask)", "Outcome - clarify email", "finalize"],
+    calls: [],
+    errors: []
+  }, {
+    partner: { text: "a@b.ru" },
+    outcome: "subtask_created",
+    replies: [{
+      text: "Обращение создано. Мы вернёмся с ответом на ваш email.",
+      action: "finished",
+      approval: null,
+      fields: 2
+    }],
+    internal: [],
+    logs: [],
+    path: ["createSubtask", "Outcome - subtask created", "finalize"],
+    calls: ["ID_Actions.applyOutcome({\"outcome\":\"subtask_created\"})"],
+    errors: [],
+    taskState: {
+      isClosed: true,
+      currentStep: 1,
+      postedCommentId: 30,
+      lastAction: "finished",
+      reopenedAfterReply: false,
+      laterComments: []
+    }
+  }];
+}
+
 async function main() {
   const t = suite("live trace scenarios");
   const scenariosFile = path.join(__dirname, "live", "scenarios.json");
@@ -234,6 +287,17 @@ async function main() {
   t.check("a useful operator hint is still forbidden in the partner reply",
     checks.some(c => !c.ok && /ответ партнёру не содержит/.test(c.label)), checks);
 
+  const ratingsScenario = loadScenario(scenariosFile, "ratings-rko-direct-contact-subtask");
+  checks = validateScenario(matchingRatingsSubtaskTurns(), ratingsScenario);
+  t.check("the accepted ratings race ends in one classified subtask after email",
+    checks.length > 0 && checks.every(c => c.ok), checks.filter(c => !c.ok));
+
+  const ratingsWithHiddenSpanError = matchingRatingsSubtaskTurns();
+  ratingsWithHiddenSpanError[2].errors.push("parseAgentJson(summary): agent answer is not JSON");
+  checks = validateScenario(ratingsWithHiddenSpanError, ratingsScenario);
+  t.check("the ratings outcome is not technically clean while its summary span has an error",
+    checks.some(c => !c.ok && /нет ошибок платформы/.test(c.label)), checks);
+
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pyrus-live-trace-"));
   const json = path.join(tmp, "one.json");
   fs.writeFileSync(json, "{}", "utf8");
@@ -281,6 +345,49 @@ async function main() {
     parsedReopen.taskState.currentStep === 2 && parsedReopen.taskState.reopenedAfterReply === true &&
     parsedReopen.taskState.laterComments[0].action === "reopened",
     parsedReopen && parsedReopen.taskState);
+
+  const formattedTraceJson = path.join(tmp, "formatted-error.json");
+  fs.writeFileSync(formattedTraceJson, JSON.stringify([{
+    type: "trace",
+    startTime: "2026-09-03T20:15:00.000Z",
+    children: [{
+      type: "span",
+      label: "Системная функция: Http.post",
+      relatedEvent: {
+        data: {
+          url: "https://api.pyrus.com/v4/tasks/1/comments",
+          body: {
+            channel: { type: "web_widget" },
+            formatted_text: "Проверьте инструкцию: <a href=\"https://example.test\">Ссылка</a><br/>Помогло?"
+          }
+        }
+      },
+      children: []
+    }, {
+      type: "span",
+      label: "Блок: «parseSummaryForSubtask»",
+      relatedEvent: { isError: false },
+      outputData: { errorMessage: "agent answer is not JSON" },
+      errorMessage: "agent answer is not JSON",
+      hasError: true,
+      children: [{
+        type: "span",
+        label: "Пользовательская функция: ID_Tools.parseAgentJson",
+        relatedEvent: { isError: false },
+        errorMessage: "agent answer is not JSON",
+        hasError: true,
+        children: []
+      }]
+    }]
+  }]), "utf8");
+  const parsedFormatted = turnsOf(formattedTraceJson).turns[0];
+  t.check("formatted Pyrus replies appear as their visible text in a trace report",
+    parsedFormatted.replies.length === 1 &&
+    parsedFormatted.replies[0].text === "Проверьте инструкцию: Ссылка\nПомогло?",
+    parsedFormatted.replies);
+  t.check("a failed span is reported even when its related event is not marked as an error",
+    parsedFormatted.errors.length === 1 && /not JSON/.test(parsedFormatted.errors[0]),
+    parsedFormatted.errors);
 
   const args = parseArgs([tmp, "--scenario", "unknown-courier-avatar", "--out", "report.txt"]);
   t.check("scenario and output flags do not become input paths",

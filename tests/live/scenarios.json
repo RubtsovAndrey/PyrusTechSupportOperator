@@ -295,6 +295,102 @@
           }
         ]
       }
+    },
+    {
+      "id": "ratings-rko-direct-contact-subtask",
+      "title": "Вопрос по РКО получает статью, переживает конкурентную реплику и создаёт одну подзадачу после email",
+      "messages": [
+        "вечер добрый Тамбов 1 как подать апелляцию на почту контроллингу? рко",
+        "нет нам именно отправить запрос напрямую их специалистам ответственным",
+        "почта нужна будет да?",
+        "a@b.ru"
+      ],
+      "expect": {
+        "turnCount": 4,
+        "turns": [
+          {
+            "partner": {
+              "includes": ["Тамбов 1", "апелляцию", "рко"]
+            },
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": ["Подать апелляцию", "Ссылка", "помогла решить ваш вопрос"],
+              "excludes": ["Понадобится время на изучение вопроса"]
+            },
+            "internal": {
+              "count": 0
+            },
+            "path": {
+              "includes": ["Solver Agent", "Outcome - reply", "finalize"]
+            },
+            "calls": {
+              "includes": ["ID_Tools.getKnowledgeMcp", "ID_Actions.applyOutcome", "\"outcome\":\"reply\""]
+            },
+            "noErrors": true
+          },
+          {
+            "partner": {
+              "includes": ["напрямую", "специалистам"]
+            },
+            "outcome": "clarify_email",
+            "replies": {
+              "count": 0
+            },
+            "logs": {
+              "includes": ["finalize: superseded"]
+            },
+            "path": {
+              "includes": ["Handover Summary Agent (subtask)", "Outcome - clarify email", "finalize"]
+            },
+            "noErrors": true
+          },
+          {
+            "partner": {
+              "includes": ["почта нужна"]
+            },
+            "outcome": "clarify_email",
+            "replies": {
+              "count": 1,
+              "includes": ["email", "придёт ответ"]
+            },
+            "internal": {
+              "count": 0
+            },
+            "path": {
+              "includes": ["Handover Summary Agent (subtask)", "Outcome - clarify email", "finalize"]
+            },
+            "noErrors": true
+          },
+          {
+            "partner": {
+              "includes": ["a@b.ru"]
+            },
+            "outcome": "subtask_created",
+            "replies": {
+              "count": 1,
+              "includes": ["Обращение создано", "ответом на ваш email"],
+              "action": "finished",
+              "approval": null,
+              "fields": 2
+            },
+            "internal": {
+              "count": 0
+            },
+            "path": {
+              "includes": ["createSubtask", "Outcome - subtask created", "finalize"]
+            },
+            "calls": {
+              "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"subtask_created\""]
+            },
+            "task": {
+              "isClosed": true,
+              "reopenedAfterReply": false
+            },
+            "noErrors": true
+          }
+        ]
+      }
     }
   ]
 }

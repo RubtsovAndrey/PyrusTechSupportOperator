@@ -21,6 +21,22 @@ function cut(s, n) {
   return one.length > n ? one.slice(0, n) + "…" : one;
 }
 
+// Pyrus accepts HTML in `formatted_text` for outbound channel comments. The trace reader
+// used to inspect only `text`, so a perfectly delivered answer with a hidden hyperlink
+// appeared as an empty `БОТ:` line. Keep the visible wording, not the markup.
+function visibleText(body) {
+  if (!body) return "";
+  if (body.text != null && String(body.text)) return String(body.text);
+  return String(body.formatted_text || "")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/p\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
 const data = span => (span.relatedEvent && span.relatedEvent.data) || null;
 
 function taskFromPost(span) {
@@ -32,9 +48,10 @@ function taskFromPost(span) {
 }
 
 function postedCommentIndex(comments, body) {
+  const wantedText = visibleText(body);
   for (let i = comments.length - 1; i >= 0; i--) {
     const comment = comments[i] || {};
-    if (body.text != null && String(comment.text || "") !== String(body.text)) continue;
+    if (wantedText && visibleText(comment) !== wantedText) continue;
     if (body.action != null && String(comment.action || "") !== String(body.action)) continue;
     if (body.approval_choice != null &&
         String(comment.approval_choice || "") !== String(body.approval_choice)) continue;
@@ -51,7 +68,7 @@ function taskStateFromPost(span, body) {
   const later = postedAt >= 0 ? comments.slice(postedAt + 1) : [];
   const laterComments = later.map(comment => ({
     id: comment.id || null,
-    text: comment.text || "",
+    text: visibleText(comment),
     action: comment.action || null,
     approval: comment.approval_choice || null,
     author: (comment.author &&
@@ -114,7 +131,17 @@ function turnsOf(file) {
       }
 
       if (/^Лог: /.test(label)) turn.logs.push(e.userLog || label.slice(5));
-      if (e.isError) turn.errors.push(cut(e.message || label, 200));
+      // Some Agent Platform failures mark only the enclosing span (`hasError`) while the
+      // related event still says `isError: false`. Looking at the event alone hid exactly
+      // the red parseSummaryForSubtask block visible in the UI. De-duplicate the parent
+      // block and its failed function child, which normally carry the same message.
+      const error = e.isError
+        ? (e.message || label)
+        : (span.hasError ? (span.errorMessage || (span.outputData && span.outputData.errorMessage)) : null);
+      if (error) {
+        const shortError = cut(error, 200);
+        if (turn.errors.indexOf(shortError) < 0) turn.errors.push(shortError);
+      }
 
       if (/Триггер/.test(label) && !turn.partner) {
         const body = findWebhook(e);
@@ -136,7 +163,7 @@ function turnsOf(file) {
       if (/Http\.post/.test(label) && d && /\/comments$/.test(String(d.url || ""))) {
         const body = d.body || {};
         const entry = {
-          text: body.text || null,
+          text: visibleText(body) || null,
           action: body.action || null,
           approval: body.approval_choice || null,
           fields: (body.field_updates || []).length
@@ -437,7 +464,7 @@ function main(argv) {
 }
 
 module.exports = {
-  cut, findWebhook, taskFromPost, postedCommentIndex, taskStateFromPost,
+  cut, visibleText, findWebhook, taskFromPost, postedCommentIndex, taskStateFromPost,
   filesOf, turnsOf, readSource, renderDocument,
   validateScenario, loadScenario, renderChecks, parseArgs, main
 };

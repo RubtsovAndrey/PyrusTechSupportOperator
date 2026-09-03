@@ -394,6 +394,16 @@ if (!parsed || typeof parsed !== "object") {
   if (recover && cleaned) {
     Log.warn({ message: "parseAgentJson(" + stage + "): answer was not JSON, using it as plain text" });
     parsed = recover(cleaned);
+  } else if (String(stage || "") === "summary") {
+    // Agent Platform always offers an AI-agent its internal `switchToState` tool. Very
+    // occasionally the summariser calls that tool instead of returning its tiny JSON
+    // object, so Context.getLastFunctionResult() is empty even though the agent block
+    // itself succeeded. A summary is advisory and createSubtask/escalate already have a
+    // deterministic problemSummary fallback; turning this into a red platform error adds
+    // no safety. Keep an earlier caseSummary (if there is one) and continue through the
+    // normal terminal path.
+    Log.warn({ message: "parseAgentJson(summary): answer was empty or invalid, keeping the existing summary fallback" });
+    parsed = {};
   } else {
     throw new Error("parseAgentJson(" + stage + "): agent answer is not JSON: " + cleaned.slice(0, 300));
   }
