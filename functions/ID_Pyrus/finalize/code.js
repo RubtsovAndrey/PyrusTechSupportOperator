@@ -209,9 +209,10 @@ if (outcome.action === "finished") {
       nextStage: "escalated"
     };
   } else {
-    // Old in-flight outcomes may not yet carry approvalChoice. Add it here rather than
-    // allowing one last unapproved close during a rolling deployment.
-    outcome = Object.assign({}, outcome, { approvalChoice: "approved", withFieldUpdates: true });
+    // Strip approval even from an old in-flight outcome written by the previous version.
+    // `approved` advances the chat workflow and its next-step automation reopens a task
+    // that the same request has just closed with `finished`.
+    outcome = Object.assign({}, outcome, { approvalChoice: null, withFieldUpdates: true });
     requiredCloseFieldUpdates = [
       { id: Number(runtime.unitFieldId), value: { item_name: String(data.unitFullName) } },
       { id: Number(runtime.componentFieldId), value: { item_name: String(data.componentName) } }
@@ -373,6 +374,9 @@ if (!posted) {
 // posted and then answered again on the next delivery of the same webhook.
 const done = {
   "pendingOutcome": null,
+  // The question belongs only to the solution delivered by this turn. Leaving it in the
+  // document could append an old question to a later, unrelated `reply` outcome.
+  "data.requiredFollowUpQuestion": null,
   // One comment is answered once: a redelivered webhook for it is dropped by
   // receiveWebhook instead of producing a second reply.
   "lastProcessedCommentId": processedId || state.lastProcessedCommentId || null,

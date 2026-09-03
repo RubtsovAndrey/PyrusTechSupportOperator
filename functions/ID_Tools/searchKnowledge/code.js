@@ -998,6 +998,9 @@ if (topicKey) {
       const done = stepDone(data.attempts, topic.key);
       const attempt = explaining ? (done || 1) : done + 1;
       patch.offeredStep = { topicKey: topic.key, stepNumber: attempt, nodeId: target.id, at: Date.now() };
+      // applyOutcome enforces this exact question even if the model omits it from the
+      // generated reply. It is cleared by finalize after the turn is posted.
+      patch.requiredFollowUpQuestion = DEFAULT_FOLLOW_UP;
       // Новый совет обнуляет счёт разъяснений: непонятность относится к шагу, а не к диалогу.
       if (!explaining) patch.treeExplained = 0;
       patchData(patch);
@@ -1101,7 +1104,9 @@ if (topicKey) {
     const step = topic.steps[index];
     const stepPatch = {
       offeredStep: { topicKey: topic.key, stepNumber: index + 1, at: Date.now() },
-      treeExplain: null
+      treeExplain: null,
+      // This is delivery state, not a prompt hint: applyOutcome appends it when needed.
+      requiredFollowUpQuestion: step.followUpQuestion
     };
     // Новый шаг обнуляет счёт разъяснений: непонятность относится к шагу, а не к диалогу.
     if (!explainingStep) stepPatch.treeExplained = 0;

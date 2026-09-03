@@ -224,7 +224,7 @@
               "includes": ["Рад был помочь"],
               "excludes": ["Понадобится время на изучение вопроса"],
               "action": "finished",
-              "approval": "approved",
+              "approval": null,
               "fields": 2
             },
             "internal": { "count": 0 },

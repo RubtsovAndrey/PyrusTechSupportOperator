@@ -84,7 +84,7 @@ function matchingSuccessfulCloseTurns() {
     replies: [{
       text: "Рад был помочь! Если появятся новые вопросы, обращайтесь.",
       action: "finished",
-      approval: "approved",
+      approval: null,
       fields: 2
     }],
     internal: [],
@@ -94,7 +94,7 @@ function matchingSuccessfulCloseTurns() {
     errors: [],
     taskState: {
       isClosed: true,
-      currentStep: 2,
+      currentStep: 1,
       postedCommentId: 20,
       lastAction: "finished",
       reopenedAfterReply: false,
@@ -181,13 +181,13 @@ async function main() {
 
   const successfulCloseScenario = loadScenario(scenariosFile, "known-pos-success-and-close");
   checks = validateScenario(matchingSuccessfulCloseTurns(), successfulCloseScenario);
-  t.check("a fully classified successful solution passes only with approval, two fields and close",
+  t.check("a fully classified successful solution passes with finish, two fields and close",
     checks.length > 0 && checks.every(c => c.ok), checks.filter(c => !c.ok));
 
-  const closeWithoutApproval = matchingSuccessfulCloseTurns();
-  closeWithoutApproval[1].replies[0].approval = null;
-  checks = validateScenario(closeWithoutApproval, successfulCloseScenario);
-  t.check("a close without workflow approval fails the positive scenario",
+  const closeWithApproval = matchingSuccessfulCloseTurns();
+  closeWithApproval[1].replies[0].approval = "approved";
+  checks = validateScenario(closeWithApproval, successfulCloseScenario);
+  t.check("a close that also advances the workflow fails the positive scenario",
     checks.some(c => !c.ok && /approval ответа/.test(c.label)), checks);
 
   const closeWithOneField = matchingSuccessfulCloseTurns();
@@ -196,10 +196,10 @@ async function main() {
   t.check("a close without both classification fields fails the positive scenario",
     checks.some(c => !c.ok && /полей в ответе/.test(c.label)), checks);
 
-  const approvalWithoutClose = matchingSuccessfulCloseTurns();
-  approvalWithoutClose[1].replies[0].action = null;
-  checks = validateScenario(approvalWithoutClose, successfulCloseScenario);
-  t.check("approval without action finished fails the positive scenario",
+  const missingCloseAction = matchingSuccessfulCloseTurns();
+  missingCloseAction[1].replies[0].action = null;
+  checks = validateScenario(missingCloseAction, successfulCloseScenario);
+  t.check("missing action finished fails the positive scenario",
     checks.some(c => !c.ok && /action ответа/.test(c.label)), checks);
 
   const reopenedAfterClose = matchingSuccessfulCloseTurns();
@@ -218,7 +218,7 @@ async function main() {
     }]
   };
   checks = validateScenario(reopenedAfterClose, successfulCloseScenario);
-  t.check("a later Pyrus reopen fails even when the bot sent approved and finished",
+  t.check("a later Pyrus reopen fails even when the bot sent finished",
     checks.some(c => !c.ok && /задача в итоге закрыта/.test(c.label)) &&
     checks.some(c => !c.ok && /задача переоткрыта/.test(c.label)) &&
     checks.some(c => !c.ok && /сообщения после ответа бота/.test(c.label)), checks);

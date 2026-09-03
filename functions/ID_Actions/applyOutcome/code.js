@@ -287,9 +287,9 @@ const OUTCOMES = {
   solved: {
     nextStage: "closed",
     action: "finished",
-    // Closing is not allowed to bypass the workflow step: Pyrus must receive the same
-    // approval as on a handover, together with both mandatory field updates.
-    approvalChoice: "approved",
+    // `finished` closes the chat. `approved` is deliberately absent: in a chat form it
+    // advances the workflow to the first line, whose automation immediately reopens it.
+    approvalChoice: null,
     withFieldUpdates: true,
     defaultReply: "Рад был помочь! Если появятся новые вопросы, обращайтесь."
   },
@@ -303,7 +303,7 @@ const OUTCOMES = {
   subtask_created: {
     nextStage: "closed",
     action: "finished",
-    approvalChoice: "approved",
+    approvalChoice: null,
     withFieldUpdates: true,
     defaultReply: "Обращение создано и передано специалистам. Мы вернёмся с ответом на ваш email."
   },
@@ -555,6 +555,23 @@ if (!text) {
   if (stripped && stripped !== text) {
     text = stripped.charAt(0).toUpperCase() + stripped.slice(1);
     Log.info({ message: "applyOutcome: stripped repeated greeting on task " + taskId });
+  }
+}
+
+// The article, not the language model, owns the confirmation question after a solution.
+// A live 4.1-mini turn followed the advice correctly but omitted this last sentence, while
+// the state still moved to awaiting_confirmation. Persisting the question in
+// searchKnowledge and enforcing it here keeps the dialog contract independent of whether
+// the model remembered to copy a field from the tool result.
+if (effectiveOutcome === "reply" && data.requiredFollowUpQuestion && text) {
+  const question = String(data.requiredFollowUpQuestion).trim();
+  const normalize = value => String(value || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9]+/g, " ")
+    .trim();
+  if (question && normalize(text).indexOf(normalize(question)) < 0) {
+    text = String(text).trim() + "\n\n" + question;
   }
 }
 

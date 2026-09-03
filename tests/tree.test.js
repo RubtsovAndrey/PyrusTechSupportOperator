@@ -389,6 +389,8 @@ async function main() {
   t.check("an advice node is delivered as a solution",
     r.turnKind === "solution" && /кабель/.test(r.solverInstruction), r);
   t.check("and asks whether it helped", /Получилось/.test(r.followUpQuestion), r);
+  t.check("the mandatory follow-up is persisted for the delivery guard",
+    d.data.requiredFollowUpQuestion === r.followUpQuestion, d.data);
 
   let next = await d.didNotHelp();
   t.check("«не помогло» keeps the dialog with the bot when the node names a successor",

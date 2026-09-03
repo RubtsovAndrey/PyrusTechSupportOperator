@@ -259,8 +259,8 @@ async function main() {
     runtime: Object.assign({}, runtime, { unitFieldId: 97, componentFieldId: 36 })
   }) } });
   t.check("closing uses action finished", r.posts[0].body.action === "finished", r.posts[0].body);
-  t.check("closing approves the workflow step in the same request",
-    r.posts[0].body.approval_choice === "approved", r.posts[0].body);
+  t.check("closing does not advance the workflow step",
+    r.posts[0].body.approval_choice === undefined, r.posts[0].body);
   t.check("a stale fieldUpdates array is replaced with both current required fields",
     Array.isArray(r.posts[0].body.field_updates) && r.posts[0].body.field_updates.length === 2 &&
     r.posts[0].body.field_updates.every(x => x.id === 97 || x.id === 36), r.posts[0].body);
@@ -335,8 +335,8 @@ async function main() {
   });
   const fu = r.posts[0].body.field_updates || [];
   t.check("unit and component are rebuilt from the document", fu.length === 2, fu);
-  t.check("a current close is approved as well as finished",
-    r.posts[0].body.approval_choice === "approved" && r.posts[0].body.action === "finished", r.posts[0].body);
+  t.check("a current close finishes without advancing the workflow",
+    r.posts[0].body.approval_choice === undefined && r.posts[0].body.action === "finished", r.posts[0].body);
   t.check("the unit goes into the field receiveWebhook found",
     fu[0].id === 97 && fu[0].value.item_name === "[dodopizza.ru] Тамбов-1", fu[0]);
   t.check("the component goes into its own field",
@@ -415,7 +415,7 @@ async function main() {
   // `runtime.token` is among them: the turn is over and the secret has no reason to outlive
   // it in the document. Note it is a dotted path — the rest of `runtime` is untouched.
   t.check("only own paths are written",
-    paths === "botHasReplied,lastProcessedCommentId,pendingOutcome,runtime.token,stage,updatedAt",
+    paths === "botHasReplied,data.requiredFollowUpQuestion,lastProcessedCommentId,pendingOutcome,runtime.token,stage,updatedAt",
     paths);
   t.check("the token does not outlive the turn in the document",
     r.state.runtime.token === null && r.state.runtime.apiUrl === runtime.apiUrl, r.state.runtime);
@@ -438,6 +438,32 @@ async function main() {
     decided.db[KEY]);
   t.check("and it gets there through the point write, with no rescue needed",
     decided.puts.length === 0, decided.puts);
+
+  // The model may omit a tool-provided confirmation question. The delivery boundary
+  // appends it deterministically, but does not duplicate it when the model complied.
+  const followUp = makeEnv({
+    prev: { taskId: "11613", agentStage: "solver", replyText: "Проверьте соединение с ККМ." },
+    db: { [KEY]: state({ pendingOutcome: null, data: {
+      requiredFollowUpQuestion: "Получилось решить вопрос?"
+    } }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(followUp, ["reply", null]);
+  t.check("a missing article follow-up is appended to the solution",
+    followUp.db[KEY].pendingOutcome.replyText === "Проверьте соединение с ККМ.\n\nПолучилось решить вопрос?",
+    followUp.db[KEY].pendingOutcome.replyText);
+
+  const alreadyAsked = makeEnv({
+    prev: { taskId: "11613", agentStage: "solver", replyText: "Проверьте соединение с ККМ. Получилось решить вопрос?" },
+    db: { [KEY]: state({ pendingOutcome: null, data: {
+      requiredFollowUpQuestion: "Получилось решить вопрос?"
+    } }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(alreadyAsked, ["reply", null]);
+  t.check("an article follow-up already written by the model is not duplicated",
+    (alreadyAsked.db[KEY].pendingOutcome.replyText.match(/Получилось решить вопрос/g) || []).length === 1,
+    alreadyAsked.db[KEY].pendingOutcome.replyText);
 
   const enriched = makeEnv({
     prev: {
