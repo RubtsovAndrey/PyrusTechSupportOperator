@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
-  "topicCount": 9,
-  "catalogSha256": "34f8ad77e5a47678a30878e143ab674fd0ad34b445ce54f4faa2a88a692ec309",
+  "topicCount": 5,
+  "catalogSha256": "dad59c542842c510611f3d1c4deacb14f74c29fd7ea8ccf46d5e38e326e7db2c",
   "topics": [
     {
       "key": "cash_receipt_error_148",
       "source": "docs/knowledge/topics/cash_receipt_error_148.json",
-      "sourceSha256": "2900403e1cf8af9eb5c43cc1ab89c7d8b400cc948b4682ca3da5de9ee38e1663",
+      "sourceSha256": "d8a1b73b2f748a1aca1135af0bec75c13d9606c55b56a94ebee393b5ee72a273",
       "rag": "docs/rag/cash_receipt_error_148.md",
       "ragSha256": "03282f210b37da4e1c034d9139cbbb11e19d74ca8807a1e24661fa3ea40c3d9c"
     },
     {
       "key": "cash_shift_closed_z_report_missing",
       "source": "docs/knowledge/topics/cash_shift_closed_z_report_missing.json",
-      "sourceSha256": "8beba2e88173efde6d5856cc7901426f04a4c4f180cd7df185673a1e26cd4846",
+      "sourceSha256": "8cbd45d2e49320d4a8a43da31ced4bd065ba11cc5ee13ad7ce70bee0a402f69f",
       "rag": "docs/rag/cash_shift_closed_z_report_missing.md",
       "ragSha256": "4e0b9b765980f2ec3c7d7dabbd5178ee236c5cdd9942d02029a1b8c1179c1894"
     },
@@ -25,46 +25,18 @@
       "ragSha256": "511cb7dab1d03d48f96d27657366eaf5895f2db1f569c32dc40e3431a96aeac8"
     },
     {
-      "key": "courier_tips_withdrawal",
-      "source": "docs/knowledge/topics/courier_tips_withdrawal.json",
-      "sourceSha256": "22647470ba5896f7c766dab08e569c961f7ae43e122d6463b0725b83b75f8ca6",
-      "rag": "docs/rag/courier_tips_withdrawal.md",
-      "ragSha256": "d6b710e73e122f69aec7ccc00a5bb0cd2758488c1942b9e347192d9090de1d11"
-    },
-    {
-      "key": "kiosk_remote_access",
-      "source": "docs/knowledge/topics/kiosk_remote_access.json",
-      "sourceSha256": "8dfd672be2f724c4cee86cfb90b659a59477c8efe35edc8fc4128825b4f08cc9",
-      "rag": "docs/rag/kiosk_remote_access.md",
-      "ragSha256": "492769863d10ecd399b7012179a4ca75f3770f88f9ca2819d694b30fe4436244"
-    },
-    {
-      "key": "notification_sounds_missing",
-      "source": "docs/knowledge/topics/notification_sounds_missing.json",
-      "sourceSha256": "5b1efb4c636b498a8f76d0ecf86670f5275c23333575de0a54fb43d013b3313d",
-      "rag": "docs/rag/notification_sounds_missing.md",
-      "ragSha256": "d698c6e2e0aaa9421497a9dcfff0ff82b0f6ee2ca7e14720cb8c05501d8874c4"
-    },
-    {
       "key": "pos_terminal_troubleshooting",
       "source": "docs/knowledge/topics/pos_terminal_troubleshooting.json",
-      "sourceSha256": "89e6433fbd3139f69417cc5b882842a6d74ad4b770d3cba9d01dc20d9237d182",
+      "sourceSha256": "b8df4846b0139b3433ada1cbaeec73676e759c9eca842075bf97c4b122316781",
       "rag": "docs/rag/pos_terminal_troubleshooting.md",
       "ragSha256": "303e971bade2ebce5a6ff94ef5b17c831a381b366a2d02479ffb0a7d4d044fde"
     },
     {
-      "key": "scanner_newland_setup",
-      "source": "docs/knowledge/topics/scanner_newland_setup.json",
-      "sourceSha256": "61b178c32ab135409969489cc9b08428469f204f0c10a89815559082a2673122",
-      "rag": "docs/rag/scanner_newland_setup.md",
-      "ragSha256": "ed39d9eddfeb900a2fb5f3a5971cd68d185162358f3b90b3b224e5353abe262a"
-    },
-    {
-      "key": "tv_board_connection",
-      "source": "docs/knowledge/topics/tv_board_connection.json",
-      "sourceSha256": "93401a7c999936914cf37af133a6de9a5e392be09837d7ff88c87c849b076fcb",
-      "rag": "docs/rag/tv_board_connection.md",
-      "ragSha256": "532e0c6d04afeb560d8d19d8176a60c02101f58d714458c8d41d378f03343233"
+      "key": "ratings_questions",
+      "source": "docs/knowledge/topics/ratings_questions.json",
+      "sourceSha256": "b9911cdfbc9715e7ffaa7ac00c81501bf1b3d2000998404fa4a954c9ec188501",
+      "rag": "docs/rag/ratings_questions.md",
+      "ragSha256": "7adca6f4bde588f7b0d3d43235ecc6b697945a54aecd66606b1cc5ae7a002f28"
     }
   ]
 }

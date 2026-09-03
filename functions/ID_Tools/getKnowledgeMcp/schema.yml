@@ -3,10 +3,11 @@ id: getKnowledgeMcp
 name: getKnowledgeMcp
 description: Ищет статьи в Базе Знаний через MCP и возвращает их содержимое с метаданными.
   Используй для поиска решений проблем партнёров.
-response-description: "Возвращает найденные статьи с метаданными: { found: boolean,\
-  \ articles: [{ articleId, title, content, metadata: { component, route, onSuccess,\
-  \ onFail, requiresEmail, requiresSubtask, priority } }] }. Если ничего не найден\
-  о, found=false и articles пустой."
+response-description: >-
+  Для обычного внутреннего поиска возвращает { found, articles }. Для topicKey возвращает
+  управляемый результат: turnKind=external_answer с прочитанными разрешёнными статьями,
+  warning и followUpQuestion; либо turnKind=external_no_answer с fallbackQuestions. ID,
+  пространство и проверенная версия источников берутся только из policy-каталога.
 parameters:
 - name: query
   type: STRING
@@ -25,6 +26,12 @@ parameters:
   type: NUMBER
   required: false
   description: Максимальное количество результатов (по умолчанию 3).
+  properties: null
+  items: null
+- name: topicKey
+  type: STRING
+  required: false
+  description: Ключ выбранной тематики для закрытого поиска по разрешённым источникам текущего узла. ID статей и пространства берутся только из policy-каталога, не из ответа модели.
   properties: null
   items: null
 language: JAVASCRIPT

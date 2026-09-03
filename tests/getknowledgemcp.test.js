@@ -7,7 +7,7 @@
 const { loadFunction, makeEnv, suite } = require("./harness");
 
 const getKnowledge = loadFunction(
-  "functions/ID_Tools/getKnowledgeMcp/code.js", ["query", "spaceIds", "limit"]);
+  "functions/ID_Tools/getKnowledgeMcp/code.js", ["query", "spaceIds", "limit", "topicKey"]);
 
 const OWN_SPACE = "6d8f5fa3-7fd4-44c8-978d-68743b232533";
 const OTHER_SPACE = "963b66c2-e111-43c6-a9ff-e7e5af3e4244";
@@ -29,6 +29,11 @@ const ARTICLE_MD = [
   "## Решение",
   "Откройте «Тест драйвер ККТ» и сформируйте отчёт о закрытии смены."
 ].join("\n");
+
+const EXTERNAL_ARTICLE_ID = "272d65f9-ca3b-4d54-a1ce-5a9fff4a04eb";
+const EXTERNAL_SPACE_ID = "2622c14a-ffac-4cb1-b3fa-ee41563c1b70";
+const EXTERNAL_UPDATED_AT = "2026-05-22T09:01:53.619596";
+const EXTERNAL_CONTENT = "# Рейтинг клиентского опыта\n\nАпелляцию можно подать по правилам статьи.";
 
 function hit(overrides) {
   return Object.assign({
@@ -80,7 +85,108 @@ function run(query, spaceIds, limit, options) {
       return wrap(found.length ? found[0] : { id: args.id, title: "нет", content: "" });
     }
   });
-  return getKnowledge(env, [query, spaceIds, limit]).then(r => ({ result: r, env: env }));
+  return getKnowledge(env, [query, spaceIds, limit, null]).then(r => ({ result: r, env: env }));
+}
+
+function runExternal(options) {
+  const o = options || {};
+  const taskId = 11613;
+  const stateKey = "state:" + taskId;
+  const source = {
+    articleId: EXTERNAL_ARTICLE_ID,
+    spaceId: EXTERNAL_SPACE_ID,
+    title: "Рейтинг клиентского опыта: принципы и правила",
+    reviewedUpdatedAt: EXTERNAL_UPDATED_AT
+  };
+  const db = {
+    [stateKey]: {
+      taskId: taskId,
+      runtime: { incomingCommentId: "42" },
+      data: { topicKey: "ratings_questions", treeNode: "rkoKnowledge" }
+    },
+    knowledge_catalog: {
+      topics: [{
+        key: "ratings_questions",
+        nodes: {
+          rkoKnowledge: {
+            onFail: "rkoCollect",
+            externalKnowledge: {
+              sources: [source],
+              fallbackNode: "rkoCollect",
+              warning: "Материал подобран автоматически.",
+              followUpQuestion: "Эта информация помогла?"
+            }
+          },
+          rkoCollect: {
+            ask: [{
+              key: "expectedResult",
+              question: "Какой результат вы ожидаете?",
+              questionGoal: "Собрать ожидаемый результат",
+              doNotAssume: "Не придумывать"
+            }],
+            end: "subtask"
+          }
+        }
+      }]
+    }
+  };
+  const wrap = o.wrap || (p => ({ status: 200, body: sse(p) }));
+  const approvedHit = {
+    articleId: EXTERNAL_ARTICLE_ID,
+    articleTitle: source.title,
+    excerpt: "апелляция…",
+    spaceId: EXTERNAL_SPACE_ID,
+    spaceTitle: "Стандарты управления и внедрения в Евразии",
+    canReadFully: o.canReadFully === undefined ? true : o.canReadFully,
+    isWatermarksEnabled: false,
+    status: "published",
+    updatedAt: EXTERNAL_UPDATED_AT
+  };
+  const env = makeEnv({
+    db: db,
+    contextValues: { dialog: { taskId: String(taskId), incomingText: "Как подать апелляцию по РКО?" } },
+    credentials: o.noCredentials ? {} : { [CRED]: "token-under-test" },
+    onPost: a => {
+      const name = a.body.params.name;
+      const request = a.body.params.arguments.request || {};
+      if (o.failOn === name) throw new Error("сеть отвалилась");
+      if (name === "search_content") {
+        const unwanted = Object.assign({}, approvedHit, {
+          articleId: "unapproved",
+          articleTitle: "Казахстан: похожая статья"
+        });
+        return wrap({ results: o.hits === undefined ? [unwanted, approvedHit] : o.hits });
+      }
+      if (name === "get_content") {
+        return wrap({
+          id: request.id,
+          title: source.title,
+          content: EXTERNAL_CONTENT,
+          updatedAt: o.updatedAt || EXTERNAL_UPDATED_AT,
+          space: { id: EXTERNAL_SPACE_ID, title: "Стандарты" }
+        });
+      }
+      if (name === "search_in_content") {
+        return wrap({
+          found: true,
+          articleId: request.id,
+          articleTitle: source.title,
+          excerpt: "Апелляцию можно подать по правилам статьи."
+        });
+      }
+      if (name === "get_link_templates") {
+        if (o.noLinkTemplate) return wrap({});
+        return wrap({
+          ArticleUrlTemplate: "https://knowledgebase.example/next/article/{spaceId}/{articleId}"
+        });
+      }
+      return wrap({});
+    }
+  });
+  env.warnings = [];
+  env.Log.warn = a => env.warnings.push(a && a.message);
+  return getKnowledge(env, ["Как подать апелляцию по РКО?", OTHER_SPACE, 10, "ratings_questions"])
+    .then(result => ({ result: result, env: env, state: env.db[stateKey] }));
 }
 
 async function main() {
@@ -236,6 +342,57 @@ async function main() {
   });
   t.check("limit ограничивает выдачу",
     r.result.articles.length === 2, r.result.articles.map(a => a.articleId));
+
+  // ── Закрытый поиск по policy-статье ──
+  r = await runExternal();
+  t.check("policy-режим возвращает только заранее разрешённую статью",
+    r.result.found === true && r.result.articles.length === 1 &&
+    r.result.articles[0].articleId === EXTERNAL_ARTICLE_ID,
+    { result: r.result, warnings: r.env.warnings });
+  t.check("пространство и limit модели не расширяют разрешённый policy-поиск",
+    r.env.posts[0] &&
+    JSON.stringify(r.env.posts[0].body.params.arguments.request.spaces) === JSON.stringify([EXTERNAL_SPACE_ID]) &&
+    r.env.posts[0].body.params.arguments.request.limit === 3,
+    r.env.posts[0] ? r.env.posts[0].body.params.arguments.request : r.result);
+  t.check("полностью читаемая статья действительно читается целиком",
+    r.env.posts.map(p => p.body.params.name).join(",") ===
+      "search_content,get_content,get_link_templates",
+    r.env.posts.map(p => p.body.params.name));
+  t.check("ссылка строится только из шаблона MCP",
+    r.result.articles[0] && r.result.articles[0].url === "https://knowledgebase.example/next/article/" +
+      EXTERNAL_SPACE_ID + "/" + EXTERNAL_ARTICLE_ID, r.result.articles[0]);
+  t.check("прочитанная версия выдаёт одноразовое разрешение и обязательные приписки",
+    r.state.data.solutionAuthorization &&
+    r.state.data.solutionAuthorization.source === "approved-external-knowledge" &&
+    r.state.data.solutionAuthorization.incomingCommentId === "42" &&
+    /Материал подобран/.test(r.state.data.requiredKnowledgeNotice) &&
+    /knowledgebase\.example/.test(r.state.data.requiredKnowledgeNotice) &&
+    r.state.data.requiredFollowUpQuestion === "Эта информация помогла?", r.state.data);
+
+  r = await runExternal({ canReadFully: false });
+  t.check("слишком большая статья читается через search_in_content, а не целиком",
+    r.result.found === true &&
+    r.env.posts.map(p => p.body.params.name).join(",") ===
+      "search_content,search_in_content,get_link_templates",
+    r.env.posts.map(p => p.body.params.name));
+
+  r = await runExternal({ updatedAt: "2026-09-03T00:00:00" });
+  t.check("изменившаяся после проверки статья не получает право отвечать",
+    r.result.found === false && r.result.turnKind === "questions" &&
+    !r.state.data.solutionAuthorization && r.state.data.treeNext === "rkoCollect", r.result);
+  t.check("при отказе MCP возвращаются вопросы утверждённой fallback-ветки",
+    Array.isArray(r.result.answerKeys) && r.result.answerKeys[0] === "expectedResult" &&
+    Array.isArray(r.result.preQuestions) && /результат/.test(r.result.preQuestions[0]), r.result);
+
+  r = await runExternal({ noLinkTemplate: true });
+  t.check("без серверного шаблона ссылки найденный текст не показывается партнёру",
+    r.result.found === false && r.result.turnKind === "questions" &&
+    !r.state.data.requiredKnowledgeNotice, r.result);
+
+  r = await runExternal({ noCredentials: true });
+  t.check("недоступный MCP безопасно переводит рейтинги к сбору данных для подзадачи",
+    r.result.found === false && r.result.turnKind === "questions" &&
+    r.result.fallbackNode === "rkoCollect", r.result);
 
   return t.report();
 }

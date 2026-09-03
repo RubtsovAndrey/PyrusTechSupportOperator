@@ -1,0 +1,11 @@
+---
+id: cond_subtask_deferred
+name: subtask creation deferred?
+position:
+  x: 6900
+  y: -1210
+next-step: func_finalize_p1x9k
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).skip === true"
+  false-step: cond_subtask_needs_email

@@ -11,6 +11,9 @@ const searchKnowledge = loadFunction(
 
 const RESTAURANT = "Касса → Касса ресторана → Печать чека";
 const DELIVERY = "Касса → Касса доставки → Печать чека";
+const RESTAURANT_APP = "Касса → Касса ресторана → Приложение кассы ресторана";
+const DELIVERY_APP = "Касса → Касса доставки → Приложение кассы доставки";
+const RESTAURANT_CARD = "Касса → Касса ресторана → Оплата картой";
 let task = 910000;
 
 function conversation(key, problem, options) {
@@ -217,7 +220,7 @@ async function main() {
   });
   r = await c.step();
   t.check("even an invented exact topic key cannot bypass the country scope",
-    r.source === "topic-guard-mismatch" && r.turnKind === "handover" && !r.solverInstruction, r);
+    r.source === "mvp-automation-boundary" && r.turnKind === "handover" && !r.solverInstruction, r);
 
   c = conversation("cash_receipt_error_148",
     "касса ресторана: ошибка 148 при закрытии чека", { knowledgeExecution: "handover_only" });
@@ -234,6 +237,30 @@ async function main() {
     !r.solverInstruction && /ККМ/.test(c.data.operatorAdvice.text), r);
   t.check("the broad topic also uses the agreed restaurant component",
     r.componentName === RESTAURANT && c.data.componentName === RESTAURANT, r);
+
+  c = conversation("pos_terminal_troubleshooting", "касса ресторана: ошибка Java Script");
+  r = await c.step();
+  t.check("a JavaScript failure uses the restaurant application component",
+    r.turnKind === "handover" && r.componentName === RESTAURANT_APP &&
+    c.data.componentName === RESTAURANT_APP, r);
+
+  c = conversation("pos_terminal_troubleshooting", "касса доставки: ERR_NAME_NOT_RESOLVED");
+  r = await c.step();
+  t.check("a DNS failure uses the delivery application component",
+    r.turnKind === "handover" && r.componentName === DELIVERY_APP &&
+    c.data.componentName === DELIVERY_APP, r);
+
+  c = conversation("pos_terminal_troubleshooting",
+    "касса ресторана: банковский терминал отклоняет оплату картой");
+  r = await c.step();
+  t.check("an explicit bank-terminal problem uses the card-payment component",
+    r.turnKind === "handover" && r.componentName === RESTAURANT_CARD &&
+    c.data.componentName === RESTAURANT_CARD, r);
+
+  c = conversation("pos_terminal_troubleshooting", "касса ресторана: неизвестная ошибка E-777");
+  r = await c.step();
+  t.check("an unknown cash error is handed over without a guessed component",
+    r.turnKind === "handover" && !r.componentName && !c.data.componentName, r);
 
   return t.report();
 }

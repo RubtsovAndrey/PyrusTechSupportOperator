@@ -46,6 +46,10 @@ function lintTopics(topics) {
         }
       });
     }
+    if (t.strongEvidence !== undefined &&
+        (!Array.isArray(t.strongEvidence) || !t.strongEvidence.filter(Boolean).length)) {
+      say("strongEvidence must be a non-empty list when set");
+    }
     if (t.excludedEvidence !== undefined &&
         (!Array.isArray(t.excludedEvidence) || !t.excludedEvidence.filter(Boolean).length)) {
       say("excludedEvidence must be a non-empty list when set");
@@ -58,10 +62,20 @@ function lintTopics(topics) {
       }
       if (String(validation.status || "") === "approved") {
         const source = validation.source || {};
-        ["articleId", "title", "updatedAt", "sectionHeading"].forEach(field => {
+        ["articleId", "title", "updatedAt"].forEach(field => {
           if (!String(source[field] || "").trim()) say("approved validation.source has no " + field);
         });
-        ["sectionSha256", "approvedAdviceSha256"].forEach(field => {
+        const hasHeading = !!String(source.sectionHeading || "").trim();
+        const hasSectionHash = !!String(source.sectionSha256 || "").trim();
+        const hasContentHash = !!String(source.contentSha256 || "").trim();
+        if (hasHeading !== hasSectionHash) {
+          say("approved validation.source must set sectionHeading and sectionSha256 together");
+        }
+        if (hasSectionHash === hasContentHash) {
+          say("approved validation.source must select exactly one hash: sectionSha256 or contentSha256");
+        }
+        ["sectionSha256", "contentSha256", "approvedAdviceSha256"].forEach(field => {
+          if (field !== "approvedAdviceSha256" && !String(source[field] || "").trim()) return;
           if (!/^[a-f0-9]{64}$/.test(String(source[field] || ""))) {
             say("approved validation.source." + field + " is not a SHA-256 hash");
           }
@@ -137,6 +151,9 @@ function lintTopics(topics) {
         if (!branches.length) say(id + " requires branch evidence but declares no branches");
         if (!branchKey) say(id + " requires branch evidence but does not identify a branching question");
       }
+      if (n.requireFreshTurn === true && !ask.length) {
+        say(id + " requires a fresh turn but asks no question");
+      }
       if (n.knowledgeRef !== undefined) {
         const ref = n.knowledgeRef || {};
         const articleIds = Array.isArray(ref.articleIds) ? ref.articleIds.filter(Boolean) : [];
@@ -148,8 +165,25 @@ function lintTopics(topics) {
           say(id + ".knowledgeRef is operator_hint, but the node has no advice for the operator");
         }
       }
+      if (n.externalKnowledge !== undefined) {
+        const external = n.externalKnowledge || {};
+        const sources = Array.isArray(external.sources) ? external.sources.filter(Boolean) : [];
+        if (!sources.length) say(id + ".externalKnowledge has no sources");
+        sources.forEach((source, i) => {
+          ["spaceId", "articleId", "reviewedUpdatedAt"].forEach(field => {
+            if (!String(source && source[field] || "").trim()) {
+              say(id + ".externalKnowledge.sources[" + i + "] has no " + field);
+            }
+          });
+        });
+        if (!String(external.warning || "").trim()) say(id + ".externalKnowledge has no partner warning");
+        if (!String(external.followUpQuestion || "").trim()) say(id + ".externalKnowledge has no follow-up question");
+        if (!String(external.fallbackNode || n.onFail || "").trim()) {
+          say(id + ".externalKnowledge has no fallbackNode or node onFail");
+        }
+      }
       // The two states searchKnowledge has to rescue at runtime, as `tree-dead-end`.
-      if (!n.advice && !ask.length && !branches.length && !n.end && !n.go) {
+      if (!n.advice && !ask.length && !branches.length && !n.end && !n.go && !n.externalKnowledge) {
         say(id + " neither speaks, asks, branches nor ends: the dialog cannot leave it");
       }
     });

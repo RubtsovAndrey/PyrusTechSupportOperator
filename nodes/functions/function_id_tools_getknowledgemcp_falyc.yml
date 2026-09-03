@@ -10,20 +10,24 @@ parameters:
   type: USER
   collection: ID_Tools
   function: getKnowledgeMcp
-  is-tool: false
+  is-tool: true
   parameters:
     query:
       type: STRING
       value: null
-      filled-ai: false
+      filled-ai: true
     spaceIds:
       type: STRING
       value: null
-      filled-ai: false
+      filled-ai: true
     limit:
       type: NUMBER
       value: null
-      filled-ai: false
+      filled-ai: true
+    topicKey:
+      type: STRING
+      value: null
+      filled-ai: true
   context-config: null
   hitl-tool-config: null
   custom-headers: null

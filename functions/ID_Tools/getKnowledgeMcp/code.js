@@ -23,6 +23,7 @@
 // отдаёт параметры top-level переменными. То есть функция не выполняла ничего.
 
 const MCP_URL = "https://knowledgebase.dodois.io/mcp";
+const DB_ID = "1000299722-pyrus_bot_database-hul";
 
 // Токен живёт в хранилище платформы. Первый ключ — CUSTOM-credential, заведённый ради этой
 // функции; второй — credential MCP-интеграции, и он в списке лишь потому, что читаемость
@@ -207,22 +208,156 @@ async function rpc(token, name, args) {
   }
 }
 
+// ── Approved external knowledge declared by an agent-topic ──
+// `topicKey` switches this function from broad retrieval to a closed allowlist. The current
+// tree node is read from task state; the model cannot supply article IDs, spaces, warnings
+// or the fallback route. This keeps factual content editable in the corporate KB while the
+// business decision remains in the separately reviewed policy article.
+const dialogValue = AgentContext.getValue({ key: "dialog" }) || {};
+const taskId = dialogValue.taskId || null;
+
+function loadState() {
+  if (!taskId) return {};
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
+    return (doc && doc.value) || {};
+  } catch (e) {
+    Log.warn({ message: "getKnowledgeMcp: state read failed: " + e });
+    return {};
+  }
+}
+
+function externalPolicyOf(key) {
+  if (!key) return null;
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "knowledge_catalog" });
+    const topics = doc && doc.value && Array.isArray(doc.value.topics) ? doc.value.topics : [];
+    const topic = topics.find(t => t && String(t.key || "").toLowerCase() === String(key).toLowerCase());
+    if (!topic || !topic.nodes || typeof topic.nodes !== "object") return null;
+    const state = loadState();
+    const nodeId = state.data && state.data.treeNode ? String(state.data.treeNode) : null;
+    const node = nodeId && topic.nodes[nodeId] ? topic.nodes[nodeId] : null;
+    const policy = node && node.externalKnowledge;
+    if (!policy || !Array.isArray(policy.sources) || !policy.sources.length) return null;
+    const fallbackId = String(policy.fallbackNode || node.onFail || "");
+    const fallback = fallbackId && topic.nodes[fallbackId] ? topic.nodes[fallbackId] : null;
+    return {
+      topicKey: String(topic.key),
+      nodeId: nodeId,
+      sources: policy.sources.filter(s => s && s.articleId && s.spaceId).map(s => ({
+        articleId: String(s.articleId),
+        spaceId: String(s.spaceId),
+        title: s.title ? String(s.title) : null,
+        reviewedUpdatedAt: s.reviewedUpdatedAt ? String(s.reviewedUpdatedAt) : null
+      })),
+      warning: String(policy.warning || ""),
+      followUpQuestion: String(policy.followUpQuestion || ""),
+      fallbackNode: fallbackId || null,
+      fallbackQuestions: fallback && Array.isArray(fallback.ask)
+        ? fallback.ask.filter(q => q && q.key && q.question).map(q => ({
+          key: String(q.key), question: String(q.question),
+          questionGoal: q.questionGoal ? String(q.questionGoal) : null,
+          doNotAssume: q.doNotAssume ? String(q.doNotAssume) : null
+        }))
+        : []
+    };
+  } catch (e) {
+    Log.warn({ message: "getKnowledgeMcp: cannot load external policy " + key + ": " + e });
+    return null;
+  }
+}
+
+function setPath(target, dotted, value) {
+  const parts = String(dotted).split(".");
+  let node = target;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!node[parts[i]] || typeof node[parts[i]] !== "object") node[parts[i]] = {};
+    node = node[parts[i]];
+  }
+  node[parts[parts.length - 1]] = value;
+}
+
+function writePaths(paths) {
+  if (!taskId) return false;
+  try {
+    const res = Db.updateByFilters({
+      dbIntegration: DB_ID,
+      filters: { taskId: Number(taskId) },
+      operator: { $set: paths }
+    });
+    if (res && Number(res.count) > 0) return true;
+  } catch (e) {
+    Log.warn({ message: "getKnowledgeMcp: point write failed: " + e });
+  }
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
+    const value = (doc && doc.value) || {};
+    Object.keys(paths).forEach(p => setPath(value, p, paths[p]));
+    value.taskId = Number(taskId);
+    Db.put({ dbIntegration: DB_ID, documentKey: "state:" + taskId, value: value });
+    return true;
+  } catch (e) {
+    Log.error({ message: "getKnowledgeMcp: state write lost: " + e });
+    return false;
+  }
+}
+
+const externalPolicy = externalPolicyOf(topicKey);
+
+function fallbackResult(reason) {
+  if (!externalPolicy) return { found: false, articles: [], error: reason || null };
+  writePaths({
+    "data.treeNext": externalPolicy.fallbackNode,
+    "data.solutionAuthorization": null,
+    "data.requiredKnowledgeNotice": null,
+    "data.requiredFollowUpQuestion": null,
+    "data.knowledgeSourceIds": null,
+    "updatedAt": Date.now()
+  });
+  const questions = externalPolicy.fallbackQuestions;
+  return {
+    found: false,
+    articles: [],
+    source: "approved-external-fallback",
+    turnKind: questions.length ? "questions" : "handover",
+    preQuestions: questions.map(q => q.question),
+    questionSpecs: questions.map(q => ({
+      key: q.key,
+      goal: q.questionGoal || q.question,
+      fallbackQuestion: q.question,
+      doNotAssume: q.doNotAssume || null
+    })),
+    answerKeys: questions.map(q => q.key),
+    fallbackNode: externalPolicy.fallbackNode,
+    error: reason || null
+  };
+}
+
 // ── Сама работа ──
 
-const resultLimit = Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, 10));
-const spaces = parseSpaces(spaceIds);
+if (topicKey && !externalPolicy) {
+  return { found: false, articles: [], turnKind: "handover",
+    error: "topic has no approved external knowledge at the current node" };
+}
+
+const resultLimit = externalPolicy
+  ? Math.max(1, Math.min(externalPolicy.sources.length, 10))
+  : Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, 10));
+const spaces = externalPolicy
+  ? externalPolicy.sources.map(s => s.spaceId).filter((v, i, a) => a.indexOf(v) === i)
+  : parseSpaces(spaceIds);
 const searchLimit = Math.min(resultLimit * SEARCH_MULTIPLIER, MAX_SEARCH_LIMIT);
 const text = String(query || "").trim();
 
 if (!text) {
   Log.warn({ message: "getKnowledgeMcp: пустой запрос" });
-  return { found: false, articles: [], error: "пустой запрос" };
+  return fallbackResult("пустой запрос");
 }
 
 const auth = await readToken();
 if (!auth.token) {
   Log.error({ message: "getKnowledgeMcp: " + auth.reason });
-  return { found: false, articles: [], error: auth.reason };
+  return fallbackResult(auth.reason);
 }
 
 let search;
@@ -232,24 +367,36 @@ try {
   });
 } catch (e) {
   Log.error({ message: "getKnowledgeMcp: поиск «" + text.slice(0, 120) + "» не удался: " + e });
-  return { found: false, articles: [], error: String(e.message || e) };
+  return fallbackResult(String(e.message || e));
 }
 
 const hits = search && Array.isArray(search.results) ? search.results : [];
 // Фильтр по пространству повторяется на нашей стороне: сервер его выполняет, но поле
 // `spaces` не описано в его схеме, а значит не гарантировано. Стоит это ничего, а цена
 // ошибки — статья из чужого пространства, выданная партнёру как инструкция.
-const ours = hits.filter(h => h && spaces.indexOf(String(h.spaceId)) >= 0);
+const allowedIds = externalPolicy
+  ? externalPolicy.sources.map(s => s.articleId)
+  : null;
+const ours = hits.filter(h => h && spaces.indexOf(String(h.spaceId)) >= 0 &&
+  (!allowedIds || allowedIds.indexOf(String(h.articleId)) >= 0));
 
 if (!ours.length) {
   Log.info({ message: "getKnowledgeMcp: «" + text.slice(0, 120) + "» — ничего в " +
     spaces.length + " пространстве(ах), всего попаданий " + hits.length });
-  return { found: false, articles: [] };
+  return fallbackResult(null);
 }
 
 const articles = [];
 for (let i = 0; i < ours.length && articles.length < resultLimit; i++) {
   const hit = ours[i];
+  const approved = externalPolicy
+    ? externalPolicy.sources.find(s => s.articleId === String(hit.articleId))
+    : null;
+  const status = String(hit.status || hit.Status || "").toLowerCase();
+  if (externalPolicy && status && status !== "published") {
+    Log.warn({ message: "getKnowledgeMcp: approved article " + hit.articleId + " is not published, skipped" });
+    continue;
+  }
   // Вотермарки: сервер подменяет содержимое служебной заглушкой со ссылкой. Признак есть
   // уже в результате поиска, поэтому такую статью не стоит и запрашивать.
   if (hit.isWatermarksEnabled) {
@@ -257,8 +404,31 @@ for (let i = 0; i < ours.length && articles.length < resultLimit; i++) {
     continue;
   }
   let article;
+  const canReadFully = hit.canReadFully !== undefined ? hit.canReadFully : hit.CanReadFully;
   try {
-    article = await rpc(auth.token, "get_content", { request: { id: hit.articleId } });
+    if (externalPolicy && canReadFully !== true && canReadFully !== false) {
+      Log.warn({ message: "getKnowledgeMcp: article " + hit.articleId +
+        " has no canReadFully flag; approved-answer flow fails closed" });
+      continue;
+    }
+    if (canReadFully === false) {
+      const inside = await rpc(auth.token, "search_in_content", {
+        request: { id: hit.articleId, query: text }
+      });
+      if (!inside || inside.found === false || !String(inside.excerpt || "").trim()) {
+        Log.warn({ message: "getKnowledgeMcp: no readable fragment in article " + hit.articleId });
+        continue;
+      }
+      article = {
+        id: hit.articleId,
+        title: inside.articleTitle || hit.articleTitle || null,
+        content: String(inside.excerpt),
+        updatedAt: hit.updatedAt || hit.UpdatedAt || null,
+        space: { id: hit.spaceId, title: hit.spaceTitle || null }
+      };
+    } else {
+      article = await rpc(auth.token, "get_content", { request: { id: hit.articleId } });
+    }
   } catch (e) {
     Log.warn({ message: "getKnowledgeMcp: статья " + hit.articleId + " не читается: " + e });
     continue;
@@ -270,6 +440,12 @@ for (let i = 0; i < ours.length && articles.length < resultLimit; i++) {
     Log.warn({ message: "getKnowledgeMcp: статья " + hit.articleId + " пришла без содержимого, пропущена" });
     continue;
   }
+  const currentUpdatedAt = String((article && article.updatedAt) || hit.updatedAt || hit.UpdatedAt || "");
+  if (approved && approved.reviewedUpdatedAt && currentUpdatedAt !== approved.reviewedUpdatedAt) {
+    Log.warn({ message: "getKnowledgeMcp: approved article " + hit.articleId + " changed after review (" +
+      currentUpdatedAt + " != " + approved.reviewedUpdatedAt + "), skipped" });
+    continue;
+  }
   const config = parseAgentConfig(content);
   // Плоские метаданные читаются только там, где нет блока: иначе статья, размеченная
   // по-новому и содержащая пример ```yaml в тексте, получила бы два разных маршрута.
@@ -277,7 +453,7 @@ for (let i = 0; i < ours.length && articles.length < resultLimit; i++) {
   articles.push({
     articleId: article.id || hit.articleId,
     // В результате поиска заголовок называется `articleTitle`, в самой статье — `title`.
-    title: article.title || hit.articleTitle || null,
+    title: article.title || hit.articleTitle || (approved && approved.title) || null,
     content: content,
     excerpt: hit.excerpt || null,
     spaceId: hit.spaceId || (article.space ? article.space.id : null),
@@ -294,4 +470,63 @@ Log.info({ message: "getKnowledgeMcp: «" + text.slice(0, 120) + "» → " + art
   " статья(ей) из " + ours.length + " попаданий; " +
   articles.map(a => (a.metadata.key || a.articleId) + (a.metadata.route ? "/" + a.metadata.route : "")).join(", ") });
 
-return { found: articles.length > 0, articles: articles };
+if (!externalPolicy) return { found: articles.length > 0, articles: articles };
+if (!articles.length) return fallbackResult(null);
+
+// A partner-facing answer must carry links built from the server's own template. Missing
+// templates therefore mean "no approved answer", not "invent a URL from memory".
+let templates;
+try {
+  templates = await rpc(auth.token, "get_link_templates", {});
+} catch (e) {
+  Log.warn({ message: "getKnowledgeMcp: link templates unavailable: " + e });
+  return fallbackResult("не удалось получить шаблон ссылки на статью");
+}
+const articleTemplate = templates && (templates.ArticleUrlTemplate || templates.articleUrlTemplate || templates.article_url_template);
+if (!articleTemplate) return fallbackResult("MCP не вернул шаблон ссылки на статью");
+
+function articleUrl(template, spaceId, articleId) {
+  return String(template)
+    .replace(/\{spaceId\}/gi, String(spaceId))
+    .replace(/\{articleId\}/gi, String(articleId));
+}
+
+articles.forEach(a => { a.url = articleUrl(articleTemplate, a.spaceId, a.articleId); });
+const sourceLines = articles.map(a => "- [" + (a.title || "Материал Базы знаний") + "](" + a.url + ")");
+const notice = [externalPolicy.warning || null, sourceLines.join("\n")].filter(Boolean).join("\n\n");
+const state = loadState();
+const currentCommentId = state.runtime && state.runtime.incomingCommentId != null
+  ? String(state.runtime.incomingCommentId) : null;
+writePaths({
+  "data.treeNext": externalPolicy.fallbackNode,
+  "data.solutionAuthorization": {
+    topicKey: externalPolicy.topicKey,
+    nodeId: externalPolicy.nodeId,
+    incomingCommentId: currentCommentId,
+    source: "approved-external-knowledge",
+    at: Date.now()
+  },
+  "data.requiredKnowledgeNotice": notice,
+  "data.requiredFollowUpQuestion": externalPolicy.followUpQuestion,
+  "data.knowledgeSourceIds": articles.map(a => a.articleId).join(", "),
+  "updatedAt": Date.now()
+});
+
+return {
+  found: true,
+  source: "approved-external-knowledge",
+  turnKind: "external-knowledge",
+  key: externalPolicy.topicKey,
+  articles: articles,
+  answerRule: "Answer only with facts directly supported by these articles. If they do not directly answer the question, ask fallbackQuestions and do not invent an answer.",
+  fallbackQuestions: externalPolicy.fallbackQuestions.map(q => q.question),
+  questionSpecs: externalPolicy.fallbackQuestions.map(q => ({
+    key: q.key,
+    goal: q.questionGoal || q.question,
+    fallbackQuestion: q.question,
+    doNotAssume: q.doNotAssume || null
+  })),
+  answerKeys: externalPolicy.fallbackQuestions.map(q => q.key),
+  warning: externalPolicy.warning,
+  followUpQuestion: externalPolicy.followUpQuestion
+};

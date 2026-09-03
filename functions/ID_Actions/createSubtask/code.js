@@ -2,15 +2,10 @@ const DB_ID = "1000299722-pyrus_bot_database-hul";
 
 // Pyrus form and field ids live in the `config` document so they can be changed
 // without touching code. The defaults keep the bot working on an empty database.
-// `parentLinkFieldId` is the field of the subtask form that holds the number of the parent
-// chat — any field the register can filter on, a number field included. It is what makes
-// the duplicate check below possible, and it is left unset by default: filling a field
-// that the form does not have fails the whole creation.
 // `subjectFieldId` and `messageFieldId` are the «Тема» and «Сообщение» fields of the section
 // «Входные данные»: that is where the first line looks for the request itself.
-// ── ВНИМАНИЕ: сейчас здесь ТЕСТОВАЯ форма ──
-// `subtaskFormId: 2454249` — копия продовой формы 1096731, на ней же идут тесты тикетов.
-// Перед выходом в прод заменить обратно на 1096731 (и форму чатов — на продовую).
+// По умолчанию используется единственная форма подзадач MVP — 1096731. Тестовая копия
+// задаётся через документ `config`, поэтому тестовый rollout не требует править код.
 //
 // ── Почему номеров полей здесь больше нет ──
 // Раньше здесь стояли `unitFieldId: 97, componentFieldId: 36, emailFieldId: 5,
@@ -24,9 +19,13 @@ const DB_ID = "1000299722-pyrus_bot_database-hul";
 // «Юнит» и «Компонент» в отвечаемой задаче. Номер в `config` по-прежнему побеждает, если
 // поле придётся приколотить вручную.
 const DEFAULTS = {
-  subtaskFormId: 2454249,
+  subtaskFormId: 1096731,
   unitFieldId: null, componentFieldId: null, emailFieldId: null,
-  subjectFieldId: null, messageFieldId: null, parentLinkFieldId: null
+  subjectFieldId: null, messageFieldId: null,
+  // A claim is kept briefly when Pyrus may have accepted a request whose HTTP response
+  // was lost. A later webhook first looks through the native linked tasks and only then
+  // may take the claim over. This is a safety delay, not a business timeout.
+  subtaskClaimTtlMs: 120000
 };
 
 // Имена полей формы подзадачи. Переопределяются через `config.fieldNames`, если на другой
@@ -171,6 +170,8 @@ const SUMMARY = {
     "Бот передаёт обращение оператору.",
     "",
     "Юнит: {unit}",
+    "Язык: {language}",
+    "Домен юнита: {unitDomain}",
     "Email: {email}",
     "Тематика: {topic}",
     "Суть: {problem}",
@@ -212,6 +213,8 @@ function summaryFields(o) {
     // говорит, что спросить его не удалось, а «тематика не определена» отличает «статья
     // велела передать» от «статьи никто не написал».
     unit: data.unitFullName || "не определён",
+    language: data.partnerLanguage || "русский (рабочее предположение)",
+    unitDomain: businessDomainOf(data.unitFullName) || "не определён (рабочее предположение РФ)",
     email: data.email || "не указан",
     topic: data.topicKey
       ? data.topicKey + (o.description ? " — " + short(o.description) : "") + (o.topicNote || "")
@@ -228,6 +231,11 @@ function summaryFields(o) {
     component: data.componentName || "не определён",
     parent: o.parent || "—"
   };
+}
+
+function businessDomainOf(unitFullName) {
+  const match = /^\s*\[([^\]]+)\]/.exec(String(unitFullName || ""));
+  return match ? String(match[1]).trim().toLowerCase() : null;
 }
 
 function render(tpl, fields) {
@@ -252,6 +260,23 @@ function loadConfig() {
   return DEFAULTS;
 }
 
+// Unlike writeState, this helper deliberately has no whole-document fallback. It is used
+// for ownership transitions: if compare-and-set did not match exactly one document, this
+// run did not acquire the right to create or finish anything.
+function pointUpdate(filters, paths) {
+  try {
+    const res = Db.updateByFilters({
+      dbIntegration: DB_ID,
+      filters: filters,
+      operator: { $set: paths }
+    });
+    return !!(res && Number(res.count) === 1);
+  } catch (e) {
+    Log.error({ message: "createSubtask: atomic state update failed: " + e });
+    return false;
+  }
+}
+
 const prev = Context.getLastFunctionResult() || {};
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = prev.taskId || dialog.taskId || null;
@@ -269,22 +294,52 @@ try {
   Log.warn({ message: "createSubtask: state read failed: " + e });
 }
 
-// A retried webhook must never produce a second subtask.
-if (state.subtaskId) {
-  Log.info({ message: "createSubtask: subtask " + state.subtaskId + " already exists for task " + taskId });
-  return { success: true, subtaskId: state.subtaskId, duplicate: true, taskId: taskId };
-}
-
 const data = state.data || {};
 const runtime = state.runtime || {};
 const cfg = loadConfig();
+const configuredClaimTtl = Number(cfg.subtaskClaimTtlMs);
+// A typo or an aggressive zero must not silently remove the safety window.
+const claimTtlMs = isFinite(configuredClaimTtl) && configuredClaimTtl >= 30000
+  ? configuredClaimTtl : DEFAULTS.subtaskClaimTtlMs;
+const requestKey = state.subtaskRequestKey ? String(state.subtaskRequestKey) : null;
+const runToken = String(taskId) + "|" + String(runtime.incomingCommentId || "turn") +
+  "|" + Date.now() + "|" + Math.random();
+
+// The creation owner keeps the claim until finalize has successfully closed the parent.
+// A run arriving in the small gap between those two operations therefore cannot post the
+// same closing message. If finalize failed, a later retry may take the claim over after
+// the safety window and finish the already-created subtask path without creating again.
+if (state.subtaskId && state.subtaskIntegrity === "complete") {
+  const old = state.subtaskClaim ? String(state.subtaskClaim) : null;
+  const claimAt = Number(state.subtaskClaimAt || state.updatedAt || Date.now());
+  const fresh = !!old && Date.now() - claimAt < claimTtlMs;
+  if (fresh) {
+    return { success: false, skip: true, deferred: true,
+      reason: "the completed subtask is still being finalized by another run", taskId: taskId };
+  }
+  const filters = {
+    taskId: Number(taskId),
+    subtaskId: state.subtaskId,
+    subtaskIntegrity: "complete",
+    subtaskClaim: old
+  };
+  if (requestKey) filters.subtaskRequestKey = requestKey;
+  if (!pointUpdate(filters, {
+    subtaskClaim: runToken, subtaskClaimAt: Date.now(), updatedAt: Date.now()
+  })) {
+    return { success: false, skip: true, deferred: true,
+      reason: "another run is finalizing the completed subtask", taskId: taskId };
+  }
+  Log.info({ message: "createSubtask: complete subtask " + state.subtaskId + " already exists for task " + taskId });
+  return { success: true, subtaskId: state.subtaskId, duplicate: true, taskId: taskId };
+}
 
 // ── A ticket has no subtask to create: the ticket IS the subtask ──
 // The article may still route here — `route: "subtask"`, `treeEnd: "subtask"`, an `onFail`
 // that says subtask — because the catalog describes the problem, not the form the dialog
 // happens to live on. Refusing with a plain failure is all that is needed: the graph already
-// carries `success: false` without `action: "clarify"` through `cond_subtask_created` and
-// `cond_subtask_needs_email` to the escalation. No new node, no change to the OUTCOMES table.
+// carries an ordinary `success: false` through `cond_subtask_deferred` and
+// `cond_subtask_needs_email` to the escalation. Only an atomic-claim loser has `skip: true`.
 if (String(runtime.role || "") === "ticket") {
   Log.info({ message: "createSubtask: task " + taskId + " is a ticket, which already is the subtask — handing over to an operator instead" });
   return { success: false, reason: "the task is a ticket: it already is the subtask", taskId: taskId };
@@ -380,40 +435,6 @@ async function resolveFieldIds() {
   }
   return ids;
 }
-const linkFieldId = Number(cfg.parentLinkFieldId || 0) || null;
-
-// ── Ask Pyrus, not the database ──
-// `state.subtaskId` above only catches a retry that runs after the first one finished.
-// Two concurrent webhooks both read it as empty and both create a subtask, and the
-// database cannot arbitrate: it has no atomic operation at all — no putIfAbsent, no TTL,
-// no upsert. The register is the only shared source that already knows whether the
-// subtask exists.
-// `eq.` forces exact matching instead of a loose contains.
-async function findExistingSubtask() {
-  if (!linkFieldId) return null;
-  try {
-    const url = apiUrl + "forms/" + Number(cfg.subtaskFormId) + "/register" +
-      "?fld" + linkFieldId + "=eq." + Number(taskId);
-    const resp = await Http.get({ url: url, headers: headers });
-    const body = (resp && resp.body) || resp || {};
-    const tasks = Array.isArray(body.tasks) ? body.tasks : [];
-    const found = tasks.find(t => t && t.id);
-    return found ? Number(found.id) : null;
-  } catch (e) {
-    // A failed lookup must not block the branch: at worst we are back to the old
-    // behaviour and may create a second subtask.
-    Log.warn({ message: "createSubtask: register lookup failed for task " + taskId + ", creating anyway: " + e });
-    return null;
-  }
-}
-
-const existing = await findExistingSubtask();
-if (existing) {
-  Log.info({ message: "createSubtask: Pyrus register already has subtask " + existing + " for task " + taskId + ", not creating a second one" });
-  writeState(taskId, { "subtaskId": existing, "updatedAt": Date.now() }, "createSubtask");
-  return { success: true, subtaskId: existing, duplicate: true, taskId: taskId };
-}
-
 function describe(e) {
   const body = e && (e.body || (e.response && e.response.body));
   return String(e) + (body ? " | Pyrus: " + (typeof body === "string" ? body : JSON.stringify(body)).slice(0, 500) : "");
@@ -425,13 +446,23 @@ function describe(e) {
 // What the article asked the partner, line by line. This is the reason a branching
 // article exists: without these lines the first line reads «просят поменять карточку
 // сотрудника» and has to start the conversation over.
+// The key is assigned when receiveWebhook starts a problem. It makes the native linked
+// task recoverable after the classic distributed-systems failure: Pyrus accepted POST
+// /tasks, but its HTTP response did not reach us. Without a per-problem key, an old appeal
+// from the same reopened chat is indistinguishable from the current one.
+if (!requestKey) {
+  return { success: false,
+    reason: "subtaskRequestKey is missing; refusing non-idempotent subtask creation",
+    taskId: taskId };
+}
+const requestMarker = "Идентификатор обращения ИИ: " + requestKey;
 const form = topicForm(data.topicKey, data.treeNode, "createSubtask");
 const summaryText = render(summaryTemplate(cfg, "subtask"), summaryFields({
   data: data,
   labels: form.labels,
   description: form.description,
   parent: taskId
-}));
+})) + "\n\n" + requestMarker;
 
 const fieldIds = await resolveFieldIds();
 
@@ -439,10 +470,10 @@ const fieldIds = await resolveFieldIds();
 // целиком, а не частично, так что попытка «отправим что есть» стоила бы обращения. Ошибка
 // уходит в граф, и он существующей цепочкой условий передаёт обращение оператору — а лог
 // выше уже перечислил все поля формы, так что чинится это одной правкой `config`.
-if (!fieldIds.unitFieldId || !fieldIds.componentFieldId || !fieldIds.emailFieldId) {
+if (!fieldIds.unitFieldId || !fieldIds.componentFieldId || !fieldIds.emailFieldId || !fieldIds.messageFieldId) {
   return {
     success: false,
-    reason: "на форме " + cfg.subtaskFormId + " не найдены обязательные поля подзадачи (Юнит / Компонент / Эл. почта)",
+    reason: "на форме " + cfg.subtaskFormId + " не найдены обязательные поля подзадачи (Юнит / Компонент / Эл. почта / Сообщение)",
     taskId: taskId
   };
 }
@@ -450,11 +481,181 @@ if (!fieldIds.unitFieldId || !fieldIds.componentFieldId || !fieldIds.emailFieldI
 const requiredFields = [
   { id: fieldIds.unitFieldId, value: { item_name: String(data.unitFullName) } },
   { id: fieldIds.componentFieldId, value: { item_name: String(data.componentName) } },
-  { id: fieldIds.emailFieldId, value: String(data.email) }
+  { id: fieldIds.emailFieldId, value: String(data.email) },
+  { id: fieldIds.messageFieldId, value: summaryText }
 ];
 const inputFields = [];
 if (fieldIds.subjectFieldId) inputFields.push({ id: fieldIds.subjectFieldId, value: String(data.problemSummary || data.componentName) });
-if (fieldIds.messageFieldId) inputFields.push({ id: fieldIds.messageFieldId, value: summaryText });
+
+function taskFromResponse(resp) {
+  const body = (resp && resp.body) || resp || {};
+  return body.task || body;
+}
+
+function taskFieldText(task, fieldId) {
+  const all = flattenFormFields((task && task.fields) || [], []);
+  const hit = all.find(f => Number(f && f.id) === Number(fieldId));
+  if (!hit) return "";
+  if (typeof hit.value === "string") return hit.value;
+  try { return JSON.stringify(hit.value); } catch (e) { return String(hit.value || ""); }
+}
+
+function nativeChildMatches(task, requireMarker) {
+  if (!task || !task.id) return false;
+  if (Number(task.parent_task_id) !== Number(taskId)) return false;
+  if (task.form_id != null && Number(task.form_id) !== Number(cfg.subtaskFormId)) return false;
+  return !requireMarker || taskFieldText(task, fieldIds.messageFieldId).indexOf(requestMarker) >= 0;
+}
+
+async function readTask(id) {
+  const resp = await Http.get({ url: apiUrl + "tasks/" + Number(id), headers: headers });
+  return taskFromResponse(resp);
+}
+
+async function verifyChild(id, requireMarker) {
+  try {
+    const task = await readTask(id);
+    return { ok: true, task: task, matches: nativeChildMatches(task, requireMarker) };
+  } catch (e) {
+    Log.warn({ message: "createSubtask: could not verify child " + id + ": " + describe(e) });
+    return { ok: false, matches: false, error: e };
+  }
+}
+
+function persistRecovered(id, expectedClaim, expectedSubtaskId) {
+  return pointUpdate(
+    { taskId: Number(taskId), subtaskRequestKey: requestKey,
+      subtaskId: expectedSubtaskId, subtaskClaim: expectedClaim },
+    { subtaskId: Number(id), subtaskIntegrity: "complete", subtaskClaim: runToken,
+      subtaskClaimAt: Date.now(), updatedAt: Date.now() }
+  );
+}
+
+async function findLinkedByMarker() {
+  try {
+    const parent = await readTask(taskId);
+    const ids = Array.isArray(parent.linked_task_ids) ? parent.linked_task_ids : [];
+    // A chat may be reused and therefore have several old children. The marker, not the
+    // mere existence of a child, decides which one belongs to this problem.
+    for (let i = 0; i < ids.length && i < 50; i++) {
+      const linked = ids[i];
+      const id = linked && typeof linked === "object" ? linked.id : linked;
+      if (!id) continue;
+      const child = await readTask(id);
+      if (nativeChildMatches(child, true)) return { ok: true, id: Number(child.id) };
+    }
+    return { ok: true, id: null };
+  } catch (e) {
+    Log.error({ message: "createSubtask: native linked-task recovery failed: " + describe(e) });
+    return { ok: false, id: null, error: e };
+  }
+}
+
+// An id written by an older/incomplete run is never duplicated. It may, however, be
+// promoted to complete when Pyrus confirms the native parent relation. The marker is not
+// required here because pre-migration subtasks did not have one; the stored id already
+// identifies the candidate exactly.
+if (state.subtaskId) {
+  const incompleteClaim = state.subtaskClaim ? String(state.subtaskClaim) : null;
+  const incompleteAt = Number(state.subtaskClaimAt || state.updatedAt || Date.now());
+  const incompleteFresh = !!incompleteClaim &&
+    Date.now() - incompleteAt < claimTtlMs;
+  if (incompleteFresh) {
+    return { success: false, skip: true, deferred: true, subtaskId: Number(state.subtaskId),
+      reason: "another run is verifying the created subtask", taskId: taskId };
+  }
+  const known = await verifyChild(state.subtaskId, false);
+  if (known.ok && known.matches && persistRecovered(
+    state.subtaskId, incompleteClaim, state.subtaskId
+  )) {
+    return { success: true, subtaskId: Number(state.subtaskId), duplicate: true,
+      recovered: true, taskId: taskId };
+  }
+  Log.error({ message: "createSubtask: subtask " + state.subtaskId + " exists for task " + taskId +
+    " but its native parent relation was not confirmed; refusing to duplicate or close" });
+  return { success: false, subtaskId: state.subtaskId, duplicateBlocked: true,
+    reason: "existing subtask has no confirmed native parent relation", taskId: taskId };
+}
+
+// A claim is a compare-and-set on the task document. Unlike the former register lookup,
+// it does not need a custom form field and two concurrent runs cannot both win it.
+// A fresh loser does nothing: the winning run owns creation and the partner reply.
+let oldClaim = state.subtaskClaim ? String(state.subtaskClaim) : null;
+if (oldClaim) {
+  const claimAt = Number(state.subtaskClaimAt || state.updatedAt || Date.now());
+  const stale = Date.now() - claimAt >= claimTtlMs;
+  if (!stale) {
+    return { success: false, skip: true, deferred: true,
+      reason: "another run is creating this subtask", taskId: taskId };
+  }
+  const recovered = await findLinkedByMarker();
+  if (recovered.id) {
+    if (persistRecovered(recovered.id, oldClaim, null)) {
+      return { success: true, subtaskId: recovered.id, duplicate: true,
+        recovered: true, taskId: taskId };
+    }
+    // Pyrus has proved that the task exists. Losing the database write is never a reason
+    // to create another one, even after the claim TTL expires.
+    return { success: false, subtaskId: recovered.id, duplicateBlocked: true,
+      reason: "recovered subtask exists but its state could not be persisted", taskId: taskId };
+  }
+  // If Pyrus itself could not be checked, taking over a stale claim could duplicate a
+  // task whose successful HTTP response was lost. Fail closed and let an operator see it.
+  if (!recovered.ok) {
+    return { success: false, reason: "could not recover an uncertain subtask from Pyrus",
+      taskId: taskId };
+  }
+  // An empty linked list is not proof that the old creator is dead: its POST may still be
+  // in flight or Pyrus may not have exposed the new link yet. Reusing the expired claim to
+  // create again would turn a timeout into two business tasks. For the MVP this is a
+  // deliberate availability trade-off: hand the chat to an operator, never guess.
+  return { success: false, duplicateBlocked: true,
+    reason: "stale subtask claim has no recoverable native child; manual verification required",
+    taskId: taskId };
+}
+
+const claim = runToken;
+const claimFilters = {
+  taskId: Number(taskId),
+  subtaskRequestKey: requestKey,
+  subtaskId: null,
+  subtaskClaim: oldClaim
+};
+const claimed = pointUpdate(claimFilters, {
+  subtaskClaim: claim,
+  subtaskClaimAt: Date.now(),
+  subtaskIntegrity: "creating",
+  updatedAt: Date.now()
+});
+if (!claimed) {
+  Log.info({ message: "createSubtask: another run won the atomic claim for task " + taskId });
+  return { success: false, skip: true, deferred: true,
+    reason: "another run won subtask creation", taskId: taskId };
+}
+
+function releaseClaim() {
+  return pointUpdate(
+    { taskId: Number(taskId), subtaskRequestKey: requestKey, subtaskId: null, subtaskClaim: claim },
+    { subtaskClaim: null, subtaskClaimAt: null, subtaskIntegrity: null, updatedAt: Date.now() }
+  );
+}
+
+function markUncertain(id) {
+  const paths = { subtaskIntegrity: id ? "unconfirmed_parent" : "uncertain_response", updatedAt: Date.now() };
+  if (id) paths.subtaskId = Number(id);
+  return pointUpdate(
+    { taskId: Number(taskId), subtaskRequestKey: requestKey, subtaskId: null, subtaskClaim: claim },
+    paths
+  );
+}
+
+function completeClaim(id) {
+  return pointUpdate(
+    { taskId: Number(taskId), subtaskRequestKey: requestKey, subtaskId: null, subtaskClaim: claim },
+    { subtaskId: Number(id), subtaskIntegrity: "complete",
+      subtaskClaimAt: Date.now(), updatedAt: Date.now() }
+  );
+}
 
 async function create(fields) {
   const resp = await Http.post({
@@ -466,78 +667,88 @@ async function create(fields) {
       fields: fields
     }
   });
-  const created = (resp && resp.body) || resp;
-  const id = created && created.task ? created.task.id : null;
-  if (!id) throw new Error("no task.id in Pyrus response");
-  return id;
+  const created = taskFromResponse(resp);
+  if (!created || !created.id) throw new Error("no task.id in Pyrus response");
+  return created;
 }
 
-// A rejected optional field must not cost the subtask: the branch has no other way
-// forward, and a ticket without its description still beats no ticket at all. The
-// summary then falls back to a comment, which is where it used to live.
-let subtaskId = null;
-let summaryInForm = inputFields.length > 0;
+function statusOf(e) {
+  const raw = e && (e.status || e.statusCode ||
+    (e.response && (e.response.status || e.response.statusCode)));
+  if (Number(raw)) return Number(raw);
+  const match = /\b([45]\d\d)\b/.exec(String(e || ""));
+  return match ? Number(match[1]) : null;
+}
+
+function definitelyRejected(e) {
+  const status = statusOf(e);
+  return status >= 400 && status < 500 && [408, 409, 425, 429].indexOf(status) < 0;
+}
+
+// Only an explicit non-retryable 4xx proves that Pyrus did not create a task. Therefore
+// only that class may be retried without the optional subject. A timeout or 5xx can hide
+// a successful creation; retrying it immediately is how duplicate appeals are born.
+let createdTask = null;
+let creationError = null;
 try {
-  subtaskId = await create(requiredFields.concat(inputFields));
+  createdTask = await create(requiredFields.concat(inputFields));
 } catch (e) {
-  if (!inputFields.length) {
-    Log.error({ message: "createSubtask failed for task " + taskId + ": " + describe(e) });
-    return { success: false, reason: String(e), taskId: taskId };
-  }
-  Log.warn({ message: "createSubtask: creation with the «Входные данные» fields was rejected for task " + taskId + ", retrying without them: " + describe(e) });
-  summaryInForm = false;
-  try {
-    subtaskId = await create(requiredFields);
-  } catch (e2) {
-    Log.error({ message: "createSubtask failed for task " + taskId + ": " + describe(e2) });
-    return { success: false, reason: String(e2), taskId: taskId };
-  }
-}
-
-// Remember it before anything else can fail, so a retry cannot duplicate the subtask.
-// Only the subtaskId path: the facts in this document may have moved on since the read
-// above, and a full rewrite would put the stale ones back.
-writeState(taskId, { "subtaskId": Number(subtaskId), "updatedAt": Date.now() }, "createSubtask");
-
-async function comment(body, what) {
-  try {
-    await Http.post({ url: apiUrl + "tasks/" + subtaskId + "/comments", headers: headers, body: body });
-    return true;
-  } catch (e) {
-    Log.warn({ message: "createSubtask: " + what + " failed on subtask " + subtaskId + ": " + describe(e) });
-    return false;
-  }
-}
-
-// The link back to the parent chat is written as its own request, after the subtask
-// exists. Sent inside the creation body, a wrong value shape would fail the creation
-// itself; here the worst case is that the next run cannot find this subtask in the
-// register — which is exactly where we were before. The shape of a form_link value is
-// not documented among what we have, so both plausible forms are tried once.
-async function linkToParent() {
-  if (!linkFieldId) return;
-  const shapes = [{ task_id: Number(taskId) }, Number(taskId)];
-  for (let i = 0; i < shapes.length; i++) {
+  if (inputFields.length && definitelyRejected(e)) {
+    Log.warn({ message: "createSubtask: creation with optional subject was rejected for task " + taskId +
+      ", retrying with all mandatory fields including «Сообщение»: " + describe(e) });
     try {
-      await Http.post({
-        url: apiUrl + "tasks/" + subtaskId + "/comments",
-        headers: headers,
-        body: { field_updates: [{ id: linkFieldId, value: shapes[i] }] }
-      });
-      Log.info({ message: "createSubtask: linked subtask " + subtaskId + " to parent " + taskId + " (field " + linkFieldId + ")" });
-      return;
-    } catch (e) {
-      Log.warn({ message: "createSubtask: link shape " + (i + 1) + " rejected for field " + linkFieldId + ": " + describe(e) });
+      createdTask = await create(requiredFields);
+    } catch (e2) {
+      creationError = e2;
     }
+  } else {
+    creationError = e;
   }
-  Log.error({ message: "createSubtask: subtask " + subtaskId + " left unlinked to parent " + taskId + "; the duplicate check cannot see it" });
 }
 
-await linkToParent();
+if (creationError) {
+  Log.error({ message: "createSubtask failed for task " + taskId + ": " + describe(creationError) });
+  const recovered = await findLinkedByMarker();
+  if (recovered.id && persistRecovered(recovered.id, claim, null)) {
+    return { success: true, subtaskId: recovered.id, recovered: true, taskId: taskId };
+  }
+  if (definitelyRejected(creationError)) {
+    releaseClaim();
+  } else {
+    markUncertain(null);
+  }
+  return { success: false, uncertain: !definitelyRejected(creationError),
+    reason: String(creationError), taskId: taskId };
+}
 
-// Only when the form could not carry it. No `channel`, so nothing reaches the partner.
-if (!summaryInForm) {
-  await comment({ text: "[Внутренняя переписка]\n" + summaryText }, "summary comment");
+const subtaskId = Number(createdTask.id);
+let parentConfirmed = nativeChildMatches(createdTask, false);
+if (!parentConfirmed) {
+  // Some Pyrus responses omit fields from the returned task. Read it once before deciding
+  // that the native relation is absent; the parent chat must never close on an assumption.
+  const verified = await verifyChild(subtaskId, true);
+  parentConfirmed = verified.ok && verified.matches;
+}
+if (!parentConfirmed) {
+  markUncertain(subtaskId);
+  Log.error({ message: "createSubtask: task " + subtaskId + " was created, but Pyrus did not confirm parent_task_id=" + taskId });
+  return { success: false, subtaskId: subtaskId, duplicateBlocked: true,
+    reason: "subtask was created but its native parent relation was not confirmed", taskId: taskId };
+}
+
+if (!completeClaim(subtaskId)) {
+  try {
+    const current = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
+    const value = (current && current.value) || {};
+    if (Number(value.subtaskId) === subtaskId && value.subtaskIntegrity === "complete") {
+      return { success: false, skip: true, deferred: true, subtaskId: subtaskId,
+        reason: "another run completed this subtask", taskId: taskId };
+    }
+  } catch (e) {
+    Log.warn({ message: "createSubtask: could not re-read state after completion race: " + e });
+  }
+  return { success: false, subtaskId: subtaskId,
+    reason: "subtask was created but its ownership state changed before completion", taskId: taskId };
 }
 
 // The bot does NOT complete the first workflow step. It used to post `action: "finished"`
@@ -549,4 +760,4 @@ if (!summaryInForm) {
 
 // Parent task fields are updated by finalize together with the closing comment,
 // so no extra request is made here.
-return { success: true, subtaskId: Number(subtaskId), taskId: taskId };
+return { success: true, subtaskId: subtaskId, taskId: taskId };

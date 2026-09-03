@@ -4,8 +4,9 @@
 //   node tools/validate-knowledge.js cash_shift_over_24_hours --show
 //
 // The command is read-only. It fetches the pinned source article through MCP and checks
-// that neither the approved source section nor the executable partner advice has drifted
-// since review. `--show` prints both texts side by side for a human content review.
+// that neither the approved source nor the executable partner advice has drifted since
+// review. A card may pin one named section or, for editor articles without stable Markdown
+// headings, the complete article. `--show` prints both texts side by side for review.
 
 const crypto = require("crypto");
 const fs = require("fs");
@@ -79,15 +80,20 @@ function adviceForSource(topic, articleId) {
 function inspect(topic, article) {
   const validation = (topic && topic.validation) || {};
   const source = validation.source || {};
-  const section = extractSection(article && article.content, source.sectionHeading);
+  const sectionMode = !!String(source.sectionHeading || "").trim();
+  const section = sectionMode
+    ? extractSection(article && article.content, source.sectionHeading)
+    : normalizeText(article && article.content);
+  const expectedSourceHash = sectionMode ? source.sectionSha256 : source.contentSha256;
   const advice = adviceForSource(topic, source.articleId);
   const checks = [
     ["статус сценария approved", validation.status === "approved"],
     ["ID общей статьи совпадает", String(article && (article.id || article.articleId) || "") === String(source.articleId || "")],
     ["заголовок общей статьи совпадает", String(article && article.title || "") === String(source.title || "")],
     ["дата изменения общей статьи совпадает", String(article && article.updatedAt || "") === String(source.updatedAt || "")],
-    ["раздел общей статьи найден", !!section],
-    ["хеш раздела общей статьи совпадает", !!section && sha256(section) === String(source.sectionSha256 || "")],
+    [sectionMode ? "раздел общей статьи найден" : "полный текст общей статьи получен", !!section],
+    [sectionMode ? "хеш раздела общей статьи совпадает" : "хеш полной общей статьи совпадает",
+      !!section && sha256(section) === String(expectedSourceHash || "")],
     ["исполняемый совет един для всех веток", advice.length === 1],
     ["хеш утверждённого совета совпадает", advice.length === 1 && sha256(advice[0]) === String(source.approvedAdviceSha256 || "")]
   ];
@@ -107,8 +113,11 @@ async function main(argv) {
   if (!key) throw new Error("укажите ключ сценария");
   const topic = loadTopic(key);
   const source = topic.validation && topic.validation.source;
-  if (!source || !source.articleId || !source.sectionHeading) {
-    throw new Error("у сценария " + key + " нет validation.source с articleId и sectionHeading");
+  const sectionCard = source && source.sectionHeading && source.sectionSha256;
+  const fullCard = source && !source.sectionHeading && source.contentSha256;
+  if (!source || !source.articleId || (!sectionCard && !fullCard)) {
+    throw new Error("у сценария " + key +
+      " нет validation.source с articleId и одним способом фиксации: sectionHeading/sectionSha256 или contentSha256");
   }
   const article = await MCP.getContent(source.articleId);
   const report = inspect(topic, article);
@@ -116,11 +125,11 @@ async function main(argv) {
   console.log("Сценарий: " + key);
   console.log("Источник: " + source.title + " (" + source.articleId + ")");
   report.checks.forEach(row => console.log((row[1] ? "  ✓ " : "  ✗ ") + row[0]));
-  console.log("Хеш раздела сейчас: " + (report.sourceHash || "раздел не найден"));
+  console.log("Хеш источника сейчас: " + (report.sourceHash || "текст не найден"));
   console.log("Хеш совета сейчас:  " + (report.adviceHash || "нет единственного совета"));
 
   if (args.indexOf("--show") >= 0) {
-    console.log("\n--- Общая БЗ: утверждённый раздел ---\n\n" + (report.section || "<не найден>"));
+    console.log("\n--- Общая БЗ: утверждённый источник ---\n\n" + (report.section || "<не найден>"));
     console.log("\n--- Наш исполняемый ответ ---\n\n" + (report.advice[0] || "<не найден>"));
   }
 

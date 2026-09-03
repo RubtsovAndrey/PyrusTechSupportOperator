@@ -1,7 +1,7 @@
 const DB_ID = "1000299722-pyrus_bot_database-hul";
 
 // Facts each agent is allowed to contribute to the task document.
-const PERSISTED = ["unitFullName", "componentName", "problemSummary", "email", "topicKey"];
+const PERSISTED = ["unitFullName", "componentName", "problemSummary", "email", "topicKey", "partnerLanguage"];
 
 function normalize(s) {
   return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[.,«»'"()\[\]]/g, " ").replace(/[\s-]+/g, " ").trim();
@@ -416,6 +416,19 @@ if (taskId) {
 }
 const known = (storedDoc && storedDoc.value && storedDoc.value.data) || {};
 
+// Language is a routing fact, not decorative metadata. The model is the only component
+// that can distinguish, for example, Uzbek from English or Kazakh from Russian, but it may
+// only persist a two-letter ISO 639-1 code. A code-level signal from receiveWebhook still
+// wins later if the model omits or misclassifies it.
+if (parsed.partnerLanguage != null) {
+  const candidate = String(parsed.partnerLanguage).trim().toLowerCase();
+  if (/^[a-z]{2}$/.test(candidate)) parsed.partnerLanguage = candidate;
+  else {
+    delete parsed.partnerLanguage;
+    Log.warn({ message: "parseAgentJson: invalid partnerLanguage was ignored on task " + taskId });
+  }
+}
+
 // The unit must not depend on the model choosing to call a tool. The agent reports what
 // it heard in `unit` and the catalog value in `unitFullName`, and it is told to leave the
 // latter empty unless matchUnit filled it — which a flash model skips most turns. The
@@ -526,6 +539,74 @@ if (taskId) {
       Log.warn({ message: "parseAgentJson: intake asked to clarify on task " + taskId + " while the unit and the problem are both known, routing instead" });
     }
 
+    // ── MVP automation boundary: Russian-language requests from Russian units only ──
+    // Until a contrary signal appears, the request is treated as Russian/RF so intake may
+    // start normally. Once either the language or a validated catalog unit says otherwise,
+    // the code — not the routing model — prevents every prepared self-service scenario.
+    // Intake may still ask for the two basic facts. As soon as both are known it hands the
+    // chat over, preserving a localised message supplied by the model when available.
+    if (String(stage || "") === "intake") {
+      const runtime = state.runtime || {};
+      const language = String(data.partnerLanguage || "").toLowerCase();
+      const nonRussian = runtime.languageGuard === "non_ru" || (!!language && language !== "ru");
+      const domain = businessDomainOf(data.unitFullName);
+      const foreignUnit = !!domain && !/\.ru$/.test(domain);
+      if (nonRussian || foreignUnit) {
+        data.automationScope = "handover_only";
+        patch["data.automationScope"] = "handover_only";
+        data.handoverReason = nonRussian
+          ? "язык обращения не русский: после базового сбора данных сценарий передан оператору"
+          : "подтверждённый юнит не относится к РФ: российский сценарий не исполняется";
+        patch["data.handoverReason"] = data.handoverReason;
+        if (data.unitFullName && data.problemSummary) {
+          parsed.action = "escalate";
+          delete parsed.clarifyKind;
+          delete parsed.clarifyingQuestion;
+        } else {
+          parsed.action = "clarify";
+        }
+        Log.info({ message: "parseAgentJson: task " + taskId + " is limited to basic intake (language=" +
+          (language || "unknown") + ", domain=" + (domain || "unknown") + ")" });
+      } else if (data.automationScope === "handover_only") {
+        // The latest meaningful message may switch back to Russian and the partner may
+        // correct the unit. Do not let an old safety marker permanently poison the chat.
+        data.automationScope = null;
+        patch["data.automationScope"] = null;
+      }
+    }
+
+    // The partner may change language after a solution or while answering an article's
+    // question, stages that bypass intake. Persisting partnerLanguage on every agent stage
+    // lets this second gate stop the already-started Russian scenario before any generated
+    // advice or close action reaches Pyrus.
+    const currentRuntime = state.runtime || {};
+    const currentLanguage = String(data.partnerLanguage || "").toLowerCase();
+    const currentDomain = businessDomainOf(data.unitFullName);
+    const restrictedNow = currentRuntime.languageGuard === "non_ru" ||
+      (!!currentLanguage && currentLanguage !== "ru") ||
+      (!!currentDomain && !/\.ru$/.test(currentDomain));
+    if (restrictedNow && String(stage || "") === "routing") {
+      parsed.route = "escalate";
+      delete parsed.topicKey;
+      delete parsed.componentName;
+    }
+    if (restrictedNow && String(stage || "") === "solver") {
+      parsed.replyText = "";
+      parsed.kind = "handover";
+      parsed.treeEnd = "escalate";
+      data.treeEnd = "escalate";
+      patch["data.treeEnd"] = "escalate";
+      data.handoverReason = "язык или домен юнита вышел за границу российского MVP во время сценария";
+      patch["data.handoverReason"] = data.handoverReason;
+    }
+    if (restrictedNow && String(stage || "") === "confirmation") {
+      // The existing graph returns `more_questions` to intake. Unlike a genuine new
+      // question, this value is assigned after `moreQuestions` was computed above, so the
+      // current problem facts are preserved for the handover.
+      parsed.status = "more_questions";
+      parsed.languageBoundary = true;
+    }
+
     // What the partner answered to the questions of a branching article. The names of
     // the fields come from the article and the values from the model, written one path
     // at a time: a whole-subtree write would undo the answers a concurrent turn had
@@ -534,9 +615,15 @@ if (taskId) {
       const allowed = answerKeysOfTopic(data.topicKey || parsed.topicKey);
       const stored = Object.assign({}, data.treeAnswers);
       const refused = [];
+      const currentCommentId = state.runtime && state.runtime.incomingCommentId != null
+        ? String(state.runtime.incomingCommentId) : null;
+      const suppressed = data.suppressAnswerCommentId != null &&
+        String(data.suppressAnswerCommentId) === currentCommentId
+        ? String(data.suppressAnswerKeys || "").split(",").filter(Boolean) : [];
       Object.keys(parsed.answers).forEach(k => {
         const value = parsed.answers[k];
         if (allowed.indexOf(k) < 0) { refused.push(k); return; }
+        if (suppressed.indexOf(k) >= 0) { refused.push(k); return; }
         // Objects and arrays are not answers to a question, and an array would break the
         // point write outright. Only what a partner can actually say is kept.
         if (value === null || value === undefined || value === "") return;
@@ -547,6 +634,12 @@ if (taskId) {
       data.treeAnswers = stored;
       if (refused.length) {
         Log.warn({ message: "parseAgentJson: answers " + refused.join(", ") + " are not declared by article " + (data.topicKey || parsed.topicKey) + ", not persisting" });
+      }
+      if (suppressed.length) {
+        delete data.suppressAnswerKeys;
+        delete data.suppressAnswerCommentId;
+        patch["data.suppressAnswerKeys"] = null;
+        patch["data.suppressAnswerCommentId"] = null;
       }
     }
 
@@ -576,6 +669,17 @@ if (taskId) {
         Log.error({ message: "parseAgentJson: blocked an ungrounded solver reply on task " + taskId +
           " (topic " + (data.topicKey || "?") + ", comment " + (currentCommentId || "?") + ")" });
       }
+    } else if (String(stage || "") === "solver" && data.solutionAuthorization &&
+        data.solutionAuthorization.source === "approved-external-knowledge") {
+      // Reading an approved article authorises a solution, but the model may correctly
+      // decide that its text does not answer this concrete question and ask the policy's
+      // fallback question instead. In that case the source notice and «помогло ли?» belong
+      // to an answer that was never sent. Revoke them before applyOutcome renders the
+      // collection question; the next partner comment could not reuse the permit anyway.
+      ["solutionAuthorization", "requiredKnowledgeNotice", "requiredFollowUpQuestion"].forEach(k => {
+        delete data[k];
+        patch["data." + k] = null;
+      });
     }
 
     // Where the tree ended, if it did. Written by searchKnowledge earlier in this same
@@ -608,7 +712,10 @@ if (taskId) {
       // not reset either, so the new article started with the score of the old one.
       if (parsed.topicKey && known.topicKey && parsed.topicKey !== known.topicKey) {
         ["treeNode", "treeAnswers", "treeEnd", "treeNext", "treeAskedNode",
-         "treeHandoverAsked", "offeredStep", "solutionAuthorization", "openAnswerPrompts", "operatorAdvice"].forEach(k => {
+         "treeHandoverAsked", "offeredStep", "solutionAuthorization", "requiredKnowledgeNotice",
+         "requiredFollowUpQuestion",
+         "knowledgeSourceIds", "openAnswerPrompts", "operatorAdvice", "suppressAnswerKeys",
+         "suppressAnswerCommentId"].forEach(k => {
           delete data[k];
           patch["data." + k] = null;
         });
@@ -630,7 +737,8 @@ if (taskId) {
        // The tree has to start from its root for the new question, and the answers to
        // the old one must not end up in the subtask of the new one.
        "treeNode", "treeAnswers", "treeEnd", "treeHandoverAsked", "treeNext",
-       "treeAskedNode", "openAnswerPrompts", "operatorAdvice"].forEach(k => {
+       "treeAskedNode", "requiredKnowledgeNotice", "requiredFollowUpQuestion", "knowledgeSourceIds",
+       "openAnswerPrompts", "operatorAdvice", "suppressAnswerKeys", "suppressAnswerCommentId"].forEach(k => {
         delete data[k];
         patch["data." + k] = null;
       });
@@ -691,6 +799,13 @@ if (taskId) {
     // and the streak counter must not carry a stale score into it either.
     if (moreQuestions) {
       patch["subtaskId"] = null;
+      patch["subtaskRequestKey"] = String(taskId) + ":" + String(
+        state.runtime && state.runtime.incomingCommentId != null
+          ? state.runtime.incomingCommentId : Date.now()
+      );
+      patch["subtaskClaim"] = null;
+      patch["subtaskClaimAt"] = null;
+      patch["subtaskIntegrity"] = null;
       patch["clarifyStreak"] = 0;
       patch["clarifyQuestions"] = 0;
       patch["clarifyProgressKey"] = null;
@@ -746,6 +861,7 @@ if (taskId) {
       "Уточнённые данные по обращению:",
       "- Юнит: " + (data.unitFullName || "не определён"),
       "- Проблема: " + (data.problemSummary || "не описана"),
+      "- Язык: " + (data.partnerLanguage || "пока предполагается русский"),
       "- Email: " + (data.email || "не указан"),
       "- Тематика: " + (data.topicKey || "не определена"),
       "- Уже собрано по тематике: " + (collected || "ничего")

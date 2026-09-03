@@ -131,6 +131,8 @@ const SUMMARY = {
     "Бот передаёт обращение оператору.",
     "",
     "Юнит: {unit}",
+    "Язык: {language}",
+    "Домен юнита: {unitDomain}",
     "Email: {email}",
     "Тематика: {topic}",
     "Суть: {problem}",
@@ -172,6 +174,8 @@ function summaryFields(o) {
     // говорит, что спросить его не удалось, а «тематика не определена» отличает «статья
     // велела передать» от «статьи никто не написал».
     unit: data.unitFullName || "не определён",
+    language: data.partnerLanguage || "русский (рабочее предположение)",
+    unitDomain: businessDomainOf(data.unitFullName) || "не определён (рабочее предположение РФ)",
     email: data.email || "не указан",
     topic: data.topicKey
       ? data.topicKey + (o.description ? " — " + short(o.description) : "") + (o.topicNote || "")
@@ -188,6 +192,11 @@ function summaryFields(o) {
     component: data.componentName || "не определён",
     parent: o.parent || "—"
   };
+}
+
+function businessDomainOf(unitFullName) {
+  const match = /^\s*\[([^\]]+)\]/.exec(String(unitFullName || ""));
+  return match ? String(match[1]).trim().toLowerCase() : null;
 }
 
 function render(tpl, fields) {
@@ -348,6 +357,23 @@ try {
 
 const data = state.data || {};
 const runtime = state.runtime || {};
+const partnerLanguage = String(data.partnerLanguage || "").toLowerCase();
+const unitDomain = businessDomainOf(data.unitFullName);
+const nonRussian = runtime.languageGuard === "non_ru" ||
+  (!!partnerLanguage && partnerLanguage !== "ru");
+const foreignUnit = !!unitDomain && !/\.ru$/.test(unitDomain);
+const mvpAutomationBlocked = nonRussian || foreignUnit;
+
+// A localised question has to come from the language model. If a non-Russian intake turn
+// contains no such text, waiting in a clarification stage would strand the dialog: the
+// only available fallback strings are Russian. Fail closed with a silent operator handover.
+const modelPartnerText = replyText || prev.clarifyingQuestion || prev.replyText || null;
+if (nonRussian && ["clarify", "clarify_email", "clarify_answers"].indexOf(effectiveOutcome) >= 0 && !modelPartnerText) {
+  effectiveOutcome = "handover_silent";
+  spec = OUTCOMES.handover_silent;
+  data.handoverReason = "не удалось безопасно сформировать локализованный вопрос; тихая передача оператору";
+  Log.warn({ message: "applyOutcome: no localised clarification for non-Russian task " + taskId + ", handing over silently" });
+}
 
 // ── Closing is the most destructive outcome, so it has stronger prerequisites ──
 // `action: finished` used to be sent even when buildFieldUpdates() later returned null.
@@ -357,6 +383,7 @@ const runtime = state.runtime || {};
 // hand it to an operator, who can fill what the bot could not determine.
 const closeMissing = [];
 if (spec.action === "finished") {
+  if (mvpAutomationBlocked) closeMissing.push(nonRussian ? "русскоязычный маршрут" : "юнит РФ");
   if (!data.unitFullName) closeMissing.push("юнит");
   if (!data.componentName) closeMissing.push("компонент");
   if (!runtime.unitFieldId) closeMissing.push("поле Pyrus «Юнит»");
@@ -478,6 +505,13 @@ let text = spec.silent ? null : (closeBlocked
   ? blockedCloseReply
   : (replyText || prev.clarifyingQuestion || prev.replyText || spec.defaultReply));
 
+// Attachment and explicit-human-request branches bypass every model, so their fixed
+// Russian strings cannot be localised reliably. Silence is safe on every language and the
+// operator still receives the internal summary. On ordinary non-Russian escalation, keep
+// a localised model message when present; otherwise suppress the Russian default.
+const directSilentStage = prev.stage === "attachment" || prev.stage === "handover_request";
+if (directSilentStage || (nonRussian && !modelPartnerText)) text = null;
+
 // Shadow advice is never a partner reply, even if the model ignores `turnKind: handover`
 // and puts something into replyText. The instruction itself never appears in the tool
 // result, and this second guard makes the delivery boundary deterministic too.
@@ -527,7 +561,7 @@ if (isClarify && !loopBroken) {
   // The solver also clarifies, but about the problem itself, and its wording is the
   // only thing that can carry the article's question — leave it alone.
   const fromIntake = String(prev.agentStage || "") === "intake" || kind.indexOf("need_") === 0;
-  if (fromIntake) {
+  if (fromIntake && !nonRussian) {
     const parts = [];
     if (!data.unitFullName) parts.push(UNIT_QUESTION[kind] || UNIT_QUESTION_DEFAULT);
     if (!data.problemSummary) parts.push(PROBLEM_QUESTION);
@@ -548,7 +582,7 @@ if (loopBroken) text = spec.defaultReply;
 const GREETED = /^\s*(добрый|доброе|доброго|здравствуй|приветствую|привет)/i;
 if (!text) {
   // Nothing to say: leave it that way.
-} else if (runtime.isFirstBotReply === true) {
+} else if (runtime.isFirstBotReply === true && !nonRussian) {
   if (!GREETED.test(String(text))) text = "Добрый день! " + text;
 } else if (runtime.isFirstBotReply === false) {
   const stripped = String(text).replace(/^\s*(добрый день|добрый вечер|доброе утро|доброго дня|здравствуйте|здравствуй|приветствую|привет)[\s!,.—–-]*/i, "");
@@ -563,7 +597,13 @@ if (!text) {
 // the state still moved to awaiting_confirmation. Persisting the question in
 // searchKnowledge and enforcing it here keeps the dialog contract independent of whether
 // the model remembered to copy a field from the tool result.
-if (effectiveOutcome === "reply" && data.requiredFollowUpQuestion && text) {
+if (effectiveOutcome === "reply" && data.requiredKnowledgeNotice && text && !mvpAutomationBlocked) {
+  const notice = String(data.requiredKnowledgeNotice).trim();
+  if (notice && String(text).indexOf(notice) < 0) {
+    text = String(text).trim() + "\n\n" + notice;
+  }
+}
+if (effectiveOutcome === "reply" && data.requiredFollowUpQuestion && text && !mvpAutomationBlocked) {
   const question = String(data.requiredFollowUpQuestion).trim();
   const normalize = value => String(value || "")
     .toLowerCase()

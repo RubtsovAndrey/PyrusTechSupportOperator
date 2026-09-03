@@ -8,4 +8,4 @@ next-step: func_subtask_done
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).success === true"
-  false-step: cond_subtask_needs_email
+  false-step: cond_subtask_deferred

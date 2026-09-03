@@ -56,6 +56,14 @@ async function findByKey(key) {
     if (parsed.forBot && !found && new RegExp('"key"\\s*:\\s*"' + key + '"').test(article.content || '')) {
       return article;
     }
+    // One MVP policy was reviewed in the earlier `agent-policy/*` draft format. That
+    // format was never executable and therefore is not recognised by parseArticle, but
+    // publishing the accepted agent-topic must update that same draft rather than leave a
+    // second article with the same business key beside it. Topic keys are already limited
+    // to safe ASCII by loadTopic, so they can be used in this exact migration expression.
+    const legacyPolicy = /"schema"\s*:\s*"agent-policy\//.test(article.content || '') &&
+      new RegExp('"key"\\s*:\\s*"' + key + '"').test(article.content || '');
+    if (legacyPolicy) return article;
   }
   return null;
 }

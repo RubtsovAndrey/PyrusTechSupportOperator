@@ -37,7 +37,6 @@ const CONFIG = (function () {
 const BOT_AUTHOR_IDS = (Array.isArray(CONFIG.botAuthorIds) && CONFIG.botAuthorIds.length
   ? CONFIG.botAuthorIds
   : [CONFIG.botAuthorId || 1314929]).map(Number).filter(Boolean);
-const BOT_AUTHOR_ID = BOT_AUTHOR_IDS[0];
 
 // ── Which forms the bot works in, and as what ──
 // Until now there was no notion of a form at all: `runtime.formId` was written and never
@@ -47,27 +46,18 @@ const BOT_AUTHOR_ID = BOT_AUTHOR_IDS[0];
 // (`config.subtaskFormId`) — so the bot would start receiving events for the escalations it
 // had just handed to the first line, and answer a colleague as if he were the partner.
 //
-// Roles:
-//   chat   — the form the bot works today: a partner conversation from the first message.
-//   ticket — a task on the subtask/ticket form. Reached only through the gate below: the
-//            bot must be the current approver AND there must be somewhere to reply.
-//
-// `config.forms` is a map of form id to `{ role, knowledgeExecution }`. While it is ABSENT every form counts as
-// a chat, which is exactly today's behaviour — a default of silence here would have taken
-// the live bot down the moment this was deployed without the document. Once the map exists
-// it becomes a whitelist, and an unlisted form is left alone. That is what makes turning the
-// webhook on for a new form a switch rather than an all-or-nothing bet.
-const FORM_ROLES = (CONFIG.forms && typeof CONFIG.forms === "object") ? CONFIG.forms : null;
-
-// Поле, заполненность которого означает «заявка пришла из колл-центра»: партнёра в такой
-// задаче нет, переписка только внутренняя. Признак с самой формы, а не догадка о воркфлоу.
-// Переопределяется через `config.kcFieldNames`.
-const KC_FIELD_NAMES = (Array.isArray(CONFIG.kcFieldNames) && CONFIG.kcFieldNames.length)
-  ? CONFIG.kcFieldNames.map(String)
-  : ["Id задачи из КЦ"];
+// MVP works in one chat form only. `config.forms` may narrow or explicitly configure the
+// same permission, but an absent config must not turn an accidentally connected webhook
+// into permission to answer every Pyrus form. Form 1096731 is a CREATE target for subtasks,
+// never an inbound work queue.
+const DEFAULT_FORM_ROLES = {
+  "1165239": { role: "chat", knowledgeExecution: "handover_only" }
+};
+const FORM_ROLES = (CONFIG.forms && typeof CONFIG.forms === "object")
+  ? CONFIG.forms
+  : DEFAULT_FORM_ROLES;
 
 function roleOfForm(formId) {
-  if (!FORM_ROLES) return "chat";
   const entry = FORM_ROLES[String(formId || "")];
   const role = entry && entry.role ? String(entry.role) : null;
   return (role === "chat" || role === "ticket") ? role : null;
@@ -78,7 +68,6 @@ function roleOfForm(formId) {
 // silently enable every article accepted only for the test form. Missing or unknown values
 // fail closed. Articles may still collect facts and prepare an operator-only answer.
 function knowledgeExecutionOfForm(formId) {
-  if (!FORM_ROLES) return "handover_only";
   const entry = FORM_ROLES[String(formId || "")];
   return entry && entry.knowledgeExecution === "partner_answer"
     ? "partner_answer"
@@ -258,90 +247,9 @@ const role = roleOfForm(formId);
 if (!role) {
   return result(taskId, null, true, "form " + formId + " is not one the bot works in");
 }
-
-// ── Чей это этап ──
-// Идея была в том, что мандат даёт сам воркфлоу: бот работает там, где он текущий
-// утверждающий. На проде это верно — первым этапом подзадачи владеет «бот Approver» /
-// «[support] Первая линия», и именно поэтому попытка закрыть свежесозданную подзадачу
-// отвечала 400. Но на тестовой копии формы 2454249 бот стоит на первом этапе у ЛЮБОЙ задачи,
-// включая созданную оператором вручную, — признак там не разграничивает ничего.
-// Поэтому он больше не блокирует виток по умолчанию: он печатается в лог (полезно и на проде,
-// и при разборе), а требовать его можно формой — `config.forms.<id>.requireApprover: true`.
-function approvalEntries() {
-  const raw = task.approvals;
-  if (!Array.isArray(raw)) return null;
-  const out = [];
-  raw.forEach((group, i) => {
-    // Pyrus nests approvals one array per step; a flat array is accepted too, in which case
-    // the `step` of each entry is the only thing that can place it.
-    const list = Array.isArray(group) ? group : [group];
-    list.forEach(a => {
-      if (!a || typeof a !== "object") return;
-      out.push({ person: a.person || a.approver || null, step: Number(a.step || i + 1), choice: String(a.approval_choice || a.approvalChoice || "") });
-    });
-  });
-  return out.length ? out : null;
-}
-
-// Returns true / false / null, and null means «the payload does not say».
-function botIsCurrentApprover() {
-  const entries = approvalEntries();
-  if (!entries) return null;
-  const step = Number(task.current_step || task.currentStep || 0) || 1;
-  const atStep = entries.filter(a => a.step === step);
-  if (!atStep.length) return null;
-  return atStep.some(a => a.person && isBot(a.person) && a.choice !== "approved" && a.choice !== "rejected");
-}
-
 if (role === "ticket") {
-  // One line that answers, from the first real ticket, everything the code cannot know:
-  // whether the workflow reaches us at all and under which names. Ids only, no names or
-  // addresses of colleagues.
-  const entries = approvalEntries();
-  Log.info({
-    message: "receiveWebhook: ticket " + taskId + " on form " + formId +
-      " | task keys: " + Object.keys(task).join(",") +
-      " | current_step: " + JSON.stringify(task.current_step === undefined ? null : task.current_step) +
-      " | approvals: " + (entries
-        ? entries.map(a => "step" + a.step + ":" + ((a.person && a.person.id) || "?") + ":" + (a.choice || "-")).join(" ")
-        : JSON.stringify(task.approvals === undefined ? "absent" : typeof task.approvals)) +
-      " | bot id: " + BOT_AUTHOR_ID
-  });
-
-  const mine = botIsCurrentApprover();
-  // Требуется только если форма об этом просит: на тестовой копии бот стоит на первом этапе
-  // у любой задачи, и жёсткая проверка не пропустила бы ни один тест.
-  if ((FORM_ROLES && FORM_ROLES[formId] && FORM_ROLES[formId].requireApprover) && mine !== true) {
-    return result(taskId, null, true, mine === null
-      ? "ticket " + taskId + ": the payload does not say who the current approver is, staying out"
-      : "ticket " + taskId + ": the current step belongs to someone else");
-  }
-
-  // ── Тикет колл-центра ──
-  // Заполненное «Id задачи из КЦ» — это заявка, пришедшая из колл-центра: партнёра в задаче
-  // нет, переписка только внутренняя, отвечать некому. Признак с самой формы, а не догадка о
-  // воркфлоу, и его невозможно спутать.
-  const kcField = allFields.find(f => KC_FIELD_NAMES.indexOf(String(f.name || "").trim()) >= 0);
-  const kcValue = kcField ? kcField.value : undefined;
-  if (kcValue !== undefined && kcValue !== null && String(kcValue).trim() !== "") {
-    return result(taskId, null, true, "ticket " + taskId + ": заявка из колл-центра (" + kcField.name + " = " + kcValue + ")");
-  }
-
-  // ── Задача, которую создал сам бот ──
-  // Подзадачу-эскалацию бот создаёт на этой же форме. Если в ней включена почтовая переписка,
-  // ответ партнёра придёт с входящим каналом — и без этой проверки бот принялся бы вести
-  // обращение, которое сам же передал первой линии. Автор задачи это решает наверняка.
-  if (isBot(task.author)) {
-    return result(taskId, null, true, "ticket " + taskId + ": задачу создал сам бот, её ведёт первая линия");
-  }
-  // The second condition, and the one that keeps the call-center tickets out: their tasks
-  // have no channel at all — colleagues and the bot share one internal correspondence — so
-  // there is no partner to answer and nothing this bot can usefully do. It also protects
-  // against the failure finalize used to have: with no channel a reply goes to the internal
-  // correspondence, Pyrus accepts it, and the partner hears nothing.
-  if (!comments.some(c => c.channel && c.channel.direction === "inbound")) {
-    return result(taskId, null, true, "ticket " + taskId + ": no inbound channel, there is nobody to reply to");
-  }
+  return result(taskId, null, true,
+    "form " + formId + " is a subtask/ticket form; MVP processes chats only");
 }
 
 // Pyrus records a change of the base status on the comment that caused it: the
@@ -436,48 +344,37 @@ const partnerName = lastInbound
   ? (personName(lastInbound.channel && lastInbound.channel.from) || personName(lastInbound.author))
   : null;
 
-// ── На каком языке пришло обращение ──
-// Раньше «не на русском» стояло в промпте intake рядом с агрессией, то есть язык считался
-// неисправностью. Теперь агентам велено отвечать на языке партнёра, и обращение идёт
-// обычным путём. Признак остаётся по двум причинам, и обе — про будущее: во-первых, по
-// нему видно, сколько таких обращений вообще бывает, и стоит ли переводить фразы, которые
-// собирает КОД (уточняющий вопрос, приветствие, отбивки) — они по-прежнему только русские,
-// так что сейчас разговор на другом языке получается наполовину русским; во-вторых,
-// именно он будет выбирать язык этих фраз, когда переводы появятся.
-//
-// Различается письменность, а не язык: отличить украинский от русского или немецкий от
-// английского кодом нельзя, а это и не нужно — язык понимает модель, читая само сообщение.
-// Короткие сообщения не размечаются вовсе: «E-103» или «ок» не говорят ни о чём, а ошибка
-// здесь означала бы неверно выбранный язык ответа.
+// ── Языковой предохранитель ──
+// Точный ISO-код определяет intake-модель. Код независимо узнаёт сигналы, которые нельзя
+// безопасно принять за русский: латиницу, арабскую письменность и характерные буквы ряда
+// соседних языков. Это не классификатор языка, а fail-closed граница: при таком сигнале
+// российские инструкции не исполняются, даже если модель забудет вернуть код языка.
+function languageSampleOf(text) {
+  return String(text || "")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi, " ");
+}
 function scriptOf(text) {
-  const letters = String(text || "").match(/[a-zа-яё]/gi) || [];
+  const source = languageSampleOf(text);
+  if (/[\u0600-\u06ff]/.test(source)) return "other";
+  const letters = source.match(/[a-zа-яёіїєґўәғқңөұүһҳӣӯҷ]/gi) || [];
   if (letters.length < 8) return null;
-  const cyrillic = letters.filter(c => /[а-яё]/i.test(c)).length;
+  const cyrillic = letters.filter(c => /[а-яёіїєґўәғқңөұүһҳӣӯҷ]/i.test(c)).length;
   return cyrillic * 2 >= letters.length ? "cyrillic" : "latin";
 }
 const lang = scriptOf(incomingText);
-if (lang === "latin") {
-  Log.info({ message: "receiveWebhook: task " + taskId + " — обращение написано латиницей; фразы, которые собирает код, останутся русскими" });
+const distinctiveNonRussian = /[іїєґўәғқңөұүһҳӣӯҷ]/i.test(languageSampleOf(incomingText));
+const languageGuard = (lang === "latin" || lang === "other" || distinctiveNonRussian)
+  ? "non_ru"
+  : "possibly_ru";
+if (languageGuard === "non_ru") {
+  Log.info({ message: "receiveWebhook: task " + taskId + " — обнаружен нерусский языковой сигнал; российский self-service будет заблокирован" });
 }
 
 const unitField = allFields.find(f => f.name === "Юнит");
 const componentField = allFields.find(f => f.name === "Компонент");
 const unitFieldId = unitField ? Number(unitField.id) : null;
 const componentFieldId = componentField ? Number(componentField.id) : null;
-
-// The fields are found by NAME, which is what makes the same code work on a form whose ids
-// differ. The cost is that a renamed field resolves to nothing and the Pyrus field is then
-// left empty — silently, because applyOutcome and finalize simply skip an id they do not
-// have. On a form the bot has not worked before that silence is the last thing anyone would
-// think to check, so on tickets it is said out loud once per turn.
-if (role === "ticket" && (!unitFieldId || !componentFieldId)) {
-  Log.warn({
-    message: "receiveWebhook: ticket " + taskId + " on form " + formId +
-      " — «Юнит» " + (unitFieldId ? "= " + unitFieldId : "НЕ НАЙДЕН") +
-      ", «Компонент» " + (componentFieldId ? "= " + componentFieldId : "НЕ НАЙДЕН") +
-      ". Поля формы: " + allFields.map(f => (f.name || "?") + ":" + (f.id || "?")).join(", ")
-  });
-}
 
 // ── Per-task state: the single source of truth, keyed by taskId ──
 const now = Date.now();
@@ -661,14 +558,12 @@ if (incomingText && asksForHuman(incomingText) && stage !== "escalated" && stage
   Log.info({ message: "receiveWebhook: task " + taskId + " — партнёр просит человека, обращение уходит оператору со стадии " + (storedStage || "начало диалога") });
 }
 
-// A message the bot cannot read at all goes to a human immediately: guessing what is
-// on a screenshot from an empty text is exactly the improvisation this bot must not do.
-// True on every working stage — a screenshot answering "Получилось?" is just as
-// unreadable as one opening the dialog. The two stages that already belong to a human
-// (escalated, reopened) are left alone.
-if (!incomingText && attachmentCount && stage !== "escalated" && stage !== "reopened") {
+// MVP does not analyse attachments. A caption may be retained in the internal history,
+// but must not turn an unreadable screenshot into permission to diagnose the case.
+if (attachmentCount && stage !== "escalated" && stage !== "reopened") {
   stage = "attachment";
-  Log.info({ message: "receiveWebhook: " + attachmentCount + " attachment(s) and no text on task " + taskId + ", handing over" });
+  handoverReason = "партнёр прислал вложение; MVP не анализирует вложения";
+  Log.info({ message: "receiveWebhook: " + attachmentCount + " attachment(s) on task " + taskId + ", handing over without analysing them" });
 }
 
 // An address is recognisable without a model, and the one stage that waits for it must
@@ -716,7 +611,10 @@ const runtimeValue = {
   // Письменность последнего сообщения партнёра, `null` — если сообщение слишком короткое,
   // чтобы о ней судить. Прежнее значение при этом сохраняется: разговор не меняет язык
   // оттого, что партнёр ответил «ок».
-  lang: lang || (stored.runtime && stored.runtime.lang) || null
+  lang: lang || (stored.runtime && stored.runtime.lang) || null,
+  languageGuard: languageGuard === "non_ru"
+    ? "non_ru"
+    : (lang ? "possibly_ru" : ((stored.runtime && stored.runtime.languageGuard) || "possibly_ru"))
 };
 
 // Request-scoped Pyrus data lives in the task document, not in the session, so
@@ -760,6 +658,13 @@ if (newRequest || !documentExists) {
   patch["clarifyQuestions"] = 0;
   patch["clarifyProgressKey"] = null;
   patch["subtaskId"] = null;
+  // One stable idempotency scope per problem. It is copied into the subtask's mandatory
+  // «Сообщение» field, so an accepted request can be recovered through Pyrus' native
+  // linked_task_ids even when the POST /tasks response was lost.
+  patch["subtaskRequestKey"] = String(taskId) + ":" + String(incomingCommentId || now);
+  patch["subtaskClaim"] = null;
+  patch["subtaskClaimAt"] = null;
+  patch["subtaskIntegrity"] = null;
 } else {
   // Почему обращение уходит человеку — словами того, кто это решил. Обнуляется здесь по
   // той же причине, что и `pendingOutcome`: причина, записанная об одной передаче, не
@@ -789,6 +694,7 @@ const lines = [
   "Известные данные по обращению:",
   "- Юнит: " + (data.unitFullName || "не определён"),
   "- Проблема: " + (data.problemSummary || "не описана"),
+  "- Язык: " + (data.partnerLanguage || "пока предполагается русский"),
   "- Email: " + (data.email || "не указан"),
   "- Тематика: " + (data.topicKey || "не определена"),
   "- Уже предложено решений: " + attemptsMade,
@@ -835,10 +741,11 @@ AgentContext.putValue({
     componentName: data.componentName || null,
     problemSummary: data.problemSummary || null,
     email: data.email || null,
-    topicKey: data.topicKey || null
+    topicKey: data.topicKey || null,
+    partnerLanguage: data.partnerLanguage || null
   }
 });
 
 if (stage === "escalated") return result(taskId, stage, true, "operator already handles this task");
 
-return result(taskId, stage, false, stage === "attachment" ? "партнёр прислал вложение без текста" : null);
+return result(taskId, stage, false, stage === "attachment" ? "партнёр прислал вложение" : null);

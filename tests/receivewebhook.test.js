@@ -17,7 +17,7 @@ function payload(comments, overrides) {
     event: "comment",
     access_token: "t",
     api_url: "https://api.pyrus.com/v4/",
-    task: { id: 11613, form_id: 77, fields: [], comments: comments }
+    task: { id: 11613, form_id: 1165239, fields: [], comments: comments }
   }, overrides || {});
 }
 
@@ -108,8 +108,8 @@ async function main() {
   // `runtime.formId` was written and never read, so every webhook was a chat. Safe with the
   // webhook on one form; not safe the moment it is registered on the ticket form, because
   // that is also the form the bot creates its own subtasks on.
-  const CHAT_FORM = 77;
-  const TICKET_FORM = 2454249;
+  const CHAT_FORM = 1165239;
+  const TICKET_FORM = 1096731;
   const BOT_APPROVER = { current_step: 1, approvals: [[{ person: BOT, step: 1, approval_choice: "waiting" }]] };
   const FIRST_LINE_APPROVER = { current_step: 1, approvals: [[{ person: OPERATOR, step: 1, approval_choice: "waiting" }]] };
 
@@ -129,14 +129,18 @@ async function main() {
     return { result: await receiveWebhook(env), state: env.db[KEY], notes: env.notes };
   }
 
-  // Absent `config.forms` must mean «behave exactly as before»: a default of silence here
-  // would have taken the live bot down on the deploy that introduced this.
+  // An absent config still permits only the production chat form, in handover-only mode.
   r = await run([{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }], {});
-  t.check("with no forms configured every form is still a chat",
+  t.check("with no forms configured the production chat is accepted",
     r.result.skip === false && r.result.stage === "intake", r.result);
   t.check("and the role is recorded for the rest of the graph", r.state.runtime.role === "chat", r.state.runtime);
   t.check("without an explicit form permission managed answers fail closed",
     r.state.runtime.knowledgeExecution === "handover_only", r.state.runtime);
+
+  r = await run([{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }], {},
+    { task: { id: 11613, form_id: 77, fields: [], comments: [{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }] } });
+  t.check("with no forms configured an arbitrary form is rejected",
+    r.result.skip === true && /not one/.test(r.result.reason), r.result);
 
   r = await run([{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }], {
     config: { forms: { [CHAT_FORM]: {
@@ -158,71 +162,20 @@ async function main() {
   t.check("a form absent from the whitelist is left alone",
     k.result.skip === true && /not one the bot works in/.test(k.result.reason), k.result);
 
-  // ── The gate: is it the bot's turn? ──
+  // Tickets are out of MVP scope regardless of author, approver, channel or field values.
   k = await ticket([{ id: 62, author: PARTNER, text: "не приходят отчёты", channel: CHAN }], BOT_APPROVER);
-  t.check("an email ticket where the bot is the current approver is worked",
-    k.result.skip === false && k.result.stage === "intake", k.result);
-  t.check("and it is recorded as a ticket, not a chat", k.state.runtime.role === "ticket", k.state.runtime);
+  t.check("an incoming ticket is ignored even when the bot is the current approver",
+    k.result.skip === true && /MVP processes chats only/.test(k.result.reason), k.result);
 
-  // The case that would have hurt most: the subtask the bot itself created a minute ago. The
-  // first line owns step 1 there — which is also why posting action:"finished" on a fresh
-  // subtask always answered 400. Permission and mandate are the same fact.
-  // ── The step is only required where the form says so ──
-  // The idea was that the workflow grants the mandate, and on production it does: step 1 of a
-  // subtask belongs to «бот Approver» / «[support] Первая линия», which is also why finishing
-  // a freshly created subtask always answered 400. But on the test copy of the form the bot
-  // sits on step 1 of EVERY task, including one an operator made by hand — there the signal
-  // separates nothing. So by default it is logged, not enforced.
   const STRICT = { [CHAT_FORM]: { role: "chat" }, [TICKET_FORM]: { role: "ticket", requireApprover: true } };
-
   k = await ticket([{ id: 63, author: PARTNER, text: "есть новости?", channel: CHAN }], FIRST_LINE_APPROVER, STRICT);
-  t.check("with requireApprover a step that belongs to the first line is left alone",
-    k.result.skip === true && /belongs to someone else/.test(k.result.reason), k.result);
+  t.check("ticket approval metadata cannot opt the form back into processing",
+    k.result.skip === true && /MVP processes chats only/.test(k.result.reason), k.result);
 
-  // «Cannot tell» must mean silence, not «probably mine» — again, only where required.
-  k = await ticket([{ id: 64, author: PARTNER, text: "вопрос", channel: CHAN }], { current_step: 1, approvals: "?" }, STRICT);
-  t.check("with requireApprover a payload that does not say who approves keeps the bot out",
-    k.result.skip === true && /does not say/.test(k.result.reason), k.result);
-
-  // Without it the same ticket is worked, which is what makes the test form usable at all.
-  k = await ticket([{ id: 64, author: PARTNER, text: "вопрос", channel: CHAN }], FIRST_LINE_APPROVER);
-  t.check("without requireApprover the step does not block the turn",
-    k.result.skip === false && k.result.stage === "intake", k.result);
-
-  // ── A call-center ticket is named by the form itself ──
-  // «Id задачи из КЦ» filled means the request came from the call center: there is no partner
-  // in the task, the correspondence is internal only. A field, not a guess about a workflow.
-  k = await ticket([{ id: 66, author: PARTNER, text: "заявка", channel: CHAN }],
-    Object.assign({}, BOT_APPROVER, {
-      fields: [{ id: 4, type: "title", name: "Системные поля", value: { fields: [{ id: 9, type: "number", name: "Id задачи из КЦ", value: 778899 }] } }]
-    }));
-  t.check("a filled «Id задачи из КЦ» keeps the bot out",
-    k.result.skip === true && /колл-центра/.test(k.result.reason), k.result);
-
-  // The same field present but empty is an ordinary ticket.
-  k = await ticket([{ id: 67, author: PARTNER, text: "заявка", channel: CHAN }],
-    Object.assign({}, BOT_APPROVER, {
-      fields: [{ id: 4, type: "title", name: "Системные поля", value: { fields: [{ id: 9, type: "number", name: "Id задачи из КЦ" }] } }]
-    }));
-  t.check("an empty «Id задачи из КЦ» does not keep the bot out",
-    k.result.skip === false && k.result.stage === "intake", k.result);
-
-  // ── The subtask the bot created itself ──
-  // It is created on this very form. If email correspondence is enabled on it, the partner's
-  // reply arrives with an inbound channel — and without this check the bot would take over a
-  // request it had handed to the first line a minute earlier. The task author settles it.
   k = await ticket([{ id: 68, author: PARTNER, text: "а что с моим обращением?", channel: CHAN }],
     Object.assign({}, BOT_APPROVER, { author: BOT }));
-  t.check("a task the bot itself created is left to the first line",
-    k.result.skip === true && /создал сам бот/.test(k.result.reason), k.result);
-
-  // Call-center tickets: no channel at all, colleagues and the bot share one internal
-  // correspondence. There is no partner to answer, so there is nothing to do. The opening
-  // message is exempt from the internal-comment guard — Pyrus reports the task body without a
-  // channel — so this is the check that has to catch such a ticket.
-  k = await ticket([{ id: 65, author: PARTNER, text: "заявка из колл-центра" }], BOT_APPROVER);
-  t.check("a ticket with no inbound channel is left alone",
-    k.result.skip === true && /nobody to reply to/.test(k.result.reason), k.result);
+  t.check("a bot-created subtask is ignored by the same unconditional gate",
+    k.result.skip === true && /MVP processes chats only/.test(k.result.reason), k.result);
 
   // ── Idempotency: one comment is answered once ──
   r = await run([{ id: 7, author: PARTNER, text: "Повтор", channel: CHAN }],
@@ -237,6 +190,9 @@ async function main() {
   r = await run([{ id: 1, author: PARTNER, text: "Не печатает чек", channel: CHAN }], {});
   t.check("fresh message enters intake", r.result.stage === "intake" && r.result.skip === false, r.result);
   t.check("incoming comment id is recorded for the debounce", r.state.runtime.incomingCommentId === "1", r.state.runtime);
+  t.check("a fresh problem gets an idempotency scope before any subtask path",
+    r.state.subtaskRequestKey === "11613:1" && r.state.subtaskClaim === null &&
+    r.state.subtaskIntegrity === null, r.state);
   t.check("outbound channel is derived from the partner's channel",
     r.state.runtime.outboundChannel && r.state.runtime.outboundChannel.direction === "outbound" &&
     r.state.runtime.outboundChannel.to === "p@x.ru", r.state.runtime.outboundChannel);
@@ -371,7 +327,7 @@ async function main() {
   t.check("channel-less opening message is not mistaken for an operator",
     r.notes.some(n => /^Партнёр: Здравствуйте/.test(n)), r.notes);
 
-  // ── Attachment with no text: the bot cannot read it, a human must ──
+  // ── Any attachment: MVP does not analyse it, with or without a caption ──
   r = await run([{ id: 3, author: PARTNER, text: "", attachments: [{ id: 1, name: "s.png" }], channel: CHAN }], {});
   t.check("attachment without text hands over", r.result.stage === "attachment" && r.result.skip === false, r.result);
   t.check("reason for the operator's summary is set", /вложение/.test(r.result.reason), r.result);
@@ -381,7 +337,28 @@ async function main() {
   t.check("attachment hands over on the confirmation stage too", r.result.stage === "attachment", r.result);
 
   r = await run([{ id: 4, author: PARTNER, text: "вот скриншот", attachments: [{ id: 1 }], channel: CHAN }], {});
-  t.check("attachment WITH text is handled normally", r.result.stage === "intake", r.result);
+  t.check("attachment WITH text also hands over without analysis", r.result.stage === "attachment", r.result);
+
+  // ── Code-level language safety signal ──
+  r = await run([{ id: 40, author: PARTNER, text: "The restaurant register cannot print a receipt", channel: CHAN }], {});
+  t.check("a meaningful Latin message blocks Russian automation",
+    r.state.runtime.languageGuard === "non_ru", r.state.runtime);
+
+  r = await run([{ id: 41, author: PARTNER, text: "Касса чекро намебандад, ҳоло кор намекунад", channel: CHAN }], {});
+  t.check("distinctive Tajik Cyrillic also blocks Russian automation",
+    r.state.runtime.languageGuard === "non_ru", r.state.runtime);
+
+  r = await run([{ id: 42, author: PARTNER, text: "ivanov@example.ru", channel: CHAN }], {
+    [KEY]: { taskId: 11613, runtime: { languageGuard: "possibly_ru" } }
+  });
+  t.check("an email address alone does not switch the conversation language",
+    r.state.runtime.languageGuard === "possibly_ru", r.state.runtime);
+
+  r = await run([{ id: 43, author: PARTNER, text: "Теперь продолжим по-русски, касса не печатает чек", channel: CHAN }], {
+    [KEY]: { taskId: 11613, runtime: { languageGuard: "non_ru" } }
+  });
+  t.check("a later meaningful Russian message clears an older script-only guard",
+    r.state.runtime.languageGuard === "possibly_ru", r.state.runtime);
 
   // ── A pasted log must not sit in the prompt for the next twenty turns ──
   // Notes are rebuilt from the thread on every webhook, so an unbounded comment was paid
@@ -508,6 +485,9 @@ async function main() {
     !r.state.data.problemSummary && !r.state.data.topicKey && !r.state.data.componentName &&
     !r.state.data.attempts && !r.state.data.preQuestionsAsked, r.state.data);
   t.check("subtaskId is cleared so a new subtask is possible", r.state.subtaskId === null, r.state.subtaskId);
+  t.check("reopen starts a fresh subtask idempotency scope",
+    r.state.subtaskRequestKey === "11613:13" && r.state.subtaskClaim === null &&
+    r.state.subtaskIntegrity === null, r.state);
   t.check("clarify streak is cleared", r.state.clarifyStreak === 0, r.state.clarifyStreak);
   t.check("stale pendingOutcome is cleared", r.state.pendingOutcome === null, r.state.pendingOutcome);
   t.check("the new request is greeted again", r.state.runtime.isFirstBotReply === true, r.state.runtime);

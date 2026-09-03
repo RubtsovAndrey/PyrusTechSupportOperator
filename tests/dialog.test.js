@@ -279,13 +279,9 @@ async function main() {
   t.check("«переведите сотрудника» — это статья, а не просьба человека",
     r.stage !== "escalated", r.stage);
 
-  // ── Чужой язык больше не повод передавать обращение ──
-  // Раньше «пишет не на русском» стояло в промпте intake рядом с агрессией и просьбой
-  // человека — то есть язык считался неисправностью. Он ею не является: модель отвечает
-  // на языке собеседника, и обращение должно идти обычным путём, а к человеку попадать
-  // по обычным причинам — если статьи нет или статья так велит.
-  // Правило жило в промпте, поэтому и проверяется в промпте: прогон с образцовым агентом
-  // о нём ничего сказать не может — тот эскалирует ровно тогда, когда так сказал сценарий.
+  // ── Языковая граница MVP ──
+  // Нерусский язык не является ошибкой, но российские self-service сценарии для него пока
+  // не разрешены. Агент собирает базовые сведения на языке партнёра и передаёт оператору.
   const prompts = {
     intake: fs.readFileSync(path.join(ROOT, "nodes/agents/agent_intake.yml"), "utf8"),
     solver: fs.readFileSync(path.join(ROOT, "nodes/agents/agent_solver.yml"), "utf8"),
@@ -295,18 +291,23 @@ async function main() {
   t.check("ни один агент не обязан говорить только по-русски",
     !Object.keys(prompts).some(k => /только на русском/i.test(prompts[k])),
     Object.keys(prompts).filter(k => /только на русском/i.test(prompts[k])));
-  t.check("и язык больше не назван поводом для эскалации",
-    !/не на русском языке/i.test(prompts.intake), null);
+  t.check("каждый агент возвращает контролируемый ISO-код языка",
+    Object.keys(prompts).every(k => /partnerLanguage/.test(prompts[k])),
+    Object.keys(prompts).filter(k => !/partnerLanguage/.test(prompts[k])));
   t.check("зато каждому велено отвечать на языке партнёра",
     Object.keys(prompts).every(k => /на языке (партнёра|собеседника)/i.test(prompts[k])),
     Object.keys(prompts).filter(k => !/на языке (партнёра|собеседника)/i.test(prompts[k])));
 
   bot = chat();
   r = await bot.turn("Hello! Tambov-1. The internet is down, nothing opens", { unit: "Тамбов-1" });
-  t.check("обращение на другом языке идёт обычным путём, до маршрутизации",
-    r.agents.indexOf("agent_routing") >= 0, r.agents);
+  t.check("обращение на другом языке после базового сбора идёт оператору, не в российскую маршрутизацию",
+    r.stage === "escalated" && r.agents.indexOf("agent_routing") < 0, { stage: r.stage, agents: r.agents });
   t.check("и письменность записана — по ней видно, сколько таких обращений",
     bot.state.runtime.lang === "latin", bot.state.runtime.lang);
+  t.check("точный язык сохраняется как факт диалога",
+    bot.data.partnerLanguage === "en", bot.data.partnerLanguage);
+  t.check("русский кодовый текст партнёру не отправлен",
+    r.replies.every(text => !/[А-Яа-яЁё]/.test(text)), r.replies);
 
   bot = chat();
   await bot.turn("Тамбов-1, касса не печатает чек", { unit: "Тамбов-1" });
@@ -353,7 +354,8 @@ async function main() {
   r = await bot.turn(null, { attachments: [{ id: 1, name: "screen.png" }] });
   t.check("вложение без текста: бот не угадывает картинку, а передаёт человеку",
     r.stage === "escalated" && r.agents.length === 0, r);
-  t.check("и партнёр получает отбивку", /вложение/i.test(r.replies.join(" ")), r.replies);
+  t.check("партнёру не отправляется потенциально неверная языковая отбивка",
+    r.replies.length === 0 && r.internal.length === 1, { replies: r.replies, internal: r.internal });
 
   // ── Самый дешёвый уровень статьи: просто проза ──
   // Статья без `steps` и без `nodes`, один текст, написанный как для человека. Разбирается

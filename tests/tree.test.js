@@ -228,6 +228,28 @@ async function main() {
   m = await f.find("хочу заказать доставку на день рождения");
   t.check("a query the catalog knows nothing about finds nothing", !m.found, m);
 
+  f = dialog({
+    data: {
+      unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)",
+      problemSummary: "касса не печатает чек", partnerLanguage: "en"
+    },
+    runtime: { languageGuard: "non_ru", unitFieldId: 97, componentFieldId: 36 }
+  });
+  m = await f.find("cash register does not print a receipt");
+  t.check("searchKnowledge cannot execute an approved scenario for a non-Russian request",
+    !m.found && m.source === "mvp-automation-boundary" && m.treeEnd === "escalate", m);
+
+  f = dialog({
+    data: {
+      unitFullName: "[dodopizza.kz] Алматы-Тест-1 (Тестовая улица, 1)",
+      problemSummary: "касса не печатает чек", partnerLanguage: "ru"
+    },
+    runtime: { languageGuard: "possibly_ru", unitFieldId: 97, componentFieldId: 36 }
+  });
+  m = await f.find("касса не печатает чек");
+  t.check("searchKnowledge cannot execute a Russian scenario for a foreign unit",
+    !m.found && m.source === "mvp-automation-boundary", m);
+
   // ── Тема 1, ветка с подзадачей: что менять -> на какое значение -> причина -> подзадача ──
   let d = dialog();
   d.state.data.topicKey = "profile_change";

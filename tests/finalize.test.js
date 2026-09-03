@@ -83,6 +83,45 @@ async function main() {
   t.check("answered comment is recorded for idempotency", r.state.lastProcessedCommentId === "42", r.state);
   t.check("botHasReplied is set so the greeting is not repeated", r.state.botHasReplied === true, r.state);
 
+  const subtaskOutcome = {
+    kind: "subtask_created",
+    replyText: "Обращение создано и передано специалистам.",
+    internalNote: null,
+    action: "finished",
+    approvalChoice: null,
+    withFieldUpdates: true,
+    nextStage: "closed"
+  };
+  r = await run({ db: { [KEY]: state({
+    stage: "awaiting_email",
+    subtaskId: 90001,
+    subtaskIntegrity: "complete",
+    subtaskClaim: "owner",
+    subtaskClaimAt: Date.now(),
+    data: { unitFullName: "Тамбов-1", componentName: "Рейтинги" },
+    runtime: Object.assign({}, runtime, { unitFieldId: 97, componentFieldId: 36 }),
+    pendingOutcome: subtaskOutcome
+  }) } });
+  t.check("successful parent finalization releases subtask ownership atomically",
+    r.result.success === true && r.state.subtaskClaim === null && r.state.subtaskClaimAt === null,
+    r.state);
+
+  r = await run({
+    failPost: true,
+    db: { [KEY]: state({
+      stage: "awaiting_email",
+      subtaskId: 90001,
+      subtaskIntegrity: "complete",
+      subtaskClaim: "owner",
+      subtaskClaimAt: Date.now(),
+      data: { unitFullName: "Тамбов-1", componentName: "Рейтинги" },
+      runtime: Object.assign({}, runtime, { unitFieldId: 97, componentFieldId: 36 }),
+      pendingOutcome: subtaskOutcome
+    }) }
+  });
+  t.check("failed parent finalization keeps ownership for a safe retry",
+    r.result.success === false && r.state.subtaskClaim === "owner", r.state);
+
   // ── Debounce: the partner wrote again while the run was thinking ──
   r = await run({
     db: { [KEY]: state({ pendingOutcome: clarify }) },
@@ -415,7 +454,7 @@ async function main() {
   // `runtime.token` is among them: the turn is over and the secret has no reason to outlive
   // it in the document. Note it is a dotted path — the rest of `runtime` is untouched.
   t.check("only own paths are written",
-    paths === "botHasReplied,data.requiredFollowUpQuestion,data.solutionAuthorization,lastProcessedCommentId,pendingOutcome,runtime.token,stage,updatedAt",
+    paths === "botHasReplied,data.requiredFollowUpQuestion,data.requiredKnowledgeNotice,data.solutionAuthorization,lastProcessedCommentId,pendingOutcome,runtime.token,stage,updatedAt",
     paths);
   t.check("the token does not outlive the turn in the document",
     r.state.runtime.token === null && r.state.runtime.apiUrl === runtime.apiUrl, r.state.runtime);
@@ -581,7 +620,7 @@ async function main() {
   const answering = makeEnv({
     payload: {
       task_id: 11613, event: "comment", access_token: "t", api_url: "https://api.pyrus.com/v4/",
-      task: { id: 11613, form_id: 77, fields: [], comments: [{ id: 77, author: PARTNER, text: "фамилию", channel: CHAN }] }
+      task: { id: 11613, form_id: 1165239, fields: [], comments: [{ id: 77, author: PARTNER, text: "фамилию", channel: CHAN }] }
     },
     db: delivering.db
   });

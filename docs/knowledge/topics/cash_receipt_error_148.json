@@ -8,38 +8,116 @@
     "фискальный чек ошибка 148",
     "касса пишет код 148"
   ],
-  "businessDomains": ["dodopizza.ru"],
-  "roles": ["chat"],
-  "requiredEvidence": [
-    ["148"],
-    ["касса", "чек", "фискальный", "реквизит"]
+  "businessDomains": [
+    "dodopizza.ru"
   ],
-  "excludedEvidence": ["банковский терминал", "терминал оплаты", "не принимает карту"],
+  "roles": [
+    "chat"
+  ],
+  "requiredEvidence": [
+    [
+      "148"
+    ],
+    [
+      "касса",
+      "чек",
+      "фискальный",
+      "реквизит"
+    ]
+  ],
+  "excludedEvidence": [
+    "банковский терминал",
+    "терминал оплаты",
+    "не принимает карту"
+  ],
+  "validation": {
+    "status": "approved",
+    "reviewedAt": "2026-09-03",
+    "basis": "Общая статья БЗ и повторяющиеся решения операторов за август 2026 года проверены и подтверждены владельцем продукта.",
+    "source": {
+      "spaceId": "963b66c2-e111-43c6-a9ff-e7e5af3e4244",
+      "articleId": "b12b10c3-9a4b-457b-bfdd-e2124f42ae3b",
+      "title": "Не печатаются фискальные чеки, появляется ошибка",
+      "updatedAt": "2025-08-12T06:41:24.535615",
+      "contentSha256": "c889a494172462ef71d616c44ac10e259b7be49b699caebd40aa749ca21f58db",
+      "approvedAdviceSha256": "22f89a94fde99661526039f7a33f8468c8820fb8b975b42f43adb0d369d4e294"
+    },
+    "evidence": [
+      "august-2026: repeated operator resolutions for error 148"
+    ]
+  },
   "start": "location",
   "onFail": "operator",
   "nodes": {
     "location": {
-      "ask": [{"key": "posLocation", "label": "Тип кассы", "question": "Ошибка возникает на кассе ресторана или на кассе доставки?", "questionGoal": "Определить тип кассы для выбора компонента.", "doNotAssume": "Пиццерия как юнит не означает кассу ресторана: в юните есть также касса доставки."}],
+      "ask": [
+        {
+          "key": "posLocation",
+          "label": "Тип кассы",
+          "question": "Ошибка возникает на кассе ресторана или на кассе доставки?",
+          "questionGoal": "Определить тип кассы для выбора компонента.",
+          "doNotAssume": "Пиццерия как юнит не означает кассу ресторана: в юните есть также касса доставки."
+        }
+      ],
       "branches": [
-        {"when": ["касса ресторана", "в ресторане", "ресторан"], "go": "adviceRestaurant"},
-        {"when": ["касса доставки", "на доставке", "доставка"], "go": "adviceDelivery"},
-        {"when": ["не знаю", "неизвестно", "не могу определить"], "go": "operator"}
+        {
+          "when": [
+            "касса ресторана",
+            "в ресторане",
+            "ресторан"
+          ],
+          "go": "adviceRestaurant"
+        },
+        {
+          "when": [
+            "касса доставки",
+            "на доставке",
+            "доставка"
+          ],
+          "go": "adviceDelivery"
+        },
+        {
+          "when": [
+            "не знаю",
+            "неизвестно",
+            "не могу определить"
+          ],
+          "go": "operator"
+        }
       ]
     },
     "adviceRestaurant": {
       "componentName": "Касса → Касса ресторана → Печать чека",
-      "knowledgeRef": {"articleIds": ["b12b10c3-9a4b-457b-bfdd-e2124f42ae3b"], "mode": "partner_answer"},
+      "knowledgeRef": {
+        "articleIds": [
+          "b12b10c3-9a4b-457b-bfdd-e2124f42ae3b"
+        ],
+        "mode": "partner_answer"
+      },
       "advice": "Ошибка 148 возникает из-за некорректного ИНН у выбранного кассира. Чтобы закрыть текущий чек, выберите другого кассира. Затем управляющему нужно открыть карточку сотрудника в Додо ИС и исправить ИНН.",
       "onFail": "operatorRestaurant"
     },
     "adviceDelivery": {
       "componentName": "Касса → Касса доставки → Печать чека",
-      "knowledgeRef": {"articleIds": ["b12b10c3-9a4b-457b-bfdd-e2124f42ae3b"], "mode": "partner_answer"},
+      "knowledgeRef": {
+        "articleIds": [
+          "b12b10c3-9a4b-457b-bfdd-e2124f42ae3b"
+        ],
+        "mode": "partner_answer"
+      },
       "advice": "Ошибка 148 возникает из-за некорректного ИНН у выбранного кассира. Чтобы закрыть текущий чек, выберите другого кассира. Затем управляющему нужно открыть карточку сотрудника в Додо ИС и исправить ИНН.",
       "onFail": "operatorDelivery"
     },
-    "operatorRestaurant": {"componentName": "Касса → Касса ресторана → Печать чека", "end": "escalate"},
-    "operatorDelivery": {"componentName": "Касса → Касса доставки → Печать чека", "end": "escalate"},
-    "operator": {"end": "escalate"}
+    "operatorRestaurant": {
+      "componentName": "Касса → Касса ресторана → Печать чека",
+      "end": "escalate"
+    },
+    "operatorDelivery": {
+      "componentName": "Касса → Касса доставки → Печать чека",
+      "end": "escalate"
+    },
+    "operator": {
+      "end": "escalate"
+    }
   }
 }

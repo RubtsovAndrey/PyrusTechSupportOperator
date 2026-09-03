@@ -377,6 +377,8 @@ const done = {
   // The question belongs only to the solution delivered by this turn. Leaving it in the
   // document could append an old question to a later, unrelated `reply` outcome.
   "data.requiredFollowUpQuestion": null,
+  // Warning and source links belong to the external-KB answer delivered by this turn.
+  "data.requiredKnowledgeNotice": null,
   // A solution is authorised only for the comment this turn has just answered. Clearing
   // it is defence in depth; the comment-id check already makes it unusable next turn.
   "data.solutionAuthorization": null,
@@ -390,6 +392,14 @@ const done = {
   "updatedAt": Date.now()
 };
 if (outcome.nextStage) done["stage"] = outcome.nextStage;
+// createSubtask keeps ownership through the Pyrus write above. Clearing it together with
+// lastProcessedCommentId closes the narrow race in which another delivery sees an already
+// created child while the first run has not closed the parent yet. If the post failed we
+// returned earlier and the claim deliberately remains for a safe retry after its TTL.
+if (outcome.kind === "subtask_created") {
+  done["subtaskClaim"] = null;
+  done["subtaskClaimAt"] = null;
+}
 writeState(taskId, done, "finalize");
 
 return { success: true, taskId: taskId, kind: outcome.kind };

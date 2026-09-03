@@ -7,6 +7,7 @@
 // Здесь исполняется тот же файл, который уезжает на платформу, без единой правки.
 //
 //   node tools/kb-mcp-live.js "смена превысила 24 часа"
+//   node tools/kb-mcp-live.js "как подать апелляцию по РКО" "" "" ratings_questions rkoKnowledge
 //
 // Токен берётся из .env.local (MCP_KB_TOKEN) и подставляется вместо хранилища платформы.
 const fs = require("fs");
@@ -57,19 +58,34 @@ async function main() {
   const query = process.argv[2] || "смена превысила 24 часа";
   const spaceIds = process.argv[3] || null;
   const limit = process.argv[4] ? Number(process.argv[4]) : null;
+  const topicKey = process.argv[5] || null;
+  const treeNode = process.argv[6] || null;
 
   const getKnowledge = loadFunction(
-    "functions/ID_Tools/getKnowledgeMcp/code.js", ["query", "spaceIds", "limit"]);
+    "functions/ID_Tools/getKnowledgeMcp/code.js", ["query", "spaceIds", "limit", "topicKey"]);
 
   const logs = [];
-  const env = makeEnv({ credentials: { [CRED]: loadToken() } });
+  const taskId = 990013;
+  const db = topicKey ? {
+    knowledge_catalog: require("../docs/knowledge_catalog.json"),
+    ["state:" + taskId]: {
+      taskId: taskId,
+      runtime: { incomingCommentId: "live-check" },
+      data: { topicKey: topicKey, treeNode: treeNode }
+    }
+  } : {};
+  const env = makeEnv({
+    credentials: { [CRED]: loadToken() },
+    db: db,
+    contextValues: { dialog: { taskId: String(taskId), incomingText: query } }
+  });
   env.Http = { post: httpPost, get: () => { throw new Error("не используется"); } };
   ["info", "warn", "error"].forEach(level => {
     env.Log[level] = a => logs.push(level.toUpperCase() + " " + a.message);
   });
 
   console.log("запрос: «" + query + "»" + (spaceIds ? ", пространства: " + spaceIds : ""));
-  const result = await getKnowledge(env, [query, spaceIds, limit]);
+  const result = await getKnowledge(env, [query, spaceIds, limit, topicKey]);
 
   console.log("\n— лог функции —");
   logs.forEach(l => console.log("  " + l));
@@ -84,6 +100,7 @@ async function main() {
     console.log("  " + (i + 1) + ". " + a.title);
     console.log("     id: " + a.articleId + ", пространство: " + a.spaceTitle);
     console.log("     содержимое: " + String(a.content).length + " символов");
+    if (a.url) console.log("     ссылка: " + a.url);
     console.log("     метаданные: " + JSON.stringify(a.metadata));
   });
   if (!result.found) process.exitCode = 1;

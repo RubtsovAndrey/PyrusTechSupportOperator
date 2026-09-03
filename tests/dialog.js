@@ -81,6 +81,22 @@ function describesProblem(said) {
 
 function json(o) { return JSON.stringify(o); }
 
+function partnerLanguageOf(text, previous) {
+  const source = String(text || "")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi, " ");
+  if (/[\u0600-\u06ff]/.test(source)) return "ar";
+  if (/[әғқңөұүһ]/i.test(source)) return "kk";
+  if (/[ҳӣӯҷ]/i.test(source)) return "tg";
+  const letters = source.match(/[a-zа-яё]/gi) || [];
+  if (letters.length >= 8) {
+    const latin = letters.filter(c => /[a-z]/i.test(c)).length;
+    if (latin * 2 >= letters.length) return "en";
+    return "ru";
+  }
+  return previous || "ru";
+}
+
 async function callTool(env, name, args) {
   const node = TOOLS[name];
   if (!node) throw new Error("инструмента " + name + " нет в графе");
@@ -99,9 +115,10 @@ const AGENTS = {
   async agent_intake(env, turn) {
     const dialog = env.values.dialog || {};
     const said = String(dialog.incomingText || "");
+    const partnerLanguage = turn.partnerLanguage || partnerLanguageOf(said, dialog.partnerLanguage);
     // Язык в этот список не входит: агентам велено отвечать на языке партнёра.
     if (turn.intent === "operator" || turn.intent === "abuse") {
-      return json({ action: "escalate", reason: "партнёр просит человека" });
+      return json({ action: "escalate", partnerLanguage, reason: "партнёр просит человека" });
     }
 
     let unitFullName = dialog.unitFullName || null;
@@ -125,6 +142,7 @@ const AGENTS = {
     const enough = !!unitFullName && !!problemSummary;
     return json({
       action: enough ? "route" : "clarify",
+      partnerLanguage: partnerLanguage,
       clarifyKind: enough ? null : clarifyKind,
       unitFullName: unitFullName,
       problemSummary: problemSummary,
@@ -136,10 +154,11 @@ const AGENTS = {
   async agent_routing(env, turn) {
     const dialog = env.values.dialog || {};
     const query = dialog.problemSummary || dialog.incomingText || "";
+    const partnerLanguage = turn.partnerLanguage || partnerLanguageOf(dialog.incomingText, dialog.partnerLanguage);
     const r = await callTool(env, "searchKnowledge", { query: query, answers: "{}" }) || {};
     const topics = Array.isArray(r.topics) ? r.topics : [];
     if (!r.found || !topics.length) {
-      return json({ topicKey: null, route: "escalate", componentName: null, reason: "подходящей тематики нет" });
+      return json({ topicKey: null, route: "escalate", componentName: null, partnerLanguage, reason: "подходящей тематики нет" });
     }
     // Маршрутизатор выбирает по описанию; образцовый — лучший по счёту, если сценарий не
     // сказал иначе. Подсказка нужна там, где проверяется поведение при неверном выборе.
@@ -150,6 +169,7 @@ const AGENTS = {
       topicKey: picked.key,
       route: picked.route || "solver",
       componentName: picked.componentName || null,
+      partnerLanguage: partnerLanguage,
       reason: "счёт " + picked.score
     });
   },
@@ -159,6 +179,7 @@ const AGENTS = {
     const dialog = env.values.dialog || {};
     const said = String(dialog.incomingText || "");
     const topicKey = dialog.topicKey || null;
+    const partnerLanguage = turn.partnerLanguage || partnerLanguageOf(said, dialog.partnerLanguage);
 
     // Что партнёр уже сказал. Сценарий объявляет это явно; если статья ждёт ровно один
     // ответ, всё сообщение и есть он — так же поступила бы и модель.
@@ -183,7 +204,27 @@ const AGENTS = {
       }) || {};
     }
 
-    if (r.turnKind === "handover") return json({ replyText: "", kind: "handover", answers: answers });
+    if (r.turnKind === "external-knowledge-request") {
+      r = await callTool(env, "getKnowledgeMcp", {
+        query: said,
+        topicKey: r.key || topicKey,
+        spaceIds: null,
+        limit: null
+      }) || {};
+      // The real model must decide whether the read content directly answers the question.
+      // Tests declare that one judgement explicitly; everything around it — allowlist,
+      // fallback, authorization, source notice and graph transition — remains production code.
+      if (r.turnKind === "external-knowledge" && turn.externalNoAnswer) {
+        r = Object.assign({}, r, {
+          turnKind: "questions",
+          preQuestions: r.fallbackQuestions || [],
+          needsPreQuestions: true,
+          solverInstruction: null
+        });
+      }
+    }
+
+    if (r.turnKind === "handover") return json({ replyText: "", kind: "handover", partnerLanguage, answers: answers });
 
     const questions = Array.isArray(r.preQuestions) ? r.preQuestions : [];
     if (r.turnKind === "questions" || r.needsPreQuestions) {
@@ -199,7 +240,17 @@ const AGENTS = {
         r.reasked ? "Без этих данных я не смогу продолжить." : null,
         questions.length ? "Подскажите: " + joinedQuestions + "?" : null
       ].filter(Boolean).join(" ");
-      return json({ replyText: text, kind: "questions", answers: answers });
+      return json({ replyText: text, kind: "questions", partnerLanguage, answers: answers });
+    }
+
+    if (r.turnKind === "external-knowledge") {
+      const first = Array.isArray(r.articles) && r.articles[0] ? r.articles[0] : {};
+      return json({
+        replyText: turn.externalAnswer || first.content || "",
+        kind: "solution",
+        partnerLanguage: partnerLanguage,
+        answers: answers
+      });
     }
 
     // ── Статья прозой ──
@@ -212,13 +263,14 @@ const AGENTS = {
     // так поступает ленивая модель, и такой прогон показывает риск, от которого страхует
     // дерево. Сравнивать стоит все три колонки.
     if (r.prose) {
-      if (turn.proseHandover) return json({ replyText: "", kind: "handover", answers: answers });
-      if (turn.proseAsk) return json({ replyText: turn.proseAsk, kind: "questions", answers: answers });
+      if (turn.proseHandover) return json({ replyText: "", kind: "handover", partnerLanguage, answers: answers });
+      if (turn.proseAsk) return json({ replyText: turn.proseAsk, kind: "questions", partnerLanguage, answers: answers });
       const said = turn.proseSay || r.solverInstruction;
       return json({
         replyText: [r.explaining ? "Поясню подробнее." : null, said, r.followUpQuestion || null]
           .filter(Boolean).join("\n\n"),
         kind: "solution",
+        partnerLanguage: partnerLanguage,
         answers: answers
       });
     }
@@ -232,42 +284,45 @@ const AGENTS = {
         r.solverInstruction,
         r.followUpQuestion || null
       ].filter(Boolean).join("\n\n");
-      return json({ replyText: text, kind: "solution", answers: answers });
+      return json({ replyText: text, kind: "solution", partnerLanguage, answers: answers });
     }
 
     // Инструмент не дал решения — промпт запрещает импровизировать.
     return json({
       replyText: "Понадобится время на изучение вопроса, мы вернёмся с ответом.",
-      kind: "solution", answers: answers
+      kind: "solution", partnerLanguage, answers: answers
     });
   },
 
   // Промпт: помогло / не помогло / новый вопрос / неясно.
   async agent_confirmation(env, turn) {
     const said = String((env.values.dialog || {}).incomingText || "");
-    if (turn.status) return json({ status: turn.status, reason: "объявлено сценарием" });
-    if (/помогл|получилось|заработал|спасибо|всё ок|все ок|решен/i.test(said) && !/не помогл|не получилось/i.test(said)) {
-      return json({ status: "resolved", reason: "партнёр подтвердил" });
+    const dialog = env.values.dialog || {};
+    const partnerLanguage = turn.partnerLanguage || partnerLanguageOf(said, dialog.partnerLanguage);
+    if (turn.status) return json({ status: turn.status, partnerLanguage, reason: "объявлено сценарием" });
+    if (/помог|получилось|заработал|спасибо|всё ок|все ок|решен/i.test(said) && !/не помог|не получилось/i.test(said)) {
+      return json({ status: "resolved", partnerLanguage, reason: "партнёр подтвердил" });
     }
-    if (/не помогл|не получилось|то же самое|так же|по-прежнему|не заработал/i.test(said)) {
-      return json({ status: "failed", reason: "проблема осталась" });
+    if (/не помог|не получилось|то же самое|так же|по-прежнему|не заработал/i.test(said)) {
+      return json({ status: "failed", partnerLanguage, reason: "проблема осталась" });
     }
     // Промпт различает «сделал, не помогло» и «а где это найти?» по тому, пробовал ли
     // партнёр совет. У образцового агента признак грубее — вопросительный знак, — но он
     // проверяет именно то, что нужно: что у графа для такой реплики есть свой путь.
     if (/\?/.test(said) || /непонятн|не поня(л|ла)|не понимаю/i.test(said) ||
         /^(а |и )?(где|как|что|куда|какой|какая|зачем|почему)\b/i.test(said.trim())) {
-      return json({ status: "question", reason: "партнёр спрашивает про сам совет" });
+      return json({ status: "question", partnerLanguage, reason: "партнёр спрашивает про сам совет" });
     }
-    return json({ status: "unclear", reason: "по тексту не понять" });
+    return json({ status: "unclear", partnerLanguage, reason: "по тексту не понять" });
   }
 };
 
 // ── Разговор ──
 
 const DEFAULT_CONFIG = {
-  subtaskFormId: 2454249,
+  subtaskFormId: 1096731,
   botAuthorIds: [BOT.id],
+  forms: { "77": { role: "chat", environment: "test", knowledgeExecution: "partner_answer" } },
   unitFieldId: 35, componentFieldId: 28, emailFieldId: 44,
   subjectFieldId: 47, messageFieldId: 48
 };
@@ -304,9 +359,8 @@ function conversation(options) {
     }, o.db || {}),
     credentials: o.credentials,
     // Pyrus, к которому обращается finalize, проверяя, не устарел ли виток, и
-    // createSubtask, спрашивая форму и реестр.
+    // createSubtask, спрашивая описание формы.
     onGet: a => {
-      if (/\/forms\/\d+\/register/.test(a.url)) return { body: { tasks: [] } };
       if (/\/forms\/\d+$/.test(a.url)) {
         return { body: { fields: [
           { id: 35, name: "Юнит" }, { id: 28, name: "Компонент" },
@@ -318,7 +372,9 @@ function conversation(options) {
     onPost: a => {
       if (/\/mcp$/.test(a.url) && o.onMcp) return o.onMcp(a);
       return /\/tasks$/.test(a.url)
-        ? { body: { task: { id: 990000 + taskId % 1000 } } }
+        ? { body: { task: { id: 990000 + taskId % 1000,
+          form_id: Number((o.config && o.config.subtaskFormId) || DEFAULT_CONFIG.subtaskFormId),
+          parent_task_id: Number(taskId) } } }
         : { body: {} };
     }
   });

@@ -23,7 +23,8 @@ const CATALOGS = {
     "[dodopizza.ru] Тула 1-10 (Мира, 10)",
     // Одноимённые сети двух бизнесов: подставлять точку тут нельзя ни при каком scope.
     "[dodopizza.ru] Орёл 1-1 (Победы, 1)",
-    "[drinkit.ru] Орёл 1-1 (Победы, 3)"
+    "[drinkit.ru] Орёл 1-1 (Победы, 3)",
+    "[dodopizza.kz] Алматы-Тест-1 (Тестовая улица, 1)"
   ],
   knowledge_catalog: {
     topics: [
@@ -93,6 +94,54 @@ async function main() {
     await run("confirmation", "Кажется, всё хорошо");
   } catch (e) { threw = true; }
   t.check("confirmation prose throws for the same reason", threw, threw);
+
+  // ── Language and market are executable routing boundaries ──
+  r = await run("intake", json({
+    action: "route", partnerLanguage: "EN", unit: "Тамбов-1",
+    problemSummary: "the register cannot print a receipt",
+    replyText: "I am transferring this request to a specialist."
+  }), { runtime: { languageGuard: "non_ru" }, data: {} }, { incomingText: "Tambov-1, the register cannot print a receipt" });
+  t.check("a valid language code is normalised and persisted",
+    r.state.data.partnerLanguage === "en", r.state.data);
+  t.check("a complete non-Russian intake is handed over before routing",
+    r.result.action === "escalate" && r.state.data.automationScope === "handover_only", r.result);
+
+  r = await run("intake", json({
+    action: "clarify", partnerLanguage: "en", problemSummary: "the register is frozen",
+    clarifyingQuestion: "Which restaurant and unit number is this?"
+  }), { runtime: { languageGuard: "non_ru" }, data: {} }, { incomingText: "The register is frozen" });
+  t.check("non-Russian intake still collects a missing unit in the partner language",
+    r.result.action === "clarify" && /Which restaurant/.test(r.result.clarifyingQuestion), r.result);
+
+  r = await run("intake", json({
+    action: "route", partnerLanguage: "ru", unit: "Алматы-Тест-1",
+    problemSummary: "не печатает чек"
+  }), null, { incomingText: "Алматы-Тест-1, не печатает чек" });
+  t.check("a confirmed non-RF unit disables the Russian scenario even in a Russian dialog",
+    r.result.action === "escalate" && r.state.data.unitFullName.indexOf("dodopizza.kz") >= 0,
+    { result: r.result, data: r.state.data });
+
+  r = await run("intake", json({ action: "clarify", partnerLanguage: "russian" }));
+  t.check("an invalid language label is not persisted", !r.state.data.partnerLanguage, r.state.data);
+
+  r = await run("solver", json({
+    replyText: "Try the Russian cash procedure", kind: "solution", partnerLanguage: "en"
+  }), {
+    runtime: { incomingCommentId: "7", languageGuard: "non_ru" },
+    data: {
+      topicKey: "printer_no_receipt", partnerLanguage: "ru",
+      solutionAuthorization: { topicKey: "printer_no_receipt", incomingCommentId: "7" }
+    }
+  });
+  t.check("a language switch while solving blocks already-issued Russian advice",
+    r.result.kind === "handover" && r.result.treeEnd === "escalate" && !r.result.replyText, r.result);
+
+  r = await run("confirmation", json({ status: "resolved", partnerLanguage: "en" }), {
+    runtime: { languageGuard: "non_ru" },
+    data: { unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", partnerLanguage: "ru" }
+  });
+  t.check("a language switch at confirmation returns to intake for a safe handover",
+    r.result.status === "more_questions" && r.result.languageBoundary === true, r.result);
 
   // ── Unit validation ──
   r = await run("intake", json({ action: "route", unitFullName: "Тамбов-1" }));
@@ -390,6 +439,10 @@ async function main() {
   const afterSolved = {
     stage: "awaiting_confirmation",
     subtaskId: "555",
+    subtaskRequestKey: "11613:old",
+    subtaskClaim: "old-claim",
+    subtaskClaimAt: 1,
+    subtaskIntegrity: "complete",
     clarifyStreak: 2,
     data: {
       unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)",
@@ -413,6 +466,9 @@ async function main() {
   t.check("email survives the new question", r.state.data.email === "p@x.ru", r.state.data);
   t.check("subtaskId is cleared so the new question can get its own subtask",
     r.state.subtaskId === null, r.state.subtaskId);
+  t.check("new question also resets the subtask claim and gives the problem a new scope",
+    r.state.subtaskRequestKey !== "11613:old" && r.state.subtaskClaim === null &&
+    r.state.subtaskClaimAt === null && r.state.subtaskIntegrity === null, r.state);
   t.check("clarify streak is cleared", r.state.clarifyStreak === 0, r.state.clarifyStreak);
 
   // The other confirmation answers must not wipe anything.

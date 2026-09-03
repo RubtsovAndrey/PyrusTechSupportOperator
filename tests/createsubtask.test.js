@@ -1,13 +1,14 @@
-// Tests for ID_Actions.createSubtask. The point of interest is that the subtask must
-// exist exactly once per problem, and that the database cannot guarantee it: only Pyrus
-// itself knows whether the subtask is already there.
+// Tests for ID_Actions.createSubtask. The contract is deliberately stricter than
+// «POST /tasks returned an id»: exactly one run may create a task, and the parent chat is
+// closed only after Pyrus confirms its native parent_task_id relation.
 const { loadFunction, makeEnv, suite } = require("./harness");
+const { loadGraph, runTurn } = require("./graph");
 
 const createSubtask = loadFunction("functions/ID_Actions/createSubtask/code.js", []);
+const GRAPH = loadGraph();
 
 const KEY = "state:11613";
-const LINK_FIELD = 12;
-
+const REQUEST_KEY = "11613:71";
 const facts = {
   unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)",
   componentName: "Доступы",
@@ -20,38 +21,32 @@ function state(over) {
   return Object.assign({
     stage: "awaiting_email",
     data: Object.assign({}, facts),
-    runtime: { apiUrl: "https://api.pyrus.com/v4/", token: "t" }
+    runtime: { apiUrl: "https://api.pyrus.com/v4/", token: "t", role: "chat", incomingCommentId: 71 },
+    subtaskId: null,
+    subtaskIntegrity: null,
+    subtaskRequestKey: REQUEST_KEY,
+    subtaskClaim: null,
+    subtaskClaimAt: null,
+    taskId: 11613
   }, over || {});
 }
 
-// The subtask form knows which parent chat it belongs to only if that field is configured.
-// Field ids are NOT pinned here: they differ from form to form — a copy of the production
-// form renumbered every one of them — so they are resolved by name, and that is the path
-// worth testing.
-const CONFIG = { subtaskFormId: 1096731, parentLinkFieldId: LINK_FIELD };
+const CONFIG = { subtaskFormId: 1096731, subtaskClaimTtlMs: 120000 };
 
-// ── The real shape of the form, taken from a live payload ──
-// Every trap in it is one the bot walked into: on this form 1 and 2 are notes, 5 is the
-// «Открыта / Завершена» status, 36 is a title, and 97 does not exist at all — which is what
-// the hardcoded 97/36/5/1/2 turned into a 400 on every attempt. «Тема обращения» and «Тема
-// обращения (вручную)» sit next to «Тема», so a search by substring picks the wrong one.
+// Live-like form shape. A copied form renumbers all of these fields, so production code
+// resolves exact names and never assumes the ids of another form.
 const FORM_FIELDS = [
   { id: 1, type: "note", name: "ㅤ" },
   { id: 2, type: "note", name: "❗Инструкция по работе с задачами❗" },
   { id: 4, type: "title", name: "Системные поля", fields: [
     { id: 5, type: "status", name: "Открыта / Завершена" },
-    { id: 7, type: "step", name: "Этап" },
     { id: 9, type: "number", name: "Id задачи из КЦ" }
   ] },
   { id: 25, type: "catalog", name: "Тема обращения" },
   { id: 26, type: "text", name: "Тема обращения (вручную)" },
   { id: 28, type: "catalog", name: "Компонент" },
   { id: 35, type: "catalog", name: "Юнит" },
-  { id: 36, type: "title", name: "Время юнита", fields: [
-    { id: 37, type: "text", name: "Локальное время юнита" }
-  ] },
   { id: 41, type: "title", name: "Контактная информация", fields: [
-    { id: 42, type: "text", name: "Имя" },
     { id: 44, type: "email", name: "Эл. почта" }
   ] },
   { id: 46, type: "title", name: "Входные данные", fields: [
@@ -59,233 +54,276 @@ const FORM_FIELDS = [
     { id: 48, type: "text", name: "Сообщение" }
   ] }
 ];
-// What the form resolves to, so the expectations below read as the answer and not as magic.
 const UNIT = 35, COMPONENT = 28, EMAIL = 44, SUBJECT = 47, MESSAGE = 48;
+const CREATED = { body: { task: { id: 90001, form_id: 1096731, parent_task_id: 11613 } } };
 
-const CREATED = { body: { task: { id: 90001 } } };
-const emptyRegister = () => ({ body: { tasks: [] } });
-const registerWith = id => () => ({ body: { tasks: [{ id: id }] } });
-
-// The same URL prefix serves the register and the form definition, so the stub routes by
-// path the way Pyrus does: the register is the longer one and must be matched first.
-function router(o) {
-  const register = o.onGet || emptyRegister;
-  return a => (/\/register/.test(a.url)
-    ? register(a)
-    : (o.formFields === null ? { body: {} } : { body: { fields: o.formFields || FORM_FIELDS } }));
+function messageWithMarker(text) {
+  return [{ id: MESSAGE, value: String(text || "Сводка") + "\n\nИдентификатор обращения ИИ: " + REQUEST_KEY }];
 }
 
-async function run(options) {
+function defaultGet(o, a) {
+  if (/\/forms\/1096731$/.test(a.url)) {
+    return o.formFields === null ? { body: {} } : { body: { fields: o.formFields || FORM_FIELDS } };
+  }
+  if (/\/tasks\/11613$/.test(a.url)) {
+    return { body: { task: o.parentTask || { id: 11613, linked_task_ids: [] } } };
+  }
+  const child = /\/tasks\/(\d+)$/.exec(a.url);
+  if (child) {
+    const id = Number(child[1]);
+    return { body: { task: o.childTask || {
+      id: id, form_id: 1096731, parent_task_id: 11613, fields: messageWithMarker()
+    } } };
+  }
+  return { body: {} };
+}
+
+function buildEnv(options) {
   const o = options || {};
-  const env = makeEnv({
+  return makeEnv({
     prev: { taskId: "11613" },
-    db: Object.assign({ config: o.config === null ? undefined : (o.config || CONFIG), [KEY]: state(o.state) }, o.db),
+    payload: { access_token: "t" },
+    db: Object.assign({
+      config: o.config === null ? undefined : (o.config || CONFIG),
+      [KEY]: state(o.state)
+    }, o.db),
     contextValues: { dialog: { taskId: "11613" } },
-    onGet: router(o),
+    onGet: a => {
+      if (o.onGet) {
+        const answer = o.onGet(a);
+        if (answer !== undefined) return answer;
+      }
+      return defaultGet(o, a);
+    },
     onPost: o.onPost || (a => (/\/tasks$/.test(a.url) ? CREATED : { body: {} })),
     failPostWhen: o.failPostWhen
   });
+}
+
+async function run(options) {
+  const env = buildEnv(options);
   const result = await createSubtask(env);
   return { result, state: env.db[KEY], posts: env.posts, gets: env.gets, env };
 }
 
 const created = posts => posts.filter(p => /\/tasks$/.test(p.url));
-const fieldUpdates = posts => posts.filter(p => p.body && p.body.field_updates);
 
 async function main() {
   const t = suite("createSubtask");
 
-  // ── Already known locally: a redelivered webhook must not create a second one ──
-  let r = await run({ state: { subtaskId: 90001 } });
-  t.check("known subtask short-circuits", r.result.duplicate === true && r.result.subtaskId === 90001, r.result);
-  t.check("nothing is sent to Pyrus", r.posts.length === 0 && r.gets.length === 0,
-    { posts: r.posts.length, gets: r.gets.length });
+  let r = await run({ state: { subtaskId: 90001, subtaskIntegrity: "complete" } });
+  t.check("a completed local subtask short-circuits a redelivery",
+    r.result.duplicate === true && r.result.subtaskId === 90001, r.result);
+  t.check("the completed redelivery makes no Pyrus request", r.posts.length === 0 && r.gets.length === 0,
+    { posts: r.posts, gets: r.gets });
 
-  // ── A ticket has no subtask to create: the ticket IS the subtask ──
-  // The article still routes here, because the catalog describes the problem and knows
-  // nothing about the form the dialog lives on. A plain failure is enough: the graph carries
-  // `success: false` without `action: "clarify"` through cond_subtask_created and
-  // cond_subtask_needs_email straight to the escalation, with no new node.
+  r = await run({ state: { subtaskId: 90002, subtaskIntegrity: "unconfirmed_parent" } });
+  t.check("an incomplete stored id is promoted only after native-link verification",
+    r.result.success === true && r.result.recovered === true && r.state.subtaskIntegrity === "complete", r.result);
+  t.check("verification reads that exact child and creates nothing",
+    r.gets.some(g => /tasks\/90002$/.test(g.url)) && created(r.posts).length === 0, r.gets);
+
+  r = await run({
+    state: { subtaskId: 90002, subtaskIntegrity: "unconfirmed_parent" },
+    childTask: { id: 90002, form_id: 1096731, parent_task_id: 777, fields: messageWithMarker() }
+  });
+  t.check("an id linked to another parent blocks duplication and parent closing",
+    r.result.success === false && r.result.duplicateBlocked === true && created(r.posts).length === 0, r.result);
+
   r = await run({ state: { runtime: { apiUrl: "https://api.pyrus.com/v4/", token: "t", role: "ticket" } } });
   t.check("a ticket does not get a subtask of its own", r.result.success === false, r.result);
-  t.check("and nothing at all is sent to Pyrus", r.posts.length === 0 && r.gets.length === 0,
-    { posts: r.posts.length, gets: r.gets.length });
-  t.check("the reason says why, so the escalation summary is not a mystery",
-    /ticket/.test(r.result.reason), r.result.reason);
-  // Crucially it must NOT look like «ask the partner for an email», or the graph would ask
-  // for an address instead of handing the ticket over.
-  t.check("it is not mistaken for a request for the email", r.result.action !== "clarify", r.result);
+  t.check("ticket refusal is not an email clarification", r.result.action !== "clarify", r.result);
+  t.check("ticket refusal reaches neither Pyrus endpoint", r.posts.length === 0 && r.gets.length === 0,
+    { posts: r.posts, gets: r.gets });
 
-  // A chat on the very same form still creates its subtask: the role of the task decides,
-  // not the form the subtask is created on — during the tests those are the same form.
-  r = await run({ state: { runtime: { apiUrl: "https://api.pyrus.com/v4/", token: "t", role: "chat" } } });
-  t.check("a chat still creates its subtask", r.result.success === true && created(r.posts).length === 1, r.result);
-
-  // ── The register is asked before creating ──
-  // Two concurrent runs both read subtaskId as empty; only Pyrus can settle it.
-  r = await run({ onGet: registerWith(90500) });
-  t.check("subtask found in the register is adopted",
-    r.result.duplicate === true && r.result.subtaskId === 90500, r.result);
-  t.check("no second subtask is created", created(r.posts).length === 0, r.posts);
-  t.check("the adopted id is written to the document", r.state.subtaskId === 90500, r.state);
-
-  r = await run({});
-  t.check("register is queried on the subtask form",
-    /forms\/1096731\/register\?/.test(r.gets[0].url), r.gets[0]);
-  t.check("filter uses the link field and exact matching",
-    /[?&]fld12=eq\.11613(&|$)/.test(r.gets[0].url), r.gets[0].url);
-  t.check("empty register means the subtask is created", created(r.posts).length === 1, r.posts);
-  t.check("subtask id is returned", r.result.subtaskId === 90001, r.result);
-  t.check("subtask id is persisted", r.state.subtaskId === 90001, r.state);
-
-  // ── Without the field configured the check is impossible, not silently wrong ──
+  // No parent-link field exists or is needed. Native parent_task_id is part of the same
+  // atomic Pyrus request that creates the subtask.
   r = await run({ config: { subtaskFormId: 1096731 } });
-  // The form definition is still read — that is where the field ids come from — so the
-  // question is whether the REGISTER was asked, not whether anything was.
-  t.check("no link field: register is not queried",
-    !r.gets.some(g => /\/register/.test(g.url)), r.gets.map(g => g.url));
-  t.check("no link field: the subtask is still created", created(r.posts).length === 1, r.posts);
-  t.check("no link field: nothing is written to it", fieldUpdates(r.posts).length === 0, r.posts);
-
-  // ── A failed lookup must not block the branch ──
-  r = await run({ onGet: () => { throw new Error("pyrus 500"); } });
-  t.check("failed register lookup still creates the subtask", created(r.posts).length === 1, r.posts);
-
-  // ── The link is written after creation, never inside it ──
-  // Inside the creation body a wrong value shape would cost the subtask itself.
-  r = await run({});
+  t.check("no custom parent field is required", r.result.success === true, r.result);
   const create = created(r.posts)[0];
-  t.check("creation body carries no link field",
-    !create.body.fields.some(f => Number(f.id) === LINK_FIELD), create.body.fields);
-  t.check("link is written as a separate request", fieldUpdates(r.posts).length === 1, r.posts);
-  t.check("link points at the parent task",
-    JSON.stringify(fieldUpdates(r.posts)[0].body.field_updates[0].value).indexOf("11613") >= 0,
-    fieldUpdates(r.posts)[0].body);
+  t.check("creation carries the native parent_task_id", create.body.parent_task_id === 11613, create.body);
+  t.check("there is no second field-update request for linkage",
+    r.posts.length === 1 && !r.posts.some(p => p.body && p.body.field_updates), r.posts);
+  t.check("confirmed native linkage is persisted and ownership stays through parent finalization",
+    r.state.subtaskId === 90001 && r.state.subtaskIntegrity === "complete" &&
+    typeof r.state.subtaskClaim === "string", r.state);
 
-  // The shape of a form_link value is not documented among what we have, so the second
-  // candidate is tried when Pyrus rejects the first.
+  const field = id => (create.body.fields.find(f => Number(f.id) === id) || {}).value;
+  t.check("field ids are resolved from this form",
+    create.body.fields.map(f => Number(f.id)).sort((a, b) => a - b).join(",") ===
+      [UNIT, COMPONENT, EMAIL, SUBJECT, MESSAGE].sort((a, b) => a - b).join(","), create.body.fields);
+  t.check("exact «Тема» wins over adjacent similarly named fields",
+    !!field(SUBJECT) && !create.body.fields.some(f => Number(f.id) === 25 || Number(f.id) === 26), create.body.fields);
+  t.check("the mandatory message carries the operator summary and recovery marker",
+    /Тамбов-1/.test(field(MESSAGE)) && /Доступы/.test(field(MESSAGE)) && /№11613/.test(field(MESSAGE)) &&
+    field(MESSAGE).includes("Идентификатор обращения ИИ: " + REQUEST_KEY), field(MESSAGE));
+  t.check("no correspondence or foreign workflow action is posted",
+    !r.posts.some(p => p.body && (p.body.text || p.body.action)), r.posts);
+  const postsAfterCreate = r.posts.length;
+  const gapRun = await createSubtask(r.env);
+  t.check("a delivery arriving after creation but before parent finalization stays silent",
+    gapRun.skip === true && r.posts.length === postsAfterCreate, gapRun);
+
+  // Both executions read the same old state before their async form request completes.
+  // The database compare-and-set, not timing, must still allow exactly one POST /tasks.
+  const concurrentEnv = buildEnv({});
+  const pair = await Promise.all([createSubtask(concurrentEnv), createSubtask(concurrentEnv)]);
+  t.check("two simultaneous runs create exactly one subtask", created(concurrentEnv.posts).length === 1,
+    { results: pair, posts: concurrentEnv.posts });
+  t.check("the losing run is a silent deferral, not an escalation",
+    pair.filter(x => x && x.success === true).length === 1 &&
+    pair.filter(x => x && x.skip === true && x.deferred === true).length === 1, pair);
+
+  r = await run({ state: { subtaskClaim: "other", subtaskClaimAt: Date.now() } });
+  t.check("a fresh foreign claim defers silently", r.result.skip === true && r.result.deferred === true, r.result);
+  t.check("a fresh foreign claim creates nothing", created(r.posts).length === 0, r.posts);
+
+  const deferredEnv = buildEnv({ state: { subtaskClaim: "other", subtaskClaimAt: Date.now() } });
+  const deferredTrace = await runTurn(GRAPH, deferredEnv, "func_createsubtask_v5r8k", {});
+  t.check("the real graph sends an atomic-claim loser straight to a no-op finalize",
+    deferredTrace.some(x => x.id === "cond_subtask_deferred" && x.value === true) &&
+    !deferredTrace.some(x => x.id === "func_escalate_m9k4j") && deferredEnv.posts.length === 0,
+    deferredTrace);
+
   r = await run({
-    failPostWhen: a => !!(a.body && a.body.field_updates &&
-      typeof a.body.field_updates[0].value === "object")
+    state: { subtaskClaim: "old", subtaskClaimAt: Date.now() - 300000 },
+    parentTask: { id: 11613, linked_task_ids: [90011] },
+    childTask: { id: 90011, form_id: 1096731, parent_task_id: 11613, fields: messageWithMarker("Уже создано") }
   });
-  t.check("rejected link shape is retried with the other one",
-    fieldUpdates(r.posts).length === 2 &&
-    fieldUpdates(r.posts)[1].body.field_updates[0].value === 11613, r.posts);
-  t.check("a subtask that could not be linked is still a success",
-    r.result.success === true, r.result);
+  t.check("a stale claim recovers the matching native child instead of recreating it",
+    r.result.recovered === true && r.result.subtaskId === 90011 && created(r.posts).length === 0, r.result);
+  t.check("recovery stores complete integrity", r.state.subtaskIntegrity === "complete" && r.state.subtaskId === 90011, r.state);
 
-  // ── The request itself goes into the form, not into correspondence ──
-  // A comment is correspondence; the first line reads «Входные данные».
-  r = await run({});
-  const field = id => (created(r.posts)[0].body.fields.find(f => Number(f.id) === id) || {}).value;
-  // ── The ids are the form's own, found by name ──
-  // Hardcoded 97/36/5 were the production form's, and a copy of that form renumbered
-  // everything: Pyrus answered 400 to the creation and to the retry without the optional
-  // fields, because the mandatory three were wrong too. A field id cannot have a default.
-  t.check("field ids are resolved from the form, not assumed",
-    created(r.posts)[0].body.fields.map(f => Number(f.id)).sort((a, b) => a - b).join(",") ===
-      [UNIT, COMPONENT, EMAIL, SUBJECT, MESSAGE].sort((a, b) => a - b).join(","),
-    created(r.posts)[0].body.fields);
-  t.check("«Тема» is the input-data field, not «Тема обращения» next to it",
-    created(r.posts)[0].body.fields.some(f => Number(f.id) === SUBJECT) &&
-    !created(r.posts)[0].body.fields.some(f => Number(f.id) === 25 || Number(f.id) === 26),
-    created(r.posts)[0].body.fields);
-  t.check("nested fields are found too, not only top-level ones",
-    !!field(EMAIL) && !!field(SUBJECT), created(r.posts)[0].body.fields);
-  t.check("the summary is a field of the created task", typeof field(MESSAGE) === "string", created(r.posts)[0].body.fields);
-  t.check("the summary names the parent task", /№11613/.test(field(MESSAGE)), field(MESSAGE));
-  t.check("the summary carries unit, component and email",
-    /Тамбов-1/.test(field(MESSAGE)) && /Доступы/.test(field(MESSAGE)) && /p@x\.ru/.test(field(MESSAGE)), field(MESSAGE));
-  t.check("the subject line says what the problem is", /отчёт/.test(field(SUBJECT)), field(SUBJECT));
-  t.check("and no summary comment is posted at all",
-    !r.posts.some(p => p.body && p.body.text), r.posts.map(p => p.body));
-
-  // The bot is only the author of the subtask: step 1 belongs to another approver, and
-  // Pyrus answered 400 to every attempt to finish it. Nothing needs finishing — the form's
-  // route already carries the subtask to the people who work it.
-  t.check("the bot does not try to complete a step that is not its own",
-    !r.posts.some(p => p.body && p.body.action), r.posts.map(p => p.body));
-
-  // A rejected optional field must cost the description, never the ticket.
   r = await run({
-    failPostWhen: a => /\/tasks$/.test(a.url) && a.body.fields.some(f => Number(f.id) === MESSAGE)
+    state: { subtaskClaim: "old", subtaskClaimAt: Date.now() - 300000 },
+    onGet: a => { if (/tasks\/11613$/.test(a.url)) throw new Error("pyrus 500"); }
   });
-  t.check("creation is retried without the input-data fields", created(r.posts).length === 2, r.posts);
-  t.check("the retry keeps unit, component and email",
+  t.check("a failed recovery never takes over a stale claim",
+    r.result.success === false && !r.result.skip && created(r.posts).length === 0, r.result);
+
+  r = await run({
+    state: { subtaskClaim: "old", subtaskClaimAt: Date.now() - 300000 },
+    parentTask: { id: 11613, linked_task_ids: [] }
+  });
+  t.check("an expired claim with no visible child still never creates a second task",
+    r.result.success === false && r.result.duplicateBlocked === true && created(r.posts).length === 0,
+    r.result);
+
+  // A 500 can mean «created, response lost». There must be no blind second POST.
+  r = await run({
+    onPost: a => { if (/\/tasks$/.test(a.url)) throw new Error("pyrus 500 after accept"); return { body: {} }; },
+    parentTask: { id: 11613, linked_task_ids: [] }
+  });
+  t.check("an ambiguous 5xx is not retried blindly", created(r.posts).length === 1, r.posts);
+  t.check("an unrecovered ambiguous response leaves an uncertainty claim",
+    r.result.success === false && r.result.uncertain === true && r.state.subtaskIntegrity === "uncertain_response" &&
+    !!r.state.subtaskClaim, { result: r.result, state: r.state });
+
+  const uncertainState = r.state;
+  r = await run({ state: uncertainState });
+  t.check("a redelivery during the uncertainty window does not create again",
+    r.result.skip === true && created(r.posts).length === 0, r.result);
+
+  r = await run({
+    onPost: a => { if (/\/tasks$/.test(a.url)) throw new Error("pyrus 500 after accept"); return { body: {} }; },
+    parentTask: { id: 11613, linked_task_ids: [90012] },
+    childTask: { id: 90012, form_id: 1096731, parent_task_id: 11613, fields: messageWithMarker("Принято") }
+  });
+  t.check("a lost HTTP response is recovered through native linked_task_ids and the marker",
+    r.result.success === true && r.result.recovered === true && r.result.subtaskId === 90012, r.result);
+  t.check("recovered acceptance still issued only one create request", created(r.posts).length === 1, r.posts);
+
+  // An explicit 400 proves the first request was rejected, so dropping only the optional
+  // subject is a safe and useful retry.
+  let attempt = 0;
+  r = await run({
+    onPost: a => {
+      if (!/\/tasks$/.test(a.url)) return { body: {} };
+      attempt++;
+      if (attempt === 1) { const e = new Error("pyrus 400"); e.status = 400; throw e; }
+      return CREATED;
+    }
+  });
+  t.check("an explicit 400 retries once without only the optional subject", created(r.posts).length === 2,
+    r.posts);
+  t.check("the safe retry retains all mandatory fields",
     created(r.posts)[1].body.fields.map(f => Number(f.id)).sort((a, b) => a - b).join(",") ===
-      [UNIT, COMPONENT, EMAIL].sort((a, b) => a - b).join(","),
-    created(r.posts)[1].body.fields);
-  t.check("the subtask still exists", r.result.success === true && r.result.subtaskId === 90001, r.result);
-  const rescued = r.posts.find(p => p.body && p.body.text);
-  t.check("and the summary falls back to an internal comment",
-    !!rescued && !rescued.body.channel && /№11613/.test(rescued.body.text), rescued && rescued.body);
+      [UNIT, COMPONENT, EMAIL, MESSAGE].sort((a, b) => a - b).join(","), created(r.posts)[1].body.fields);
+  t.check("the accepted safe retry completes normally", r.result.success === true, r.result);
 
-  // ── A number pinned in config wins over the name ──
-  // The escape hatch for a form whose field is named unexpectedly.
+  r = await run({
+    onPost: a => { if (/\/tasks$/.test(a.url)) { const e = new Error("pyrus 400"); e.status = 400; throw e; } return { body: {} }; }
+  });
+  t.check("two explicit rejections leave no subtask", r.result.success === false && !r.state.subtaskId, r.result);
+  t.check("a definitive rejection releases the claim for a corrected later attempt",
+    r.state.subtaskClaim === null && r.state.subtaskIntegrity === null, r.state);
+
+  r = await run({ onPost: a => (/\/tasks$/.test(a.url) ? { body: { task: { id: 90001 } } } : { body: {} }) });
+  t.check("a sparse create response is verified with one child GET",
+    r.result.success === true && r.gets.some(g => /tasks\/90001$/.test(g.url)), { result: r.result, gets: r.gets });
+
+  r = await run({
+    onPost: a => (/\/tasks$/.test(a.url)
+      ? { body: { task: { id: 90001, form_id: 1096731, parent_task_id: 777 } } }
+      : { body: {} }),
+    childTask: { id: 90001, form_id: 1096731, parent_task_id: 777, fields: messageWithMarker() }
+  });
+  t.check("an unconfirmed native parent relation never closes the chat",
+    r.result.success === false && r.result.subtaskId === 90001 && r.state.subtaskIntegrity === "unconfirmed_parent", r.result);
+
+  r = await run({ state: { subtaskRequestKey: null } });
+  t.check("missing idempotency scope fails closed before creation",
+    r.result.success === false && created(r.posts).length === 0, r.result);
+
   r = await run({ config: { subtaskFormId: 1096731, unitFieldId: 777 } });
-  t.check("a pinned field id overrides the one found by name",
+  t.check("a field id pinned in config overrides name resolution",
     created(r.posts)[0].body.fields.some(f => Number(f.id) === 777) &&
-    !created(r.posts)[0].body.fields.some(f => Number(f.id) === UNIT),
-    created(r.posts)[0].body.fields);
+    !created(r.posts)[0].body.fields.some(f => Number(f.id) === UNIT), created(r.posts)[0].body.fields);
 
-  // The nesting of a form definition is documented worse than that of a task, so both
-  // plausible shapes are accepted rather than guessed at.
   r = await run({
     formFields: [
       { id: 35, type: "catalog", name: "Юнит" },
       { id: 28, type: "catalog", name: "Компонент" },
-      { id: 41, type: "title", name: "Контакты", value: { fields: [{ id: 44, type: "email", name: "Эл. почта" }] } }
+      { id: 41, type: "title", name: "Контакты", value: { fields: [{ id: 44, type: "email", name: "Эл. почта" }] } },
+      { id: 48, type: "text", name: "Сообщение" }
     ]
   });
-  t.check("a form that nests under value.fields resolves just as well",
+  t.check("value.fields nesting is resolved too",
     created(r.posts)[0].body.fields.some(f => Number(f.id) === EMAIL), created(r.posts)[0].body.fields);
 
-  // Nothing to fall back to when the optional fields are not on the form at all.
-  r = await run({
-    formFields: [
-      { id: 35, type: "catalog", name: "Юнит" },
-      { id: 28, type: "catalog", name: "Компонент" },
-      { id: 44, type: "email", name: "Эл. почта" }
-    ]
-  });
-  const commented = r.posts.find(p => p.body && p.body.text);
-  t.check("no message field on the form: the summary goes into a comment",
-    !!commented && /Доступы/.test(commented.body.text), commented && commented.body);
+  r = await run({ formFields: [
+    { id: 35, type: "catalog", name: "Юнит" },
+    { id: 28, type: "catalog", name: "Компонент" },
+    { id: 44, type: "email", name: "Эл. почта" }
+  ] });
+  t.check("a form without mandatory «Сообщение» creates nothing",
+    r.result.success === false && created(r.posts).length === 0, r.result);
 
-  // ── The mandatory three cannot be guessed ──
-  // Pyrus rejects a creation with a wrong field id whole, not partially, so sending «what we
-  // have» would cost the request. The graph turns this failure into a handover, and the log
-  // above has already listed every field of the form.
   r = await run({ formFields: [{ id: 1, type: "note", name: "ㅤ" }] });
-  t.check("a form without the mandatory fields creates nothing",
-    r.result.success === false && created(r.posts).length === 0, r.result);
-  t.check("and says which form could not be read",
-    /1096731/.test(String(r.result.reason)), r.result.reason);
-  t.check("it is not mistaken for a request for the email", r.result.action !== "clarify", r.result);
+  t.check("unknown mandatory fields are never guessed",
+    r.result.success === false && created(r.posts).length === 0 && /1096731/.test(r.result.reason), r.result);
 
-  // The form request itself failing must not look like «no such field».
   r = await run({ formFields: null });
-  t.check("an unreadable form definition also refuses instead of guessing",
+  t.check("an unreadable form definition refuses instead of guessing",
     r.result.success === false && created(r.posts).length === 0, r.result);
 
-  // ── Missing facts ──
   r = await run({ state: { data: { unitFullName: facts.unitFullName, componentName: facts.componentName } } });
-  t.check("no email: the partner is asked instead of creating a broken subtask",
+  t.check("missing email asks the partner before any Pyrus call",
     r.result.action === "clarify" && created(r.posts).length === 0, r.result);
 
   r = await run({ state: { data: { email: "p@x.ru" } } });
-  t.check("no unit or component: nothing is created",
+  t.check("missing unit or component creates nothing",
     r.result.success === false && created(r.posts).length === 0, r.result);
 
-  r = await run({ state: { runtime: {} } });
-  t.check("no token: fails loudly instead of guessing",
-    r.result.success === false && /token/.test(r.result.reason), r.result);
+  const noTokenEnv = buildEnv({ state: { runtime: { role: "chat" } } });
+  noTokenEnv.Context.getMessageContent = () => ({ payload: {} });
+  const noToken = await createSubtask(noTokenEnv);
+  t.check("missing token fails loudly instead of guessing",
+    noToken.success === false && /token/.test(noToken.reason), noToken);
 
-  // ── Pyrus answers without an id ──
   r = await run({ onPost: a => (/\/tasks$/.test(a.url) ? { body: {} } : { body: {} }) });
-  t.check("creation without task.id is a failure, not a silent success",
-    r.result.success === false, r.result);
-  t.check("no subtaskId is written when creation failed", !r.state.subtaskId, r.state);
+  t.check("a response without task.id is an ambiguous failure, not success",
+    r.result.success === false && r.result.uncertain === true && !r.state.subtaskId, r.result);
 
   return t.report();
 }

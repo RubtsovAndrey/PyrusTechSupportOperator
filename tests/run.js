@@ -10,9 +10,10 @@ const { ROOT } = require("./harness");
 const SUITES = [
   "./receivewebhook.test.js", "./finalize.test.js", "./parseagentjson.test.js",
   "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
-  "./pos-terminal-catalog.test.js", "./cash-dialog.test.js", "./routing-catalog.test.js", "./routing.test.js",
+  "./pos-terminal-catalog.test.js", "./cash-dialog.test.js", "./ratings-dialog.test.js", "./routing-catalog.test.js", "./routing.test.js",
   "./getknowledgemcp.test.js", "./operator-knowledge.test.js", "./kbarticle.test.js", "./synckb.test.js",
   "./knowledge-validation.test.js",
+  "./mvp-eval-cases.test.js",
   "./live-trace.test.js",
   // Идёт последним: остальные наборы проверяют функции поштучно, этот — разговор целиком,
   // и по упавшей проверке здесь при зелёных выше сразу видно, что дело в графе, а не в коде.
@@ -27,7 +28,7 @@ const FUNCTION_PARAMS = {
   "functions/ID_Tools/parseAgentJson/code.js": ["stage"],
   "functions/ID_Tools/searchKnowledge/code.js": ["query", "topicKey", "branch", "answers"],
   "functions/ID_Tools/matchUnit/code.js": ["query", "scope"],
-  "functions/ID_Tools/getKnowledgeMcp/code.js": ["query", "spaceIds", "limit"]
+  "functions/ID_Tools/getKnowledgeMcp/code.js": ["query", "spaceIds", "limit", "topicKey"]
 };
 
 function walk(dir, out) {

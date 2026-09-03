@@ -567,6 +567,11 @@ node tools/kb-publish.js <ключ> --write --status published     # опубл�
 
 ## Тема 5. Не приняли апелляцию по рейтингу
 
+> Этот раздел — старый пример синтаксиса, а не активное правило MVP. Все вопросы о РКО и
+> Рейтинге стандартов теперь объединены в
+> `docs/knowledge/topics/ratings_questions.json`; отдельный ключ
+> `rating_appeal_rejected` не должен возвращаться в рабочий каталог.
+
 ```json
 {
   "key": "rating_appeal_rejected",

@@ -55,7 +55,7 @@ const LEVEL_FIELDS = ["article", "steps", "nodes", "solverInstruction"];
 // бы в конец объекта и дал дифф.
 const FIELD_ORDER = [
   "schema", "key", "description", "phrasings", "businessDomains", "roles",
-  "requiredEvidence", "excludedEvidence", "validation", "route", "start", "onFail",
+  "requiredEvidence", "strongEvidence", "excludedEvidence", "validation", "route", "start", "onFail",
   "article", "solverInstruction", "steps", "nodes"
 ];
 
@@ -253,6 +253,21 @@ function describeTopic(topic) {
       out.push("### " + id + (String(t.start) === id ? " (начало)" : ""));
       out.push("");
       if (n.advice) out.push(String(n.advice).trim(), "");
+      if (n.externalKnowledge && Array.isArray(n.externalKnowledge.sources)) {
+        out.push("- Ищет ответ только в утверждённых внешних источниках:");
+        n.externalKnowledge.sources.forEach(source => {
+          out.push("  - " + (source.title || source.articleId) + " (`" + source.articleId + "`)");
+        });
+        if (n.externalKnowledge.fallbackNode || n.onFail) {
+          out.push("- Если прямого ответа нет → " + (n.externalKnowledge.fallbackNode || n.onFail));
+        }
+        if (n.externalKnowledge.warning) {
+          out.push("- Добавляет предупреждение: «" + n.externalKnowledge.warning + "»");
+        }
+        if (n.externalKnowledge.followUpQuestion) {
+          out.push("- После ответа спрашивает: " + n.externalKnowledge.followUpQuestion);
+        }
+      }
       (Array.isArray(n.ask) ? n.ask : []).forEach(q => {
         if (q && q.question) out.push("- Спрашивает: " + q.question);
       });

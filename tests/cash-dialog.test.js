@@ -149,7 +149,7 @@ async function main() {
     { unit: "Тамбов-1" }
   );
   t.check("a ticket cannot execute the first-line chat policy",
-    r.stage === "escalated" && !/ИНН/.test(r.replies.join(" ")) && r.internal.length === 1, r);
+    r.kind === "skipped" && r.agents.length === 0 && r.replies.length === 0 && r.internal.length === 0, r);
 
   bot = chat({ config: { forms: { "77": { role: "chat", knowledgeExecution: "handover_only" } } } });
   r = await bot.turn(

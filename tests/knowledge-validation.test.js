@@ -53,6 +53,22 @@ async function main() {
   });
   t.check("a changed source is rejected until a new review",
     changed.checks.some(row => !row[1]), changed.checks);
+
+  const wholeArticleTopic = JSON.parse(JSON.stringify(topic));
+  delete wholeArticleTopic.validation.source.sectionHeading;
+  delete wholeArticleTopic.validation.source.sectionSha256;
+  wholeArticleTopic.validation.source.contentSha256 = sha256(content);
+  const wholeArticleReport = inspect(wholeArticleTopic, {
+    id: "source-1", title: "Касса: устранение ошибок", updatedAt: "2026-09-03", content: content
+  });
+  t.check("an article without stable headings can pin its complete text",
+    wholeArticleReport.checks.every(row => row[1]), wholeArticleReport.checks);
+  const wholeArticleChanged = inspect(wholeArticleTopic, {
+    id: "source-1", title: "Касса: устранение ошибок", updatedAt: "2026-09-03",
+    content: content + "\nНовая строка"
+  });
+  t.check("complete-text validation detects content drift",
+    wholeArticleChanged.checks.some(row => !row[1]), wholeArticleChanged.checks);
   t.check("normalisation produces compact reviewer-friendly text",
     normalizeText("a\u00a0 b\n\n\n c") === "a b\n\nc", normalizeText("a\u00a0 b\n\n\n c"));
   return t.report();

@@ -87,6 +87,10 @@ function normalizeNodes(t) {
       // selected branch must also be supported by the partner's current message using
       // the article's own `when` phrases.  Otherwise the question is asked again.
       requireBranchEvidence: n.requireBranchEvidence === true,
+      // A retry question must consume a new partner message. Without this flag, the tree's
+      // normal multi-hop optimisation can apply the same «не знаю» to both the first and
+      // second clarification and hand over after asking only once.
+      requireFreshTurn: n.requireFreshTurn === true,
       "else": n["else"] ? String(n["else"]) : null,
       go: n.go ? String(n.go) : null,
       end: END_KINDS.indexOf(String(n.end || "")) >= 0 ? String(n.end) : null,
@@ -99,6 +103,22 @@ function normalizeNodes(t) {
         mode: String(n.knowledgeRef.mode || ""),
         articleIds: (Array.isArray(n.knowledgeRef.articleIds) ? n.knowledgeRef.articleIds : [])
           .filter(Boolean).map(String)
+      } : null,
+      // Dynamic factual content may live in a separate corporate KB. This policy node
+      // declares only an allowlist and a fallback; getKnowledgeMcp performs the actual
+      // search/read/link flow and issues the one-turn solution permission.
+      externalKnowledge: n.externalKnowledge && typeof n.externalKnowledge === "object" ? {
+        sources: (Array.isArray(n.externalKnowledge.sources) ? n.externalKnowledge.sources : [])
+          .filter(s => s && s.articleId && s.spaceId)
+          .map(s => ({
+            articleId: String(s.articleId),
+            spaceId: String(s.spaceId),
+            title: s.title ? String(s.title) : null,
+            reviewedUpdatedAt: s.reviewedUpdatedAt ? String(s.reviewedUpdatedAt) : null
+          })),
+        fallbackNode: n.externalKnowledge.fallbackNode ? String(n.externalKnowledge.fallbackNode) : null,
+        warning: n.externalKnowledge.warning ? String(n.externalKnowledge.warning) : null,
+        followUpQuestion: n.externalKnowledge.followUpQuestion ? String(n.externalKnowledge.followUpQuestion) : null
       } : null
     };
   });
@@ -243,6 +263,27 @@ function topicScopeMismatch(topic) {
   }
   if (runtime.role && roles.length && roles.indexOf(String(runtime.role)) < 0) {
     return "статья разрешена для роли " + roles.join(", ") + ", а форма имеет роль " + runtime.role;
+  }
+  return null;
+}
+
+// Prepared partner-facing scenarios in the MVP are approved only for Russian-language
+// requests from Russian units. This gate is deliberately outside the topic catalog: an
+// article may describe its business domains, but it cannot grant itself a wider rollout.
+// With no unit yet the working assumption remains RF; a validated foreign domain revokes
+// it immediately. General KB search for the operator is a separate function and remains
+// available after this gate refuses self-service.
+function automationRestriction() {
+  const state = loadState();
+  const data = state.data || {};
+  const runtime = state.runtime || {};
+  const language = String(data.partnerLanguage || "").toLowerCase();
+  if (runtime.languageGuard === "non_ru" || (!!language && language !== "ru")) {
+    return "нерусский язык обращения: подготовленные сценарии MVP не исполняются";
+  }
+  const domain = businessDomainOf(data.unitFullName);
+  if (domain && !/\.ru$/.test(domain)) {
+    return "юнит относится к " + domain + ": подготовленные сценарии MVP разрешены только для РФ";
   }
   return null;
 }
@@ -628,6 +669,16 @@ function refuseUnsupportedBranchAnswers(given, topic) {
 // step at a time. Handing over the whole article invited the model to dump every
 // variant in a single reply, which left nothing to try when the partner said the
 // first one had not helped.
+const automationBlocked = automationRestriction();
+if (automationBlocked) {
+  patchData({ treeEnd: "escalate", handoverReason: automationBlocked });
+  Log.warn({ message: "searchKnowledge: self-service refused on task " + taskId + ": " + automationBlocked });
+  return {
+    found: false, topics: [], source: "mvp-automation-boundary", turnKind: "handover",
+    treeEnd: "escalate", onFail: "escalate", handoverReason: automationBlocked
+  };
+}
+
 if (topicKey) {
   const wanted = String(topicKey).toLowerCase();
   const exact = catalogTopics.filter(t => String(t.key || "").toLowerCase() === wanted);
@@ -767,6 +818,21 @@ if (topicKey) {
       // partner who says everything in his first message reaches the end of the article at
       // once. It stops the moment a node has something left to ask or leaves any doubt.
       for (let hop = 0; hop < MAX_HOPS; hop++) {
+        if (target.requireFreshTurn && target.id !== atId) {
+          const runtime = loadState().runtime || {};
+          const fresh = {};
+          target.ask.forEach(q => {
+            delete known[q.key];
+            fresh["treeAnswers." + q.key] = null;
+          });
+          fresh.suppressAnswerKeys = target.ask.map(q => q.key).join(",");
+          fresh.suppressAnswerCommentId = runtime.incomingCommentId == null
+            ? null : String(runtime.incomingCommentId);
+          patchData(fresh);
+          Log.info({ message: "searchKnowledge: node " + target.id + " of " + topic.key +
+            " requires a fresh partner turn; current words are not reused" });
+          break;
+        }
         // ── The question the partner has already answered, unasked ──
         // The node asks «что именно нужно изменить в карточке» and its branches are named
         // «аватарка / фото / фотография / аватар». The partner had written «нам нужно
@@ -998,6 +1064,29 @@ if (topicKey) {
           operatorHintPrepared: true,
           followUpQuestion: null,
           treeAnswers: known
+        };
+      }
+
+      // No canned answer is returned here. The solver must call getKnowledgeMcp, which
+      // filters to the node's approved source IDs and reads the selected material before
+      // any partner-facing solution becomes authorised.
+      if (target.externalKnowledge && target.externalKnowledge.sources.length) {
+        patch.treeNext = target.externalKnowledge.fallbackNode || target.onFail || null;
+        patchData(patch);
+        Log.info({ message: "searchKnowledge: topic " + topic.key +
+          " requests approved external knowledge at node " + target.id });
+        return {
+          found: true,
+          source: "external-knowledge-request",
+          turnKind: "external-knowledge-request",
+          key: topic.key,
+          description: topic.description,
+          componentName: component,
+          treeNode: target.id,
+          fallbackNode: target.externalKnowledge.fallbackNode || target.onFail || null,
+          externalSourceCount: target.externalKnowledge.sources.length,
+          solverInstruction: null,
+          followUpQuestion: null
         };
       }
 
@@ -1239,11 +1328,19 @@ const phraseEvidence = phraseTokens.map(list => list.reduce((best, phrase) => {
   const hits = queryTokens.filter(q => hasToken(phrase, q)).length;
   return Math.max(best, hits);
 }, 0));
+// A short but domain-unique token can be a complete routing signal. The generic
+// two-word floor correctly rejects broad words such as «касса» or «рейтинг», but it also
+// rejected «РКО» in a detailed question because no second routing word was present. The
+// exception is article-owned and explicit: adding a strong token requires a reviewed
+// knowledge change, while the code remains independent of concrete topics.
+const strongEvidence = topics.map(t => (Array.isArray(t.strongEvidence) ? t.strongEvidence : [])
+  .some(option => evidenceOptionMatches(words(query), option)));
 
 function topicsFromWords() {
   return topics
     .map((t, i) => ({ topic: t, score: known.filter(q => hasToken(haystacks[i], q)).length / denominator }))
-    .filter((r, i) => r.score >= MIN_SCORE && phraseEvidence[i] >= requiredPhraseMatches)
+    .filter((r, i) => r.score >= MIN_SCORE &&
+      (phraseEvidence[i] >= requiredPhraseMatches || strongEvidence[i]))
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_TOPICS);
 }
