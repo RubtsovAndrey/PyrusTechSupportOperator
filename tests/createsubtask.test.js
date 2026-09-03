@@ -31,7 +31,7 @@ function state(over) {
   }, over || {});
 }
 
-const CONFIG = { subtaskFormId: 1096731, subtaskClaimTtlMs: 120000 };
+const CONFIG = { subtaskFormId: 2454249, subtaskClaimTtlMs: 120000 };
 
 // Live-like form shape. A copied form renumbers all of these fields, so production code
 // resolves exact names and never assumes the ids of another form.
@@ -55,14 +55,14 @@ const FORM_FIELDS = [
   ] }
 ];
 const UNIT = 35, COMPONENT = 28, EMAIL = 44, SUBJECT = 47, MESSAGE = 48;
-const CREATED = { body: { task: { id: 90001, form_id: 1096731, parent_task_id: 11613 } } };
+const CREATED = { body: { task: { id: 90001, form_id: 2454249, parent_task_id: 11613 } } };
 
 function messageWithMarker(text) {
   return [{ id: MESSAGE, value: String(text || "Сводка") + "\n\nИдентификатор обращения ИИ: " + REQUEST_KEY }];
 }
 
 function defaultGet(o, a) {
-  if (/\/forms\/1096731$/.test(a.url)) {
+  if (/\/forms\/2454249$/.test(a.url)) {
     return o.formFields === null ? { body: {} } : { body: { fields: o.formFields || FORM_FIELDS } };
   }
   if (/\/tasks\/11613$/.test(a.url)) {
@@ -72,7 +72,7 @@ function defaultGet(o, a) {
   if (child) {
     const id = Number(child[1]);
     return { body: { task: o.childTask || {
-      id: id, form_id: 1096731, parent_task_id: 11613, fields: messageWithMarker()
+      id: id, form_id: 2454249, parent_task_id: 11613, fields: messageWithMarker()
     } } };
   }
   return { body: {} };
@@ -125,7 +125,7 @@ async function main() {
 
   r = await run({
     state: { subtaskId: 90002, subtaskIntegrity: "unconfirmed_parent" },
-    childTask: { id: 90002, form_id: 1096731, parent_task_id: 777, fields: messageWithMarker() }
+    childTask: { id: 90002, form_id: 2454249, parent_task_id: 777, fields: messageWithMarker() }
   });
   t.check("an id linked to another parent blocks duplication and parent closing",
     r.result.success === false && r.result.duplicateBlocked === true && created(r.posts).length === 0, r.result);
@@ -138,7 +138,7 @@ async function main() {
 
   // No parent-link field exists or is needed. Native parent_task_id is part of the same
   // atomic Pyrus request that creates the subtask.
-  r = await run({ config: { subtaskFormId: 1096731 } });
+  r = await run({ config: { subtaskFormId: 2454249 } });
   t.check("no custom parent field is required", r.result.success === true, r.result);
   const create = created(r.posts)[0];
   t.check("creation carries the native parent_task_id", create.body.parent_task_id === 11613, create.body);
@@ -188,7 +188,7 @@ async function main() {
   r = await run({
     state: { subtaskClaim: "old", subtaskClaimAt: Date.now() - 300000 },
     parentTask: { id: 11613, linked_task_ids: [90011] },
-    childTask: { id: 90011, form_id: 1096731, parent_task_id: 11613, fields: messageWithMarker("Уже создано") }
+    childTask: { id: 90011, form_id: 2454249, parent_task_id: 11613, fields: messageWithMarker("Уже создано") }
   });
   t.check("a stale claim recovers the matching native child instead of recreating it",
     r.result.recovered === true && r.result.subtaskId === 90011 && created(r.posts).length === 0, r.result);
@@ -227,7 +227,7 @@ async function main() {
   r = await run({
     onPost: a => { if (/\/tasks$/.test(a.url)) throw new Error("pyrus 500 after accept"); return { body: {} }; },
     parentTask: { id: 11613, linked_task_ids: [90012] },
-    childTask: { id: 90012, form_id: 1096731, parent_task_id: 11613, fields: messageWithMarker("Принято") }
+    childTask: { id: 90012, form_id: 2454249, parent_task_id: 11613, fields: messageWithMarker("Принято") }
   });
   t.check("a lost HTTP response is recovered through native linked_task_ids and the marker",
     r.result.success === true && r.result.recovered === true && r.result.subtaskId === 90012, r.result);
@@ -264,9 +264,9 @@ async function main() {
 
   r = await run({
     onPost: a => (/\/tasks$/.test(a.url)
-      ? { body: { task: { id: 90001, form_id: 1096731, parent_task_id: 777 } } }
+      ? { body: { task: { id: 90001, form_id: 2454249, parent_task_id: 777 } } }
       : { body: {} }),
-    childTask: { id: 90001, form_id: 1096731, parent_task_id: 777, fields: messageWithMarker() }
+    childTask: { id: 90001, form_id: 2454249, parent_task_id: 777, fields: messageWithMarker() }
   });
   t.check("an unconfirmed native parent relation never closes the chat",
     r.result.success === false && r.result.subtaskId === 90001 && r.state.subtaskIntegrity === "unconfirmed_parent", r.result);
@@ -275,7 +275,7 @@ async function main() {
   t.check("missing idempotency scope fails closed before creation",
     r.result.success === false && created(r.posts).length === 0, r.result);
 
-  r = await run({ config: { subtaskFormId: 1096731, unitFieldId: 777 } });
+  r = await run({ config: { subtaskFormId: 2454249, unitFieldId: 777 } });
   t.check("a field id pinned in config overrides name resolution",
     created(r.posts)[0].body.fields.some(f => Number(f.id) === 777) &&
     !created(r.posts)[0].body.fields.some(f => Number(f.id) === UNIT), created(r.posts)[0].body.fields);
@@ -301,7 +301,7 @@ async function main() {
 
   r = await run({ formFields: [{ id: 1, type: "note", name: "ㅤ" }] });
   t.check("unknown mandatory fields are never guessed",
-    r.result.success === false && created(r.posts).length === 0 && /1096731/.test(r.result.reason), r.result);
+    r.result.success === false && created(r.posts).length === 0 && /2454249/.test(r.result.reason), r.result);
 
   r = await run({ formFields: null });
   t.check("an unreadable form definition refuses instead of guessing",

@@ -94,7 +94,7 @@
     "confirmationQuestion": "Эта информация помогла решить ваш вопрос?"
   },
   "subtask": {
-    "formId": 1096731,
+    "formId": 2454249,
     "requiredFacts": ["unitFullName", "problemSummary", "expectedResult", "email"],
     "optionalFacts": ["ratingPeriod", "inspectionDate", "criterionOrViolation", "appealSubmitted", "appealDate", "appealStatus"],
     "maxClarificationsPerRequiredBlock": 2,
@@ -114,7 +114,7 @@
     "status": "approved_for_implementation",
     "approvedAt": "2026-09-03",
     "blockers": [
-      "проверить поля и связь формы 1096731 на тестовой задаче"
+      "проверить поля и связь тестовой формы 2454249"
     ]
   }
 }

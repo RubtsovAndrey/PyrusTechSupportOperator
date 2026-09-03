@@ -46,12 +46,12 @@ const BOT_AUTHOR_IDS = (Array.isArray(CONFIG.botAuthorIds) && CONFIG.botAuthorId
 // (`config.subtaskFormId`) — so the bot would start receiving events for the escalations it
 // had just handed to the first line, and answer a colleague as if he were the partner.
 //
-// MVP works in one chat form only. `config.forms` may narrow or explicitly configure the
-// same permission, but an absent config must not turn an accidentally connected webhook
-// into permission to answer every Pyrus form. Form 1096731 is a CREATE target for subtasks,
+// This repository is attached to the isolated test copies of the Pyrus forms. `config.forms`
+// may narrow or explicitly configure the same permission, but an absent config must never
+// fall through to the production chat. Form 2454249 is a CREATE target for test subtasks,
 // never an inbound work queue.
 const DEFAULT_FORM_ROLES = {
-  "1165239": { role: "chat", knowledgeExecution: "handover_only" }
+  "2430464": { role: "chat", environment: "test", knowledgeExecution: "handover_only" }
 };
 const FORM_ROLES = (CONFIG.forms && typeof CONFIG.forms === "object")
   ? CONFIG.forms

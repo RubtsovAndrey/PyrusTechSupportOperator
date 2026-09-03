@@ -17,7 +17,7 @@ function payload(comments, overrides) {
     event: "comment",
     access_token: "t",
     api_url: "https://api.pyrus.com/v4/",
-    task: { id: 11613, form_id: 1165239, fields: [], comments: comments }
+    task: { id: 11613, form_id: 2430464, fields: [], comments: comments }
   }, overrides || {});
 }
 
@@ -108,8 +108,8 @@ async function main() {
   // `runtime.formId` was written and never read, so every webhook was a chat. Safe with the
   // webhook on one form; not safe the moment it is registered on the ticket form, because
   // that is also the form the bot creates its own subtasks on.
-  const CHAT_FORM = 1165239;
-  const TICKET_FORM = 1096731;
+  const CHAT_FORM = 2430464;
+  const TICKET_FORM = 2454249;
   const BOT_APPROVER = { current_step: 1, approvals: [[{ person: BOT, step: 1, approval_choice: "waiting" }]] };
   const FIRST_LINE_APPROVER = { current_step: 1, approvals: [[{ person: OPERATOR, step: 1, approval_choice: "waiting" }]] };
 
@@ -129,13 +129,18 @@ async function main() {
     return { result: await receiveWebhook(env), state: env.db[KEY], notes: env.notes };
   }
 
-  // An absent config still permits only the production chat form, in handover-only mode.
+  // An absent config still permits only the isolated test chat form, in handover-only mode.
   r = await run([{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }], {});
-  t.check("with no forms configured the production chat is accepted",
+  t.check("with no forms configured only the test chat is accepted",
     r.result.skip === false && r.result.stage === "intake", r.result);
   t.check("and the role is recorded for the rest of the graph", r.state.runtime.role === "chat", r.state.runtime);
   t.check("without an explicit form permission managed answers fail closed",
     r.state.runtime.knowledgeExecution === "handover_only", r.state.runtime);
+
+  r = await run([{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }], {},
+    { task: { id: 11613, form_id: 1165239, fields: [], comments: [{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }] } });
+  t.check("with no config the production chat form is explicitly out of scope",
+    r.result.skip === true && /not one/.test(r.result.reason), r.result);
 
   r = await run([{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }], {},
     { task: { id: 11613, form_id: 77, fields: [], comments: [{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }] } });

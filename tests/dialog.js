@@ -320,7 +320,7 @@ const AGENTS = {
 // ── Разговор ──
 
 const DEFAULT_CONFIG = {
-  subtaskFormId: 1096731,
+  subtaskFormId: 2454249,
   botAuthorIds: [BOT.id],
   forms: { "77": { role: "chat", environment: "test", knowledgeExecution: "partner_answer" } },
   unitFieldId: 35, componentFieldId: 28, emailFieldId: 44,

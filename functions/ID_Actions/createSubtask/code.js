@@ -4,8 +4,9 @@ const DB_ID = "1000299722-pyrus_bot_database-hul";
 // without touching code. The defaults keep the bot working on an empty database.
 // `subjectFieldId` and `messageFieldId` are the «Тема» and «Сообщение» fields of the section
 // «Входные данные»: that is where the first line looks for the request itself.
-// По умолчанию используется единственная форма подзадач MVP — 1096731. Тестовая копия
-// задаётся через документ `config`, поэтому тестовый rollout не требует править код.
+// Этот репозиторий целиком тестовый, поэтому безопасный default — копия формы тикетов
+// 2454249. Продовая форма 1096731 может быть включена только отдельной конфигурацией
+// другого, продуктивного проекта; этот тестовый проект не должен писать в неё при пустой БД.
 //
 // ── Почему номеров полей здесь больше нет ──
 // Раньше здесь стояли `unitFieldId: 97, componentFieldId: 36, emailFieldId: 5,
@@ -19,7 +20,7 @@ const DB_ID = "1000299722-pyrus_bot_database-hul";
 // «Юнит» и «Компонент» в отвечаемой задаче. Номер в `config` по-прежнему побеждает, если
 // поле придётся приколотить вручную.
 const DEFAULTS = {
-  subtaskFormId: 1096731,
+  subtaskFormId: 2454249,
   unitFieldId: null, componentFieldId: null, emailFieldId: null,
   subjectFieldId: null, messageFieldId: null,
   // A claim is kept briefly when Pyrus may have accepted a request whose HTTP response

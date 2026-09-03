@@ -3,8 +3,8 @@
   "status": "approved",
   "description": "Обезличенный эталонный набор решений MVP. Тексты синтетические и отражают повторяющиеся интенты выгрузок за август 2026 года, но не являются цитатами из задач.",
   "forms": {
-    "chat": 1165239,
-    "subtask": 1096731
+    "chat": 2430464,
+    "subtask": 2454249
   },
   "unitCatalog": {
     "ru_1": "[dodopizza.ru] Тестоград-1 (Тестовая улица, 1)",
@@ -367,7 +367,7 @@
     {"id":"language-009","group":"language","title":"Нейтральное начало сменяется английским описанием","profile":"foreign_handover","messages":["Hello","The delivery register freezes when closing a receipt","I cannot confirm the unit right now"],"expect":{"partnerLanguage":"en","forbidPartnerFacingRussian":true}},
     {"id":"language-010","group":"language","title":"Английский код ошибки внутри русского текста не меняет язык","profile":"cash_restaurant_solved","messages":["Тестоград-1, касса ресторана пишет Failed to load page: ERR_NAME_NOT_RESOLVED","Да, помогло"],"services":{"knowledge":"approved_answer"}},
 
-    {"id":"resilience-001","group":"resilience","title":"Входящий тикет не обрабатывается","profile":"ignored","messages":["Тестоград-1, вопрос по РКО"],"context":{"formId":1096731}},
+    {"id":"resilience-001","group":"resilience","title":"Входящий тикет не обрабатывается","profile":"ignored","messages":["Тестоград-1, вопрос по РКО"],"context":{"formId":2454249}},
     {"id":"resilience-002","group":"resilience","title":"Переоткрытый чат тихо передаётся оператору","profile":"reopened_handover","messages":["Вопрос снова актуален"],"context":{"reopened":true,"presetUnit":"ru_1"}},
     {"id":"resilience-003","group":"resilience","title":"Вложение передаётся без анализа","profile":"attachment_handover","messages":["Тестоград-1, ошибка на экране, прикладываю фотографию"],"context":{"attachments":["synthetic-image.png"]}},
     {"id":"resilience-004","group":"resilience","title":"Повторный webhook не публикует второй ответ","profile":"cash_restaurant_solved","messages":["Тестоград-1, ошибка 148 на кассе ресторана","Да, помогло"],"context":{"delivery":"duplicate_same_event"},"services":{"knowledge":"approved_answer"},"expect":{"maxPartnerRepliesPerInbound":1}},

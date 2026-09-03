@@ -109,8 +109,8 @@ async function main() {
 
   t.check("версия формата зафиксирована", data.version === 1, data.version);
   t.check("статус набора известен", ["draft_owner_review", "approved"].indexOf(data.status) >= 0, data.status);
-  t.check("обрабатывается только форма чатов", data.forms && data.forms.chat === 1165239, data.forms);
-  t.check("подзадача создаётся только в форме тикетов", data.forms && data.forms.subtask === 1096731, data.forms);
+  t.check("обрабатывается только тестовая форма чатов", data.forms && data.forms.chat === 2430464, data.forms);
+  t.check("подзадача создаётся только в тестовой форме тикетов", data.forms && data.forms.subtask === 2454249, data.forms);
   t.check("в наборе ровно 100 кейсов", Array.isArray(data.cases) && data.cases.length === 100,
     data.cases && data.cases.length);
 
