@@ -458,6 +458,13 @@ const done = {
   "updatedAt": Date.now()
 };
 if (outcome.nextStage) done["stage"] = outcome.nextStage;
+// Only a successfully posted article question may consume the partner's retry budget.
+// searchKnowledge used to mark the node while merely preparing a reply; a newer inbound
+// message could supersede that run, leaving the partner charged for a question never sent.
+if (outcome.nextStage === "awaiting_answers" && outcome.replyText && outcome.askedTreeNode) {
+  done["data.treeDeliveredQuestionNode"] = String(outcome.askedTreeNode);
+  done["data.treeDeliveredQuestionCommentId"] = processedId || null;
+}
 // createSubtask keeps ownership through the Pyrus write above. Clearing it together with
 // lastProcessedCommentId closes the narrow race in which another delivery sees an already
 // created child while the first run has not closed the parent yet. If the post failed we

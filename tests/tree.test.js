@@ -140,6 +140,21 @@ const CATALOG = {
         preQuestions: [{ key: "scope", label: "Где тормозит", question: "на всех устройствах или только на одном" }],
         steps: [{ instruction: "Обновите страницу." }],
         onFail: "escalate"
+      },
+      // A one-question terminal reproduces the ratings collection boundary without
+      // depending on the editable production catalog.
+      {
+        key: "direct_subtask",
+        description: "собрать результат и создать подзадачу",
+        start: "collect",
+        onFail: "escalate",
+        nodes: {
+          collect: {
+            ask: [{ key: "expectedResult", question: "какой результат ожидаете" }],
+            end: "subtask",
+            componentName: "Контроллинг"
+          }
+        }
       }
     ]
   }
@@ -558,6 +573,60 @@ async function main() {
   t.check("one answer found in the chat leaves only the other to ask",
     r.turnKind === "questions" && r.preQuestions.length === 1 &&
     JSON.stringify(r.answerKeys) === JSON.stringify(["changeKind"]), r);
+
+  // ── Вопрос считается заданным только после доставки ──
+  // In the live ratings chat the partner wrote again four seconds later. finalize dropped
+  // the stale reply, but searchKnowledge had already charged the unanswered-question
+  // counter. The final, perfectly clear answer then hit the limit before the solver could
+  // extract it.
+  d = dialog();
+  d.state.data.topicKey = "direct_subtask";
+  r = await d.search("direct_subtask");
+  t.check("a prepared question advertises the subtask email requirement",
+    r.turnKind === "questions" && r.subtaskEmailRequired === true &&
+    r.subtaskEmailMissing === true, r);
+  t.check("search preparation alone does not claim the question was delivered",
+    !d.data.treeDeliveredQuestionNode, d.data);
+
+  d.say("Почта нужна?");
+  r = await d.search("direct_subtask", null, "{}");
+  t.check("a message following a superseded question consumes no no-answer attempt",
+    r.turnKind === "questions" && d.data.treeSilent === 0 && !r.finalAnswerChance,
+    { result: r, data: d.data });
+
+  // Now the question really reaches Pyrus; finalize owns this marker in production.
+  d.data.treeDeliveredQuestionNode = "collect";
+  d.state.stage = "awaiting_answers";
+  d.say("Сейчас уточню");
+  r = await d.search("direct_subtask", null, "{}");
+  t.check("the first non-answer after a delivered question is reasked once",
+    r.turnKind === "questions" && d.data.treeSilent === 1 && r.reasked === true, r);
+
+  d.say("Это прошлый рейтинг, ожидаем возврата баллов");
+  r = await d.search("direct_subtask", null, "{}");
+  t.check("the no-answer boundary gives the solver one final extraction pass",
+    r.turnKind === "questions" && r.finalAnswerChance === true &&
+    !d.data.treeEnd && d.data.treeNoAnswerPending === "collect", { result: r, data: d.data });
+  parsed = await d.solver({
+    kind: "questions", replyText: "Какой результат ожидаете?",
+    answers: { expectedResult: "Ожидаем возврата баллов" }
+  });
+  t.check("an answer found after the tool call wins over the no-answer limit",
+    parsed.treeEnd === "subtask" && d.data.treeEnd === "subtask" &&
+    !d.data.handoverReason, { parsed: parsed, data: d.data });
+
+  d = dialog();
+  d.state.stage = "awaiting_answers";
+  d.state.data.topicKey = "direct_subtask";
+  d.state.data.treeNode = "collect";
+  d.state.data.treeDeliveredQuestionNode = "collect";
+  d.state.data.treeSilent = 1;
+  d.say("Не знаю");
+  r = await d.search("direct_subtask", null, "{}");
+  parsed = await d.solver({ kind: "questions", replyText: "Какой результат ожидаете?", answers: {} });
+  t.check("a genuinely unanswered delivered question still hands over at the limit",
+    r.finalAnswerChance === true && parsed.treeEnd === "escalate" &&
+    /дважды/.test(d.data.handoverReason || ""), { result: r, parsed: parsed, data: d.data });
 
   // ── Итог полагается на связный пересказ, а не на обрывки полей ──
   d = dialog();

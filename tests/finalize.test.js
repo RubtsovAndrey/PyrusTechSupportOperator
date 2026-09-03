@@ -138,6 +138,22 @@ async function main() {
     r.state.pendingOutcome !== null, r.state.pendingOutcome);
   t.check("superseded run reports itself", r.result.kind === "superseded", r.result);
 
+  const pendingArticleQuestion = Object.assign({}, clarify, {
+    kind: "clarify_answers",
+    nextStage: "awaiting_answers",
+    askedTreeNode: "standardsCollect"
+  });
+  r = await run({
+    payload: ownPayload(42),
+    db: { [KEY]: state({ pendingOutcome: pendingArticleQuestion, data: { treeNode: "standardsCollect" } }) },
+    onGet: threadWith([
+      { id: 42, author: PARTNER, text: "Передайте в контроллинг", channel: CHAN },
+      { id: 43, author: PARTNER, text: "Почта нужна?", channel: CHAN }
+    ])
+  });
+  t.check("a superseded article question is not marked as delivered",
+    r.result.kind === "superseded" && !r.state.data.treeDeliveredQuestionNode, r.state);
+
   // The bot's own reply is the newest comment in the thread — that is not a supersede.
   r = await run({
     db: { [KEY]: state({ pendingOutcome: clarify }) },
@@ -674,10 +690,15 @@ async function main() {
   // matched no document while both halves were green.
   const round = makeEnv({
     prev: { taskId: "11613", agentStage: "solver", kind: "questions", replyText: "На какое значение поменять?" },
-    db: { [KEY]: state({ stage: "gathering", pendingOutcome: null, data: { topicKey: "employee_change", unitFullName: "Москва 12" } }) },
+    db: { [KEY]: state({ stage: "gathering", pendingOutcome: null, data: {
+      topicKey: "employee_change", treeNode: "phone", unitFullName: "Москва 12"
+    } }) },
     contextValues: { dialog: { taskId: "11613" } }
   });
   await applyOutcome(round, ["clarify_answers", null]);
+  t.check("preparing an article question carries its node only inside the pending outcome",
+    round.db[KEY].pendingOutcome.askedTreeNode === "phone" &&
+    !round.db[KEY].data.treeDeliveredQuestionNode, round.db[KEY]);
 
   const delivering = makeEnv({ prev: { taskId: "11613" }, onGet: UNCHANGED, payload: ownPayload(42), db: round.db });
   const delivered = await finalize(delivering);
@@ -685,6 +706,9 @@ async function main() {
     delivered.success === true && /На какое значение/.test(delivering.posts[0].body.text), delivering.posts.map(p => p.body));
   t.check("and the stage recorded is the article's own",
     delivering.db[KEY].stage === "awaiting_answers", delivering.db[KEY].stage);
+  t.check("only successful delivery commits which article question the partner saw",
+    delivering.db[KEY].data.treeDeliveredQuestionNode === "phone" &&
+    delivering.db[KEY].data.treeDeliveredQuestionCommentId === "42", delivering.db[KEY].data);
 
   // The partner answers. A fresh webhook, the same task document.
   const answering = makeEnv({

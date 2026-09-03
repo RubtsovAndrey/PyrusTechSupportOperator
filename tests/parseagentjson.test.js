@@ -445,7 +445,8 @@ async function main() {
       topicKey: "printer_no_receipt",
       treeNode: "ask_what",
       treeAnswers: { whatToChange: "фамилию" },
-      treeAskedNode: "ask_what",
+      treeDeliveredQuestionNode: "ask_what",
+      treeDeliveredQuestionCommentId: "previous-comment",
       treeHandoverAsked: true,
       offeredStep: { topicKey: "printer_no_receipt", stepNumber: 1 },
       openAnswerPrompts: "whatToChange — что менять"

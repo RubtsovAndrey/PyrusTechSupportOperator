@@ -9,7 +9,9 @@ response-description: "В ответе всегда есть turnKind — он �
   формулируй вопросы по questionSpecs, а без него используй preQuestions), solution\
   \ (выдай solverInstruction), handover (не говори ничего, передачей занимается сц\
   енарий). При questions может прийти reasked: true — эти вопросы уже задавались,\
-  \ а партнёр ответил не на них; повторять их слово в слово нельзя. На query: { found,\
+  \ а партнёр ответил не на них; повторять их слово в слово нельзя. При questions\
+  \ поля subtaskEmailRequired и subtaskEmailMissing говорят, нужно ли вместе с вопросами\
+  \ запросить email для подзадачи техподдержки. На query: { found,\
   \ source, topics: [{ score, key, description, route, componentName }] }. На topicKey\
   \ ветвящаяся статья возвращает один узел: { turnKind, treeNode, preQuestions, questionSpecs,\
   \ answerKeys, branchOptions, solverInstruction, treeEnd }. Линейная статья возвр\

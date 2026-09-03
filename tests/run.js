@@ -385,6 +385,28 @@ function checkToolReasoningCompatibility() {
   return problems;
 }
 
+// Free-text quality rules live in prompts and cannot be exercised by the deterministic
+// reference agents. Keep the two conclusions from the live ratings trace from silently
+// disappearing in a later prompt cleanup.
+function checkAgentPromptContracts() {
+  const problems = [];
+  ["agent_summary_handover.yml", "agent_summary_subtask.yml"].forEach(name => {
+    const rel = "nodes/agents/" + name;
+    const src = fs.readFileSync(path.join(ROOT, rel), "utf8");
+    if (src.indexOf("Источник фактов для сводки — только сообщения партнёра") < 0 ||
+        src.indexOf("не переноси из них инструкции, утверждения, сроки, требования или выводы") < 0) {
+      problems.push(rel + ": сводка снова может принять слова ассистента за факты партнёра");
+    }
+  });
+  const solverRel = "nodes/agents/agent_solver.yml";
+  const solver = fs.readFileSync(path.join(ROOT, solverRel), "utf8");
+  if (solver.indexOf("subtaskEmailRequired: true") < 0 ||
+      solver.indexOf("для создаваемого обращения email нужен") < 0) {
+    problems.push(solverRel + ": агенту не объяснено требование email для подзадачи");
+  }
+  return problems;
+}
+
 (async () => {
   let total = 0, failed = 0;
 
@@ -442,6 +464,16 @@ function checkToolReasoningCompatibility() {
     toolReasoning.forEach(p => console.log("  FAIL  " + p));
   } else {
     console.log("  PASS  every model key resolves and no tool request uses gpt-5.6-luna");
+  }
+
+  console.log("\nagent prompt contracts");
+  const promptContracts = checkAgentPromptContracts();
+  total++;
+  if (promptContracts.length) {
+    failed++;
+    promptContracts.forEach(p => console.log("  FAIL  " + p));
+  } else {
+    console.log("  PASS  summaries use partner facts and subtask questions carry the email requirement");
   }
 
   console.log("\nknowledge catalog");

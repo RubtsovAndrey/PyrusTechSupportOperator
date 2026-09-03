@@ -130,6 +130,40 @@ async function main() {
     c.data.knowledgeOutcome.partnerText === "Нет, нам бы передать специалисту ситуацию, наша почта a@b.ru",
     c.data);
 
+  // A process question is not a question about the KB advice. The support subtask has its
+  // own email requirement, and the last answer must still be extracted when the model
+  // omitted it from the preceding tool call at the no-answer boundary.
+  c = bot("standards", "answer");
+  await c.turn("Тамбов-1, хотим подать апелляцию по рейтингу стандартов", {
+    unit: "Тамбов-1",
+    externalAnswer: "Подайте апелляцию в Pyrus до срока и приложите подтверждения."
+  });
+  r = await c.turn("Обычно их не смотрят, можете отправить обращение в контроллинг?", {
+    status: "failed",
+    answers: {}
+  });
+  t.check("сбор подзадачи одним сообщением спрашивает и результат, и отсутствующий email",
+    r.stage === "awaiting_answers" && /Какой результат/.test(r.replies.join(" ")) &&
+    /email/.test(r.replies.join(" ")), r);
+
+  r = await c.turn("Почта нужна?", { answers: {} });
+  t.check("вопрос о почте относится к подзадаче, а не к самостоятельной апелляции",
+    r.stage === "awaiting_answers" && /нужен email/i.test(r.replies.join(" ")) &&
+    !/не обязательна/i.test(r.replies.join(" ")), r);
+
+  r = await c.turn("Это прошлый рейтинг, ожидаем возврата баллов", {
+    answers: { expectedResult: "Это прошлый рейтинг, ожидаем возврата баллов" },
+    toolAnswers: {}
+  });
+  t.check("ответ на границе лимита всё равно приводит к подзадаче, а не к оператору",
+    r.stage === "awaiting_email" && !r.internal.length &&
+    /email/.test(r.replies.join(" ")), { result: r, data: c.data });
+
+  r = await c.turn("a@b.ru");
+  t.check("после email создаётся ровно одна рейтинговая подзадача",
+    r.kind === "subtask_created" && r.stage === "closed" && !!r.subtaskId &&
+    c.env.posts.filter(p => /\/tasks$/.test(p.url)).length === 1, r);
+
   // Статья прочитана, но конкретный спор ею не закрыт: никаких фиктивных ссылок или
   // вопроса «помогло ли» на витке сбора, затем ровно одна подзадача.
   c = bot("rko", "answer");

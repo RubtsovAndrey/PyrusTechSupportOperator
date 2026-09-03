@@ -744,6 +744,57 @@ if (taskId) {
       }
     }
 
+    // searchKnowledge cannot decide that the partner ignored an article question until
+    // this final model response has been parsed: the model often notices a free-text
+    // answer only after its tool call. `treeNoAnswerPending` is therefore a proposal, not
+    // a terminal. If the current response supplied the missing fact, finish a simple
+    // terminal node now; only a genuinely still-missing answer becomes a handover.
+    if (String(stage || "") === "solver" && data.treeNoAnswerPending) {
+      const pendingNodeId = String(data.treeNoAnswerPending);
+      data.treeNoAnswerPending = null;
+      patch["data.treeNoAnswerPending"] = null;
+
+      const topic = topicByKey(data.topicKey || parsed.topicKey);
+      const nodes = topic && topic.nodes && typeof topic.nodes === "object" ? topic.nodes : null;
+      const node = nodes && nodes[pendingNodeId] ? nodes[pendingNodeId] : null;
+      if (!data.treeEnd && node && String(data.treeNode || "") === pendingNodeId) {
+        const questions = Array.isArray(node.ask) ? node.ask : [];
+        const requiredKeys = questions.map(q => q && q.key ? String(q.key) : "").filter(Boolean);
+        const storedAnswers = data.treeAnswers && typeof data.treeAnswers === "object"
+          ? data.treeAnswers : {};
+        const allAnswered = requiredKeys.length &&
+          requiredKeys.every(k => String(storedAnswers[k] || "").trim());
+        const directEnd = ["subtask", "escalate", "close"].indexOf(String(node.end || "")) >= 0
+          ? String(node.end) : null;
+
+        if (allAnswered && directEnd && !node.go && !node.branches) {
+          data.treeEnd = directEnd;
+          patch["data.treeEnd"] = directEnd;
+          parsed.treeEnd = directEnd;
+          parsed.replyText = "";
+          if (node.componentName) {
+            data.componentName = String(node.componentName);
+            patch["data.componentName"] = data.componentName;
+            parsed.componentName = data.componentName;
+          }
+          if (directEnd === "escalate") parsed.kind = "handover";
+          Log.info({ message: "parseAgentJson: task " + taskId +
+            " supplied the answer on the no-answer boundary; completing direct terminal " + directEnd });
+        } else if (!allAnswered) {
+          data.treeEnd = "escalate";
+          patch["data.treeEnd"] = "escalate";
+          data.handoverReason = "партнёр дважды ответил не на доставленный вопрос статьи (" +
+            requiredKeys.filter(k => !String(storedAnswers[k] || "").trim()).join(", ") + " так и не названы)";
+          patch["data.handoverReason"] = data.handoverReason;
+          parsed.kind = "handover";
+          parsed.treeEnd = "escalate";
+          parsed.replyText = "";
+          Log.warn({ message: "parseAgentJson: task " + taskId +
+            " still has no answer after the delivery-aware limit; handing over" });
+        }
+      }
+    }
+
     // ── No solution without a solution issued by searchKnowledge in THIS turn ──
     // A live 4.1-mini run received `turnKind: questions` with no solverInstruction and
     // nevertheless invented six troubleshooting steps about a print queue and rebooting
@@ -906,7 +957,9 @@ if (taskId) {
      // Bookkeeping of the tree walk: the node ids and the terminal are for the code and
      // the graph. Naming them in the prompt only invites the model to reason about the
      // article's internals instead of answering the partner.
-     "treeNode", "treeEnd", "treeHandoverAsked", "treeNext", "treeAskedNode", "operatorAdvice",
+     "treeNode", "treeEnd", "treeHandoverAsked", "treeNext", "treeAskedNode",
+     "treeDeliveredQuestionNode", "treeDeliveredQuestionCommentId", "treeNoAnswerPending",
+     "operatorAdvice",
      // Printed as a labelled line in the note below; as a second copy inside the serialised
      // `dialog` value it would only say the same thing in a worse format.
      "openAnswerPrompts",

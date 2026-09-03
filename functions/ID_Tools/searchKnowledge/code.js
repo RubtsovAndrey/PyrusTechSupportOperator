@@ -890,6 +890,7 @@ if (topicKey) {
         treeNode: target.id,
         treeEnd: null,
         treeNext: null,
+        treeNoAnswerPending: null,
         handoverReason: null,
         treeExplain: null,
         operatorAdvice: null
@@ -914,7 +915,12 @@ if (topicKey) {
       // управляющей». Answering SOME of the questions still counts as engaging, which is
       // what keeps optional fields optional.
       const unanswered = target.ask.filter(q => !known[q.key]);
-      const askedBefore = String(data.treeAskedNode || "") === target.id;
+      // A question only counts after finalize has successfully delivered it to Pyrus.
+      // searchKnowledge used to write its own `treeAskedNode` while merely preparing the
+      // question. If the partner sent another message before finalize finished, that run
+      // was correctly superseded — but the next message was still counted as ignoring a
+      // question the partner had never seen. The delivery marker is owned by finalize.
+      const askedBefore = String(data.treeDeliveredQuestionNode || "") === target.id;
       // Anything this turn contributed to this node: the model's `answers`, and the branch
       // the article read out of the partner's own words a few lines above.
       const engaged = target.ask.some(q => stored[q.key] === undefined && known[q.key] !== undefined);
@@ -928,22 +934,18 @@ if (topicKey) {
       // asking for a human.
       const MAX_IGNORED = 2;
       if (unanswered.length && ignoredTurns >= MAX_IGNORED) {
-        patch.treeEnd = "escalate";
-        // Said in the document, not in the tool's answer: the answer goes to the model, and
-        // what the operator reads must not depend on the model repeating it back.
-        patch.handoverReason = "партнёр дважды ответил не на заданный вопрос статьи (" +
-          unanswered.map(q => q.key).join(", ") + " так и не названы)";
-        patchData(patch);
-        Log.warn({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " asked for " + unanswered.map(q => q.key).join(", ") + " twice and got no answer either time, handing over" });
-        return {
-          found: false, topics: [], source: "tree-no-answer", turnKind: "handover",
-          key: topic.key, treeEnd: "escalate", onFail: topic.onFail,
-          handoverReason: "партнёр дважды ответил не на заданный вопрос — статья дальше не идёт"
-        };
+        // The tool call happens before the solver writes its final JSON. A small model may
+        // discover the answer only in that final pass; returning handover here used to cut
+        // the pass off and discard an answer visible in the current partner message. Mark
+        // the limit, return the question contract once more to the model, and let
+        // parseAgentJson decide after it has processed the final `answers` object. Nothing
+        // from this internal last chance is sent to the partner when the answer is absent.
+        patch.treeNoAnswerPending = target.id;
+        Log.warn({ message: "searchKnowledge: node " + target.id + " of " + topic.key +
+          " reached the no-answer limit; deferring handover until solver reads the current reply" });
       }
 
       if (unanswered.length && (!askedBefore || !engaged)) {
-        patch.treeAskedNode = target.id;
         patchData(patch);
         Log.info({ message: "searchKnowledge: topic " + topic.key + " -> node " + target.id + " (" + how + "), " + unanswered.length + " question(s)" + (ignoredTurns ? ", asked again after a reply that answered nothing" : "") });
         return {
@@ -962,6 +964,9 @@ if (topicKey) {
           onFail: topic.onFail,
           solverInstruction: target.advice,
           followUpQuestion: null,
+          subtaskEmailRequired: target.end === "subtask",
+          subtaskEmailMissing: target.end === "subtask" && !data.email,
+          finalAnswerChance: ignoredTurns >= MAX_IGNORED,
           // The partner said something that was not an answer. The solver is told so it can
           // acknowledge him instead of repeating the question word for word, which is what
           // makes a bot feel deaf.
@@ -999,7 +1004,9 @@ if (topicKey) {
           answerKeys: pending.map(q => q.key),
           onFail: topic.onFail,
           solverInstruction: null,
-          followUpQuestion: null
+          followUpQuestion: null,
+          subtaskEmailRequired: target.end === "subtask",
+          subtaskEmailMissing: target.end === "subtask" && !data.email
         };
       }
 

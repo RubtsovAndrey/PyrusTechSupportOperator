@@ -705,7 +705,10 @@ const pendingOutcome = {
   action: spec.action,
   approvalChoice: spec.approvalChoice,
   withFieldUpdates: !!spec.withFieldUpdates,
-  nextStage: spec.nextStage
+  nextStage: spec.nextStage,
+  // Preparing an article question is not the same as asking it. finalize owns the only
+  // reliable delivery signal and commits this node after Pyrus accepts the message.
+  askedTreeNode: spec.nextStage === "awaiting_answers" && text && treeNode ? treeNode : null
 };
 
 // Only the two paths this function owns. Writing the whole document put back the facts

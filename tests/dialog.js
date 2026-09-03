@@ -247,12 +247,19 @@ const AGENTS = {
       // чтобы в отчёте было видно вопрос, а не кашу, — и ни капли красноречия, которого у
       // подставной модели быть не может.
       const joinedQuestions = questions.join("; ").replace(/[?]+\s*$/, "");
+      const asksAboutEmail = /(почт|e-?mail|email|мейл)/i.test(said);
+      const emailQuestion = r.subtaskEmailRequired && r.subtaskEmailMissing
+        ? (asksAboutEmail
+          ? "Да, для создаваемого обращения нужен email. Укажите его."
+          : "Укажите email для обращения.")
+        : null;
       const text = [
         r.solverInstruction || null,
         // Промпт велит не повторять вопрос слово в слово, когда партнёр ответил не на
         // него. Образцовый агент делает минимум: говорит, зачем спрашивает.
         r.reasked ? "Без этих данных я не смогу продолжить." : null,
-        questions.length ? "Подскажите: " + joinedQuestions + "?" : null
+        questions.length ? "Подскажите: " + joinedQuestions + "?" : null,
+        emailQuestion
       ].filter(Boolean).join(" ");
       return json({ replyText: text, kind: "questions", partnerLanguage, answers: answers });
     }
