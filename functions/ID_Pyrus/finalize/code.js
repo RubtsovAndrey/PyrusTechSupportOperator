@@ -377,6 +377,9 @@ const done = {
   // The question belongs only to the solution delivered by this turn. Leaving it in the
   // document could append an old question to a later, unrelated `reply` outcome.
   "data.requiredFollowUpQuestion": null,
+  // A solution is authorised only for the comment this turn has just answered. Clearing
+  // it is defence in depth; the comment-id check already makes it unusable next turn.
+  "data.solutionAuthorization": null,
   // One comment is answered once: a redelivered webhook for it is dropped by
   // receiveWebhook instead of producing a second reply.
   "lastProcessedCommentId": processedId || state.lastProcessedCommentId || null,

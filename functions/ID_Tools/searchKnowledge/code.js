@@ -339,6 +339,21 @@ function patchData(patch) {
   writeState(taskId, paths, "searchKnowledge");
 }
 
+// A partner-facing solution is authorised for one concrete incoming comment only.
+// `offeredStep` says which article step advances the dialog, but it survives into later
+// turns and therefore cannot be used as a delivery permit. The comment id makes a stale
+// solution useless on the next message. parseAgentJson checks this marker before it lets
+// a model-produced `kind: solution` reach the graph.
+function solutionAuthorization(topicKey, nodeId) {
+  const runtime = loadState().runtime || {};
+  return {
+    topicKey: String(topicKey || ""),
+    nodeId: nodeId == null ? null : String(nodeId),
+    incomingCommentId: runtime.incomingCommentId == null ? null : String(runtime.incomingCommentId),
+    at: Date.now()
+  };
+}
+
 // The highest step of this article the partner has already been given. Counting the
 // attempts instead was what let one repeated answer shift the whole article: every
 // extra delivery moved the index on, and once it ran past the end it was clamped back
@@ -988,6 +1003,7 @@ if (topicKey) {
 
       if (target.end) {
         patch.treeEnd = target.end;
+        if (target.advice) patch.solutionAuthorization = solutionAuthorization(topic.key, target.id);
         patchData(patch);
         Log.info({ message: "searchKnowledge: topic " + topic.key + " ends at " + target.id + " with " + target.end + " (" + how + ")" });
         return {
@@ -1020,6 +1036,7 @@ if (topicKey) {
       const done = stepDone(data.attempts, topic.key);
       const attempt = explaining ? (done || 1) : done + 1;
       patch.offeredStep = { topicKey: topic.key, stepNumber: attempt, nodeId: target.id, at: Date.now() };
+      patch.solutionAuthorization = solutionAuthorization(topic.key, target.id);
       // applyOutcome enforces this exact question even if the model omits it from the
       // generated reply. It is cleared by finalize after the turn is posted.
       patch.requiredFollowUpQuestion = DEFAULT_FOLLOW_UP;
@@ -1126,6 +1143,7 @@ if (topicKey) {
     const step = topic.steps[index];
     const stepPatch = {
       offeredStep: { topicKey: topic.key, stepNumber: index + 1, at: Date.now() },
+      solutionAuthorization: solutionAuthorization(topic.key, null),
       treeExplain: null,
       // This is delivery state, not a prompt hint: applyOutcome appends it when needed.
       requiredFollowUpQuestion: step.followUpQuestion

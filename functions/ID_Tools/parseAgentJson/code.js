@@ -550,6 +550,34 @@ if (taskId) {
       }
     }
 
+    // ── No solution without a solution issued by searchKnowledge in THIS turn ──
+    // A live 4.1-mini run received `turnKind: questions` with no solverInstruction and
+    // nevertheless invented six troubleshooting steps about a print queue and rebooting
+    // the till. Prompt wording cannot be the security boundary. searchKnowledge writes a
+    // one-turn permit only when it actually returns a solution; a permit from an earlier
+    // partner message cannot be reused because its comment id no longer matches.
+    const solverClaimsSolution = String(stage || "") === "solver" && parsed.replyText &&
+      String(parsed.kind || "solution") === "solution";
+    if (solverClaimsSolution) {
+      const auth = data.solutionAuthorization || {};
+      const currentCommentId = state.runtime && state.runtime.incomingCommentId != null
+        ? String(state.runtime.incomingCommentId) : null;
+      const authorisedCommentId = auth.incomingCommentId == null ? null : String(auth.incomingCommentId);
+      const authorised = auth.topicKey && String(auth.topicKey) === String(data.topicKey || "") &&
+        authorisedCommentId === currentCommentId;
+      if (!authorised) {
+        parsed.replyText = "";
+        parsed.kind = "handover";
+        parsed.treeEnd = "escalate";
+        data.treeEnd = "escalate";
+        patch["data.treeEnd"] = "escalate";
+        data.handoverReason = "модель попыталась дать решение, которого searchKnowledge не выдавал в текущем витке";
+        patch["data.handoverReason"] = data.handoverReason;
+        Log.error({ message: "parseAgentJson: blocked an ungrounded solver reply on task " + taskId +
+          " (topic " + (data.topicKey || "?") + ", comment " + (currentCommentId || "?") + ")" });
+      }
+    }
+
     // Where the tree ended, if it did. Written by searchKnowledge earlier in this same
     // turn and handed to the graph here: the conditions after the solver can only read
     // the previous function's result, not the task document.
@@ -580,7 +608,7 @@ if (taskId) {
       // not reset either, so the new article started with the score of the old one.
       if (parsed.topicKey && known.topicKey && parsed.topicKey !== known.topicKey) {
         ["treeNode", "treeAnswers", "treeEnd", "treeNext", "treeAskedNode",
-         "treeHandoverAsked", "offeredStep", "openAnswerPrompts", "operatorAdvice"].forEach(k => {
+         "treeHandoverAsked", "offeredStep", "solutionAuthorization", "openAnswerPrompts", "operatorAdvice"].forEach(k => {
           delete data[k];
           patch["data." + k] = null;
         });
@@ -598,7 +626,7 @@ if (taskId) {
       // Cleared by writing null rather than by removing the key: only $set is available,
       // and every reader treats null as «not collected» anyway.
       ["problemSummary", "topicKey", "componentName", "topicRoute",
-       "attempts", "offeredStep", "preQuestionsAsked",
+       "attempts", "offeredStep", "solutionAuthorization", "preQuestionsAsked",
        // The tree has to start from its root for the new question, and the answers to
        // the old one must not end up in the subtask of the new one.
        "treeNode", "treeAnswers", "treeEnd", "treeHandoverAsked", "treeNext",

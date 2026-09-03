@@ -50,6 +50,24 @@ function lintTopics(topics) {
         (!Array.isArray(t.excludedEvidence) || !t.excludedEvidence.filter(Boolean).length)) {
       say("excludedEvidence must be a non-empty list when set");
     }
+    if (t.validation !== undefined) {
+      const validation = t.validation || {};
+      const statuses = ["draft", "review", "testing", "approved"];
+      if (statuses.indexOf(String(validation.status || "")) < 0) {
+        say("validation.status must be one of " + statuses.join("/"));
+      }
+      if (String(validation.status || "") === "approved") {
+        const source = validation.source || {};
+        ["articleId", "title", "updatedAt", "sectionHeading"].forEach(field => {
+          if (!String(source[field] || "").trim()) say("approved validation.source has no " + field);
+        });
+        ["sectionSha256", "approvedAdviceSha256"].forEach(field => {
+          if (!/^[a-f0-9]{64}$/.test(String(source[field] || ""))) {
+            say("approved validation.source." + field + " is not a SHA-256 hash");
+          }
+        });
+      }
+    }
 
     const nodes = t.nodes && typeof t.nodes === "object" ? t.nodes : null;
     if (!nodes) {

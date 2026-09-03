@@ -67,7 +67,20 @@ async function main() {
     r.result.action === "clarify" && /о какой точке/.test(r.result.clarifyingQuestion), r.result);
 
   r = await run("solver", "Проверьте кабель принтера.");
-  t.check("solver prose becomes the reply", r.result.replyText === "Проверьте кабель принтера.", r.result);
+  t.check("solver prose without a solution issued by searchKnowledge is blocked",
+    r.result.kind === "handover" && r.result.treeEnd === "escalate" && !r.result.replyText,
+    r.result);
+
+  r = await run("solver", json({ replyText: "Перезагрузите кассу", kind: "solution" }), {
+    runtime: { incomingCommentId: "new-comment" },
+    data: {
+      topicKey: "printer_no_receipt",
+      solutionAuthorization: { topicKey: "printer_no_receipt", incomingCommentId: "old-comment" }
+    }
+  });
+  t.check("a solution permit from a previous partner message cannot be reused",
+    r.result.kind === "handover" && r.result.treeEnd === "escalate" && !r.result.replyText,
+    r.result);
 
   let threw = false;
   try {
@@ -417,7 +430,8 @@ async function main() {
   r = await run("solver", json({ replyText: "Проверьте кабель", kind: "solution" }), {
     data: {
       topicKey: "printer_no_receipt",
-      offeredStep: { topicKey: "printer_no_receipt", stepNumber: 1 }
+      offeredStep: { topicKey: "printer_no_receipt", stepNumber: 1 },
+      solutionAuthorization: { topicKey: "printer_no_receipt", incomingCommentId: null }
     }
   });
   t.check("delivered step is logged with the number searchKnowledge handed out",
@@ -435,6 +449,7 @@ async function main() {
     data: {
       topicKey: "printer_no_receipt",
       offeredStep: { topicKey: "printer_no_receipt", stepNumber: 1 },
+      solutionAuthorization: { topicKey: "printer_no_receipt", incomingCommentId: null },
       attempts: [{ topicKey: "printer_no_receipt", step: 1, advice: "проверить кабель" }]
     }
   });
@@ -451,6 +466,7 @@ async function main() {
     data: {
       topicKey: "printer_no_receipt", topicRoute: "solver",
       offeredStep: { topicKey: "printer_no_receipt", stepNumber: 1 },
+      solutionAuthorization: { topicKey: "printer_no_receipt", incomingCommentId: null },
       preQuestionsAsked: ["printer_no_receipt"]
     }
   });

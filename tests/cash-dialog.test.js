@@ -64,11 +64,12 @@ async function main() {
     r.replies);
   t.check("a diagnostic question creates no internal message",
     r.internal.length === 0, r.internal);
-  r = await bot.turn("Да, драйвер открывается", {
-    answers: { kktDriverAvailable: "да, драйвер открывается" }
+  r = await bot.turn("Да", {
+    answers: { kktDriverAvailable: "да" }
   });
-  t.check("the shift instruction follows the confirmed setup",
-    r.stage === "awaiting_confirmation" && /Отчёт о закрытии смены/.test(r.replies.join(" ")),
+  t.check("a bare yes follows the confirmed setup and serves the canonical instruction",
+    r.stage === "awaiting_confirmation" && /Отчёт о закрытии смены \(с гашением\)/.test(r.replies.join(" ")) &&
+    /Вид/.test(r.replies.join(" ")) && /Обновить/.test(r.replies.join(" ")),
     r.replies);
   t.check("the shift instruction is also external-only",
     r.internal.length === 0, r.internal);
@@ -78,8 +79,8 @@ async function main() {
     "Тамбов-1, на кассе ресторана смена превысила 24 часа",
     { unit: "Тамбов-1" }
   );
-  r = await bot.turn("Программы нет", {
-    answers: { kktDriverAvailable: "программы нет" }
+  r = await bot.turn("Нет", {
+    answers: { kktDriverAvailable: "нет" }
   });
   t.check("no Test Driver produces no unsafe partner instruction",
     r.stage === "escalated" && !/Сформировать отчёт/.test(r.replies.join(" ")), r.replies);

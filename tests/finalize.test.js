@@ -415,7 +415,7 @@ async function main() {
   // `runtime.token` is among them: the turn is over and the secret has no reason to outlive
   // it in the document. Note it is a dotted path — the rest of `runtime` is untouched.
   t.check("only own paths are written",
-    paths === "botHasReplied,data.requiredFollowUpQuestion,lastProcessedCommentId,pendingOutcome,runtime.token,stage,updatedAt",
+    paths === "botHasReplied,data.requiredFollowUpQuestion,data.solutionAuthorization,lastProcessedCommentId,pendingOutcome,runtime.token,stage,updatedAt",
     paths);
   t.check("the token does not outlive the turn in the document",
     r.state.runtime.token === null && r.state.runtime.apiUrl === runtime.apiUrl, r.state.runtime);

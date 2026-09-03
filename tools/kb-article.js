@@ -55,7 +55,7 @@ const LEVEL_FIELDS = ["article", "steps", "nodes", "solverInstruction"];
 // бы в конец объекта и дал дифф.
 const FIELD_ORDER = [
   "schema", "key", "description", "phrasings", "businessDomains", "roles",
-  "requiredEvidence", "excludedEvidence", "route", "start", "onFail",
+  "requiredEvidence", "excludedEvidence", "validation", "route", "start", "onFail",
   "article", "solverInstruction", "steps", "nodes"
 ];
 
