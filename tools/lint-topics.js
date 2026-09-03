@@ -23,6 +23,33 @@ function lintTopics(topics) {
     const t = topic || {};
     const say = m => problems.push("[" + (t.key || "?") + "] " + m);
     if (!t.key) say("an article without a key cannot be routed to");
+    if (t.businessDomains !== undefined) {
+      const domains = Array.isArray(t.businessDomains) ? t.businessDomains.filter(Boolean) : [];
+      if (!domains.length) say("businessDomains is set but contains no domains");
+      domains.forEach(domain => {
+        if (!/^[a-z0-9.-]+$/.test(String(domain))) say("businessDomains contains invalid domain \"" + domain + "\"");
+      });
+    }
+    if (t.roles !== undefined) {
+      const roles = Array.isArray(t.roles) ? t.roles.filter(Boolean).map(String) : [];
+      if (!roles.length) say("roles is set but contains no roles");
+      roles.forEach(role => {
+        if (["chat", "ticket"].indexOf(role) < 0) say("roles contains unsupported role \"" + role + "\"");
+      });
+    }
+    if (t.requiredEvidence !== undefined) {
+      const groups = Array.isArray(t.requiredEvidence) ? t.requiredEvidence : [];
+      if (!groups.length) say("requiredEvidence is set but contains no groups");
+      groups.forEach((group, i) => {
+        if (!Array.isArray(group) || !group.filter(Boolean).length) {
+          say("requiredEvidence[" + i + "] must be a non-empty list of alternatives");
+        }
+      });
+    }
+    if (t.excludedEvidence !== undefined &&
+        (!Array.isArray(t.excludedEvidence) || !t.excludedEvidence.filter(Boolean).length)) {
+      say("excludedEvidence must be a non-empty list when set");
+    }
 
     const nodes = t.nodes && typeof t.nodes === "object" ? t.nodes : null;
     if (!nodes) {

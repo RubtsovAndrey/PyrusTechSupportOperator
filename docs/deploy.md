@@ -83,6 +83,8 @@ git push origin main
 - `subtaskFormId` в `createSubtask/code.js` (`const DEFAULTS`) — сейчас **тестовая** `2454249`,
   вернуть `1096731`;
 - `config.forms` — заменить тестовые id форм чатов и тикетов на продовые;
+- не переносить `knowledgeExecution: "partner_answer"` с тестовой формы на продуктивную
+  без отдельной приёмки сценариев;
 - `config.forms.<тикеты>.requireApprover: true` — на проде признак «бот на первом этапе»
   работает и его стоит включить;
 - `origin-key` в `integrations/` и `credentials/` не трогать: платформа подставляет их сама.

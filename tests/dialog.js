@@ -191,12 +191,13 @@ const AGENTS = {
       // связной фразой их делает модель. Здесь ровно столько связности, сколько нужно,
       // чтобы в отчёте было видно вопрос, а не кашу, — и ни капли красноречия, которого у
       // подставной модели быть не может.
+      const joinedQuestions = questions.join("; ").replace(/[?]+\s*$/, "");
       const text = [
         r.solverInstruction || null,
         // Промпт велит не повторять вопрос слово в слово, когда партнёр ответил не на
         // него. Образцовый агент делает минимум: говорит, зачем спрашивает.
         r.reasked ? "Без этих данных я не смогу продолжить." : null,
-        questions.length ? "Подскажите: " + questions.join("; ") + "?" : null
+        questions.length ? "Подскажите: " + joinedQuestions + "?" : null
       ].filter(Boolean).join(" ");
       return json({ replyText: text, kind: "questions", answers: answers });
     }

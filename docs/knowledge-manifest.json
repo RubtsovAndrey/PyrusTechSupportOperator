@@ -1,8 +1,29 @@
 {
   "schemaVersion": 1,
-  "topicCount": 6,
-  "catalogSha256": "dec270bc57c362291b88507ae1f3996644dd98c778fd22fc5a6d5ff34536f6d8",
+  "topicCount": 9,
+  "catalogSha256": "7749f5148b2f7e3e85a99f090eb31f27eeb27d5b1eb8270d5b48aa35e510644a",
   "topics": [
+    {
+      "key": "cash_receipt_error_148",
+      "source": "docs/knowledge/topics/cash_receipt_error_148.json",
+      "sourceSha256": "2900403e1cf8af9eb5c43cc1ab89c7d8b400cc948b4682ca3da5de9ee38e1663",
+      "rag": "docs/rag/cash_receipt_error_148.md",
+      "ragSha256": "03282f210b37da4e1c034d9139cbbb11e19d74ca8807a1e24661fa3ea40c3d9c"
+    },
+    {
+      "key": "cash_shift_closed_z_report_missing",
+      "source": "docs/knowledge/topics/cash_shift_closed_z_report_missing.json",
+      "sourceSha256": "8beba2e88173efde6d5856cc7901426f04a4c4f180cd7df185673a1e26cd4846",
+      "rag": "docs/rag/cash_shift_closed_z_report_missing.md",
+      "ragSha256": "4e0b9b765980f2ec3c7d7dabbd5178ee236c5cdd9942d02029a1b8c1179c1894"
+    },
+    {
+      "key": "cash_shift_over_24_hours",
+      "source": "docs/knowledge/topics/cash_shift_over_24_hours.json",
+      "sourceSha256": "7c4e2e94dd86f6d419ecb5de42de2d2e2d8c7f3c35444d59f2636cfd3b783fc9",
+      "rag": "docs/rag/cash_shift_over_24_hours.md",
+      "ragSha256": "511cb7dab1d03d48f96d27657366eaf5895f2db1f569c32dc40e3431a96aeac8"
+    },
     {
       "key": "courier_tips_withdrawal",
       "source": "docs/knowledge/topics/courier_tips_withdrawal.json",
@@ -27,9 +48,9 @@
     {
       "key": "pos_terminal_troubleshooting",
       "source": "docs/knowledge/topics/pos_terminal_troubleshooting.json",
-      "sourceSha256": "4d65c91f6ff0f2413ea9ba708f11024dd7fe1a864c64dd2bca1af960ebba26be",
+      "sourceSha256": "89e6433fbd3139f69417cc5b882842a6d74ad4b770d3cba9d01dc20d9237d182",
       "rag": "docs/rag/pos_terminal_troubleshooting.md",
-      "ragSha256": "e00909342c7722cb7a2998f04f48c29ee9899260e9a5fed4bc41f10f612f0323"
+      "ragSha256": "303e971bade2ebce5a6ff94ef5b17c831a381b366a2d02479ffb0a7d4d044fde"
     },
     {
       "key": "scanner_newland_setup",

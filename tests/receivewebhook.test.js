@@ -135,6 +135,22 @@ async function main() {
   t.check("with no forms configured every form is still a chat",
     r.result.skip === false && r.result.stage === "intake", r.result);
   t.check("and the role is recorded for the rest of the graph", r.state.runtime.role === "chat", r.state.runtime);
+  t.check("without an explicit form permission managed answers fail closed",
+    r.state.runtime.knowledgeExecution === "handover_only", r.state.runtime);
+
+  r = await run([{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }], {
+    config: { forms: { [CHAT_FORM]: {
+      role: "chat", environment: "test", knowledgeExecution: "partner_answer"
+    } } }
+  });
+  t.check("the test chat form explicitly enables accepted partner answers",
+    r.state.runtime.knowledgeExecution === "partner_answer", r.state.runtime);
+
+  r = await run([{ id: 60, author: PARTNER, text: "Не печатает чек", channel: CHAN }], {
+    config: { forms: { [CHAT_FORM]: { role: "chat", knowledgeExecution: "unknown" } } }
+  });
+  t.check("an unknown execution value also fails closed",
+    r.state.runtime.knowledgeExecution === "handover_only", r.state.runtime);
 
   // Once the map exists it is a whitelist. An unlisted form is left completely alone.
   let k = await ticket([{ id: 61, author: PARTNER, text: "вопрос", channel: CHAN }], BOT_APPROVER,

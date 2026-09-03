@@ -150,6 +150,13 @@ if (nodes) {
   const fail = nodes[failTo];
   const bare = fail && fail.end && !fail.advice && !(Array.isArray(fail.ask) && fail.ask.length);
   if (bare && String(fail.end) !== "close") {
+    // `decide.reason` is useful in logs but unreadable in an operator summary. Persist a
+    // human reason separately: the partner tried the approved instruction and explicitly
+    // reported that the problem remained.
+    writeState(taskId, {
+      "data.handoverReason": "утверждённая рекомендация по сценарию " + topicKey + " не помогла партнёру",
+      "updatedAt": Date.now()
+    }, "nextSolutionStep");
     return decide(String(fail.end) === "subtask" ? "subtask" : "escalate",
       "node " + failTo + " only ends the dialog", extra);
   }

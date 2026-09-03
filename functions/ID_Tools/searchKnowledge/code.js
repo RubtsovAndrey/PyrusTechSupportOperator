@@ -146,6 +146,23 @@ function normalizeTopic(t) {
     description: t.description ? String(t.description) : null,
     route: t.route ? String(t.route) : "solver",
     componentName: t.componentName ? String(t.componentName) : null,
+    // The unit catalog spells both the business and the country in the prefix:
+    // [dodopizza.ru], [dodopizza.by], [dodopizza.com.cy]. A fiscal instruction approved
+    // for one country must not become a candidate for another merely because both are
+    // Dodo Pizza. Empty lists keep old articles unrestricted.
+    businessDomains: (Array.isArray(t.businessDomains) ? t.businessDomains : [])
+      .filter(Boolean).map(x => String(x).toLowerCase()),
+    // The first release answers chats only. Tickets use the same graph, so this is an
+    // executable boundary rather than a prompt convention the model may overlook.
+    roles: (Array.isArray(t.roles) ? t.roles : [])
+      .filter(x => x === "chat" || x === "ticket").map(String),
+    // Every inner list is OR, the outer list is AND. It is used for facts a similarity
+    // score must never substitute: error code 148, a Z report, a 24-hour cash shift.
+    requiredEvidence: (Array.isArray(t.requiredEvidence) ? t.requiredEvidence : [])
+      .map(group => (Array.isArray(group) ? group : [group]).filter(Boolean).map(String))
+      .filter(group => group.length),
+    excludedEvidence: (Array.isArray(t.excludedEvidence) ? t.excludedEvidence : [])
+      .filter(Boolean).map(String),
     // Вопрос линейной статьи — строка или такой же объект, как в `ask`. Строка живёт
     // один виток: её ответ некуда положить, и до человека он не доедет. Ключ даёт ответу
     // те же права, что у ответов дерева: он записывается в задачу, больше не спрашивается
@@ -189,15 +206,64 @@ const taskId = dialogValue.taskId || null;
 // summary of the problem he opened with. Both are his, neither is the model's retelling.
 const PARTNER_WORDS = words(dialogValue.incomingText).concat(words(dialogValue.problemSummary));
 
-function loadData() {
+let TASK_STATE = null;
+function loadState() {
+  if (TASK_STATE) return TASK_STATE;
   if (!taskId) return {};
   try {
     const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
-    return (doc && doc.value && doc.value.data) || {};
+    TASK_STATE = (doc && doc.value) || {};
   } catch (e) {
     Log.warn({ message: "searchKnowledge: state read failed: " + e });
-    return {};
+    TASK_STATE = {};
   }
+  return TASK_STATE;
+}
+
+function loadData() {
+  return loadState().data || {};
+}
+
+function businessDomainOf(unitFullName) {
+  const match = /^\s*\[([^\]]+)\]/.exec(String(unitFullName || ""));
+  return match ? String(match[1]).trim().toLowerCase() : null;
+}
+
+function topicScopeMismatch(topic) {
+  const t = topic || {};
+  const state = loadState();
+  const data = state.data || {};
+  const runtime = state.runtime || {};
+  const domain = businessDomainOf(data.unitFullName);
+  const domains = Array.isArray(t.businessDomains)
+    ? t.businessDomains.filter(Boolean).map(x => String(x).toLowerCase()) : [];
+  const roles = Array.isArray(t.roles) ? t.roles.filter(Boolean).map(String) : [];
+  if (domain && domains.length && domains.indexOf(domain) < 0) {
+    return "статья разрешена для " + domains.join(", ") + ", а юнит относится к " + domain;
+  }
+  if (runtime.role && roles.length && roles.indexOf(String(runtime.role)) < 0) {
+    return "статья разрешена для роли " + roles.join(", ") + ", а форма имеет роль " + runtime.role;
+  }
+  return null;
+}
+
+function evidenceOptionMatches(saidWords, option) {
+  const need = words(option);
+  return need.length > 0 && need.every(token => saidWords.some(said => stemMatch(said, token)));
+}
+
+function topicEvidenceMismatch(topic, saidWords) {
+  const t = topic || {};
+  const required = (Array.isArray(t.requiredEvidence) ? t.requiredEvidence : [])
+    .map(group => Array.isArray(group) ? group.filter(Boolean) : [group].filter(Boolean));
+  for (let i = 0; i < required.length; i++) {
+    if (!required[i].some(option => evidenceOptionMatches(saidWords, option))) {
+      return "нет обязательного признака группы " + (i + 1) + ": " + required[i].join(" / ");
+    }
+  }
+  const excluded = (Array.isArray(t.excludedEvidence) ? t.excludedEvidence : []).filter(Boolean);
+  const hit = excluded.find(option => evidenceOptionMatches(saidWords, option));
+  return hit ? "обнаружен исключающий признак: " + hit : null;
 }
 
 // ── How a point write addresses its document ──
@@ -318,6 +384,18 @@ function words(s) {
   return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[^0-9a-zа-я]+/g, " ").trim().split(" ").filter(Boolean);
 }
 
+function contiguousStemMatch(said, parts) {
+  if (!parts.length || said.length < parts.length) return false;
+  for (let start = 0; start <= said.length - parts.length; start++) {
+    let all = true;
+    for (let i = 0; i < parts.length; i++) {
+      if (!stemMatch(said[start + i], parts[i])) { all = false; break; }
+    }
+    if (all) return true;
+  }
+  return false;
+}
+
 function branchFromWords(node, said) {
   if (!said.length) return null;
 
@@ -329,7 +407,13 @@ function branchFromWords(node, said) {
       // A multi-word label counts only when the answer carries every word of it, so
       // «номер телефона» is not claimed by an answer that merely says «номер».
       const parts = words(label);
-      if (parts.length && parts.every(p => said.some(w => stemMatch(w, p)))) hits += parts.length;
+      if (parts.length && parts.every(p => said.some(w => stemMatch(w, p)))) {
+        // Word order matters most around negation. In «смена закрылась, Z-отчёт не вышел»
+        // the bag of words contains «смена / не / закрылась», but it does not say «смена
+        // не закрылась». A contiguous label gets a decisive bonus; the old unordered
+        // score remains as a tolerant fallback for free paraphrases.
+        hits += contiguousStemMatch(said, parts) ? parts.length * 10 : parts.length;
+      }
     });
     if (hits > best) best = hits;
     if (hits > 0) (winners[hits] = winners[hits] || []).push(b);
@@ -431,6 +515,8 @@ if (!topics.length) {
   return { found: false, topics: [], source: "catalog-empty" };
 }
 
+const catalogTopics = topics;
+
 // ── Facts already on the table ──
 // The partner opens with «Москва 0-22, поменяйте фамилию Иванову Ивану на Петрова, ошиблись
 // при заведении карточки» and the article then asked him for the employee, for the new
@@ -515,8 +601,18 @@ function refuseUnsupportedBranchAnswers(given, topic) {
 // first one had not helped.
 if (topicKey) {
   const wanted = String(topicKey).toLowerCase();
-  const exact = topics.filter(t => String(t.key || "").toLowerCase() === wanted);
+  const exact = catalogTopics.filter(t => String(t.key || "").toLowerCase() === wanted);
   if (exact.length) {
+    const guardMismatch = topicScopeMismatch(exact[0]) || topicEvidenceMismatch(exact[0], PARTNER_WORDS);
+    if (guardMismatch) {
+      patchData({ treeEnd: "escalate", handoverReason: guardMismatch });
+      Log.warn({ message: "searchKnowledge: topic " + exact[0].key + " refused by guard: " + guardMismatch });
+      return {
+        found: false, topics: [], source: "topic-guard-mismatch", turnKind: "handover",
+        key: String(exact[0].key), treeEnd: "escalate", onFail: "escalate",
+        handoverReason: guardMismatch
+      };
+    }
     const topic = normalizeTopic(exact[0]);
 
     // ── A branching article walks its tree, one node per turn ──
@@ -830,11 +926,17 @@ if (topicKey) {
       // without letting them speak in production chat. The article owns this policy. A
       // prompt-only rule is too weak: the model has already demonstrated that it will
       // faithfully send `solverInstruction` to the partner whenever we hand it one.
+      const runtime = loadState().runtime || {};
+      const articleMode = target.knowledgeRef && target.knowledgeRef.mode;
+      const formBlocksPartnerAnswer = articleMode === "partner_answer" &&
+        runtime.knowledgeExecution !== "partner_answer";
       const operatorHint = target.advice && target.knowledgeRef &&
-        target.knowledgeRef.mode === "operator_hint";
+        (articleMode === "operator_hint" || formBlocksPartnerAnswer);
       if (operatorHint) {
         patch.treeEnd = "escalate";
-        patch.handoverReason = "статья нашла рекомендацию в теневом режиме: её передали только оператору";
+        patch.handoverReason = formBlocksPartnerAnswer
+          ? "форма не разрешает внешние ответы по управляемым знаниям: рекомендацию передали только оператору"
+          : "статья нашла рекомендацию в теневом режиме: её передали только оператору";
         patch.operatorAdvice = {
           topicKey: topic.key,
           nodeId: target.id,
@@ -1027,6 +1129,17 @@ if (topicKey) {
   }
   Log.warn({ message: "searchKnowledge: no topic with key " + topicKey });
 }
+
+// Scope is applied before both lexical and semantic routing. Otherwise RAG could return
+// a Russian fiscal article for a Belarusian or Cypriot unit and the router would see it as
+// a perfectly valid candidate. With no resolved unit/role we keep the candidate: intake is
+// expected to collect the unit first, and the exact execution guard above remains the
+// final safety net.
+topics = catalogTopics.filter(t => {
+  const mismatch = topicScopeMismatch(t) || topicEvidenceMismatch(t, words(query));
+  if (mismatch) Log.info({ message: "searchKnowledge: topic " + String(t.key || "?") + " excluded by guard: " + mismatch });
+  return !mismatch;
+});
 
 const queryTokens = uniqueTokens(tokenize(query));
 if (!queryTokens.length) {

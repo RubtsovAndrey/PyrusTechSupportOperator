@@ -54,7 +54,8 @@ const LEVEL_FIELDS = ["article", "steps", "nodes", "solverInstruction"];
 // уезжает телом статьи, а при разборе возвращается — без канонического порядка он вернулся
 // бы в конец объекта и дал дифф.
 const FIELD_ORDER = [
-  "schema", "key", "description", "phrasings", "route", "start", "onFail",
+  "schema", "key", "description", "phrasings", "businessDomains", "roles",
+  "requiredEvidence", "excludedEvidence", "route", "start", "onFail",
   "article", "solverInstruction", "steps", "nodes"
 ];
 

@@ -12,15 +12,20 @@
     },
     {
       "query": "на кассе ресторана смена превысила 24 часа",
-      "expect": "pos_terminal_troubleshooting"
+      "expect": "cash_shift_over_24_hours"
     },
     {
       "query": "закрыли смену, но Z-отчёт не распечатался",
-      "expect": "pos_terminal_troubleshooting"
+      "expect": "cash_shift_closed_z_report_missing"
+    },
+    {
+      "query": "на кассе доставки чек не закрывается, ошибка 148",
+      "expect": "cash_receipt_error_148"
     },
     {
       "query": "X-отчёт выходит, а Z-отчёт завис и не выходит",
-      "expect": "pos_terminal_troubleshooting"
+      "expect": "cash_shift_closed_z_report_missing",
+      "note": "Тема должна сначала уточнить, закрылась ли смена; копию без подтверждения не предлагает."
     },
     {
       "query": "на кассе ошибка Java Script",
@@ -48,7 +53,8 @@
     },
     {
       "query": "не печатает касса доставки",
-      "expect": "pos_terminal_troubleshooting"
+      "expect": null,
+      "note": "Общего симптома недостаточно для выбора утверждённой кассовой инструкции."
     },
     {
       "query": "телевизор в зале не показывает меню, пишет ошибку подключения",

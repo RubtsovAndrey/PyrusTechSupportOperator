@@ -256,11 +256,28 @@ function loadTopics() {
   return TOPICS;
 }
 
-function validateTopicKey(candidate) {
+function businessDomainOf(unitFullName) {
+  const match = /^\s*\[([^\]]+)\]/.exec(String(unitFullName || ""));
+  return match ? String(match[1]).trim().toLowerCase() : null;
+}
+
+function validateTopicKey(candidate, unitFullName, role) {
   const wanted = String(candidate).trim().toLowerCase();
   const hit = loadTopics().find(t => String(t.key || "").toLowerCase() === wanted);
   if (!hit) {
     Log.warn({ message: "parseAgentJson: topic " + candidate + " is not in knowledge_catalog, not persisting" });
+    return null;
+  }
+  const domain = businessDomainOf(unitFullName);
+  const domains = Array.isArray(hit.businessDomains)
+    ? hit.businessDomains.filter(Boolean).map(x => String(x).toLowerCase()) : [];
+  const roles = Array.isArray(hit.roles) ? hit.roles.filter(Boolean).map(String) : [];
+  if (domain && domains.length && domains.indexOf(domain) < 0) {
+    Log.warn({ message: "parseAgentJson: topic " + candidate + " is not allowed for unit domain " + domain + ", not persisting" });
+    return null;
+  }
+  if (role && roles.length && roles.indexOf(String(role)) < 0) {
+    Log.warn({ message: "parseAgentJson: topic " + candidate + " is not allowed for role " + role + ", not persisting" });
     return null;
   }
   return String(hit.key);
@@ -451,7 +468,11 @@ if (unitCandidate) {
     Log.info({ message: "parseAgentJson: unit \"" + ambiguity.name + "\" needs " + ambiguity.kind + " on task " + taskId });
   }
 }
-if (parsed.topicKey) parsed.topicKey = validateTopicKey(parsed.topicKey);
+if (parsed.topicKey) parsed.topicKey = validateTopicKey(
+  parsed.topicKey,
+  parsed.unitFullName || known.unitFullName,
+  storedDoc && storedDoc.value && storedDoc.value.runtime && storedDoc.value.runtime.role
+);
 if (parsed.componentName) parsed.componentName = validateComponent(parsed.componentName);
 
 // The component of a known topic belongs to the catalog, not to the model's guess:

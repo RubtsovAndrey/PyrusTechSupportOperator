@@ -52,7 +52,7 @@ const BOT_AUTHOR_ID = BOT_AUTHOR_IDS[0];
 //   ticket — a task on the subtask/ticket form. Reached only through the gate below: the
 //            bot must be the current approver AND there must be somewhere to reply.
 //
-// `config.forms` is a map of form id to `{ role }`. While it is ABSENT every form counts as
+// `config.forms` is a map of form id to `{ role, knowledgeExecution }`. While it is ABSENT every form counts as
 // a chat, which is exactly today's behaviour — a default of silence here would have taken
 // the live bot down the moment this was deployed without the document. Once the map exists
 // it becomes a whitelist, and an unlisted form is left alone. That is what makes turning the
@@ -71,6 +71,18 @@ function roleOfForm(formId) {
   const entry = FORM_ROLES[String(formId || "")];
   const role = entry && entry.role ? String(entry.role) : null;
   return (role === "chat" || role === "ticket") ? role : null;
+}
+
+// Partner-facing managed knowledge is a second, independent permission. Merely being a
+// chat form is not enough: otherwise adding a production chat form to the whitelist would
+// silently enable every article accepted only for the test form. Missing or unknown values
+// fail closed. Articles may still collect facts and prepare an operator-only answer.
+function knowledgeExecutionOfForm(formId) {
+  if (!FORM_ROLES) return "handover_only";
+  const entry = FORM_ROLES[String(formId || "")];
+  return entry && entry.knowledgeExecution === "partner_answer"
+    ? "partner_answer"
+    : "handover_only";
 }
 // Ten lines used to cut the opening message, which is where the partner names the
 // unit — by the end of a dialog the model no longer saw where the unit came from.
@@ -696,6 +708,7 @@ const runtimeValue = {
   // a subtask of a ticket — a ticket already IS the subtask — and it belongs in the document
   // rather than being re-derived, because only this function sees the webhook payload.
   role: role,
+  knowledgeExecution: knowledgeExecutionOfForm(formId),
   unitFieldId: unitFieldId,
   componentFieldId: componentFieldId,
   isFirstBotReply: isFirstBotReply,

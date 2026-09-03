@@ -10,7 +10,7 @@ const { ROOT } = require("./harness");
 const SUITES = [
   "./receivewebhook.test.js", "./finalize.test.js", "./parseagentjson.test.js",
   "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
-  "./pos-terminal-catalog.test.js", "./routing-catalog.test.js", "./routing.test.js",
+  "./pos-terminal-catalog.test.js", "./cash-dialog.test.js", "./routing-catalog.test.js", "./routing.test.js",
   "./getknowledgemcp.test.js", "./operator-knowledge.test.js", "./kbarticle.test.js", "./synckb.test.js",
   "./live-trace.test.js",
   // Идёт последним: остальные наборы проверяют функции поштучно, этот — разговор целиком,

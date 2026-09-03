@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "topics": [
+    "cash_receipt_error_148",
+    "cash_shift_closed_z_report_missing",
+    "cash_shift_over_24_hours",
     "courier_tips_withdrawal",
     "kiosk_remote_access",
     "notification_sounds_missing",
