@@ -76,8 +76,8 @@ async function main() {
   r = await run({ db: { [KEY]: state({ pendingOutcome: clarify }) } });
   t.check("reply is posted once", r.posts.length === 1, r.posts);
   t.check("reply text reaches Pyrus", r.posts[0].body.text === clarify.replyText, r.posts[0].body);
-  t.check("every textual reply also carries Pyrus formatted_text",
-    r.posts[0].body.formatted_text === clarify.replyText, r.posts[0].body);
+  t.check("plain replies keep the proven text-only Pyrus transport",
+    r.posts[0].body.formatted_text === undefined, r.posts[0].body);
   t.check("reply goes out through the partner's channel",
     r.posts[0].body.channel && r.posts[0].body.channel.direction === "outbound", r.posts[0].body);
   t.check("stage is advanced after a successful post", r.state.stage === "awaiting_confirmation", r.state);
@@ -530,14 +530,49 @@ async function main() {
     })
   }) } });
   const formattedBody = formattedLinks.posts[0].body;
-  t.check("Markdown syntax is absent from the plain Pyrus fallback",
-    formattedBody.text.includes("Ссылка: https://kb.example/article/appeal?x=1&y=2") &&
-    !formattedBody.text.includes("[Ссылка]("), formattedBody);
   t.check("Pyrus receives its documented HTML hyperlink representation",
+    formattedBody.text === undefined &&
     formattedBody.formatted_text.includes(
       '<a href="https://kb.example/article/appeal?x=1&amp;y=2">Ссылка</a>') &&
     formattedBody.formatted_text.includes("<br/><br/>") &&
     formattedBody.formatted_text.includes("&lt;Не вставлять как HTML&gt;"), formattedBody);
+  t.check("text and formatted_text are never sent together",
+    !(formattedBody.text && formattedBody.formatted_text), formattedBody);
+
+  const formattedFallback = await run({
+    db: { [KEY]: state({
+      pendingOutcome: Object.assign({}, clarify, {
+        replyText: "Откройте [Ссылка](https://kb.example/article/appeal)."
+      })
+    }) },
+    failPostWhen: post => !!post.body.formatted_text
+  });
+  t.check("a channel rejecting formatted_text gets one safe plain-text retry",
+    formattedFallback.result.success === true && formattedFallback.posts.length === 2 &&
+    !!formattedFallback.posts[0].body.formatted_text &&
+    formattedFallback.posts[0].body.text === undefined &&
+    formattedFallback.posts[1].body.formatted_text === undefined &&
+    formattedFallback.posts[1].body.text ===
+      "Откройте Ссылка: https://kb.example/article/appeal.",
+    formattedFallback.posts.map(post => post.body));
+  t.check("the successful fallback consumes the outcome and advances normally",
+    formattedFallback.state.pendingOutcome === null,
+    formattedFallback.state);
+
+  const ambiguousFormattedFailure = await run({
+    db: { [KEY]: state({
+      stage: "intake",
+      pendingOutcome: Object.assign({}, clarify, {
+        replyText: "Откройте [Ссылка](https://kb.example/article/appeal)."
+      })
+    }) },
+    failPost: true
+  });
+  t.check("an ambiguous formatted_text failure is not retried and cannot duplicate a comment",
+    ambiguousFormattedFailure.result.success === false &&
+    ambiguousFormattedFailure.posts.length === 1 &&
+    ambiguousFormattedFailure.state.pendingOutcome !== null,
+    { result: ambiguousFormattedFailure.result, posts: ambiguousFormattedFailure.posts });
 
   const enriched = makeEnv({
     prev: {

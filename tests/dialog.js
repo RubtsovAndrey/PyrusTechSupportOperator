@@ -425,10 +425,23 @@ function conversation(options) {
       }
     });
 
-    // Что ушло в Pyrus: реплика партнёру — с каналом, заметка оператору — без.
-    const said = env.posts.filter(p => p.body && p.body.text && p.body.channel).map(p => p.body.text);
-    const internal = env.posts.filter(p => p.body && p.body.text && !p.body.channel).map(p => p.body.text);
-    said.forEach(text => comments.push({ id: nextCommentId++, author: BOT, text: text }));
+    // Что ушло в Pyrus: реплика партнёру — с каналом, заметка оператору — без. Text and
+    // formatted_text are alternative transports, so the dialog simulator must observe
+    // either one. For the next webhook keep a plain history line, as Pyrus itself exposes
+    // the readable text representation of a formatted comment when returning the task.
+    const rendered = body => body.text || body.formatted_text || "";
+    const fromHtml = value => String(value || "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<a\s+href="[^"]*">([^<]*)<\/a>/gi, "$1")
+      .replace(/<[^>]+>/g, "");
+    const partnerPosts = env.posts.filter(p => p.body && rendered(p.body) && p.body.channel);
+    const said = partnerPosts.map(p => rendered(p.body));
+    const internal = env.posts.filter(p => p.body && rendered(p.body) && !p.body.channel)
+      .map(p => rendered(p.body));
+    partnerPosts.forEach(post => comments.push({
+      id: nextCommentId++, author: BOT,
+      text: post.body.text || fromHtml(post.body.formatted_text)
+    }));
 
     const state = env.db["state:" + taskId] || {};
     // Исход витка читается из трассы, а не из документа: `finalize` обнуляет

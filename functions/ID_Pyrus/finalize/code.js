@@ -30,8 +30,10 @@ function isBot(author) {
 // Pyrus task comments do not render Markdown. The second live ratings acceptance showed
 // `[Ссылка](https://...)` literally both in the operator task and in the web widget.
 // Its comments API has a separate `formatted_text` field and supports a small HTML
-// allowlist including `<a href="...">`. Keep `text` as a readable transport fallback and
-// derive the HTML ourselves: model-produced HTML is never trusted or forwarded.
+// allowlist including `<a href="...">`. The live test showed that Pyrus rejects a comment
+// which contains BOTH `text` and `formatted_text`, even though each field is documented.
+// Treat them as alternatives: ordinary replies keep the proven `text` transport, and only
+// replies with a link try `formatted_text`. Model-produced HTML is never trusted.
 function plainCommentText(value) {
   return String(value || "").replace(
     /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,
@@ -57,11 +59,17 @@ function formattedCommentText(value) {
     .replace(/\r?\n/g, "<br/>");
 }
 
-function commentTextBody(value) {
-  return {
-    text: plainCommentText(value),
-    formatted_text: formattedCommentText(value)
-  };
+function commentTextVariants(value) {
+  const source = String(value || "");
+  const plain = { text: plainCommentText(source) };
+  const hasLink = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/.test(source);
+  return hasLink
+    ? { primary: { formatted_text: formattedCommentText(source) }, fallback: plain }
+    : { primary: plain, fallback: null };
+}
+
+function isBadRequest(error) {
+  return /(?:\b400\b|bad request)/i.test(String(error || ""));
 }
 
 // ── How a point write addresses its document ──
@@ -174,6 +182,28 @@ function ownToken() {
   }
 }
 const token = ownToken() || runtime.token;
+
+// HTML support may differ between a normal Pyrus comment and a particular external
+// channel. A rejected 400 is safe to repeat because Pyrus did not accept the operation;
+// an ambiguous timeout or 5xx is not retried here, otherwise a comment accepted before
+// the connection broke could be duplicated. The fallback keeps the URL visible but, more
+// importantly, never leaves the partner without the answer because of formatting.
+async function postTextComment(baseBody, value, purpose) {
+  const variants = commentTextVariants(value);
+  const request = body => Http.post({
+    url: apiUrl + "tasks/" + taskId + "/comments",
+    headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+    body: Object.assign({}, baseBody || {}, body)
+  });
+  try {
+    return await request(variants.primary);
+  } catch (e) {
+    if (!variants.fallback || !isBadRequest(e)) throw e;
+    Log.warn({ message: "finalize: formatted_text rejected for " + purpose +
+      " on task " + taskId + ", retrying as plain text: " + e });
+    return request(variants.fallback);
+  }
+}
 
 // applyOutcome and createSubtask record the decision in the task document, so it
 // is keyed by taskId and can never be crossed with another chat.
@@ -358,11 +388,7 @@ if (hasSomethingToPost) {
   // repeat of a turn, which is the case that actually happened.
   if (outcome.internalNote && String(state.internalNotePostedFor || "") !== String(processedId || "")) {
     try {
-      await Http.post({
-        url: apiUrl + "tasks/" + taskId + "/comments",
-        headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-        body: commentTextBody(outcome.internalNote)
-      });
+      await postTextComment({}, outcome.internalNote, "internal summary");
       writeState(taskId, { "internalNotePostedFor": processedId || null }, "finalize");
     } catch (e) {
       Log.warn({ message: "finalize: internal summary failed for task " + taskId + ": " + e });
@@ -371,9 +397,6 @@ if (hasSomethingToPost) {
 
   const body = {};
   if (outcome.replyText) {
-    const replyBody = commentTextBody(outcome.replyText);
-    body.text = replyBody.text;
-    body.formatted_text = replyBody.formatted_text;
     if (channel) body.channel = channel;
   }
   if (outcome.action) body.action = outcome.action;
@@ -381,13 +404,17 @@ if (hasSomethingToPost) {
   const fieldUpdates = requiredCloseFieldUpdates || buildFieldUpdates();
   if (fieldUpdates) body.field_updates = fieldUpdates;
 
-  if (body.text || body.action || body.approval_choice) {
+  if (outcome.replyText || body.action || body.approval_choice) {
     try {
-      await Http.post({
-        url: apiUrl + "tasks/" + taskId + "/comments",
-        headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-        body: body
-      });
+      if (outcome.replyText) {
+        await postTextComment(body, outcome.replyText, "partner reply");
+      } else {
+        await Http.post({
+          url: apiUrl + "tasks/" + taskId + "/comments",
+          headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+          body: body
+        });
+      }
     } catch (e) {
       posted = false;
       Log.error({ message: "finalize: post comment failed for task " + taskId + ": " + e });

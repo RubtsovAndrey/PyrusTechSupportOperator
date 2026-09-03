@@ -172,7 +172,7 @@ function makeEnv(options) {
       get: async a => { gets.push(a); return o.onGet ? o.onGet(a) : { body: {} }; },
       post: async a => {
         posts.push(a);
-        const isInternal = a.body && a.body.text && !a.body.channel;
+        const isInternal = a.body && (a.body.text || a.body.formatted_text) && !a.body.channel;
         if (o.failPostWhen && o.failPostWhen(a)) throw new Error("pyrus 400 (rejected by test)");
         if (o.failInternalPost && isInternal) throw new Error("pyrus 500 (internal note)");
         if (o.failPost && !isInternal) throw new Error("pyrus 500");
