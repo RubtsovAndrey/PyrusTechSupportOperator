@@ -115,6 +115,30 @@ async function main() {
     r.turnKind === "solution" && /Отчёт о закрытии смены/.test(r.solverInstruction) &&
     r.componentName === RESTAURANT, r);
 
+  // Exact regression from the live dialog: words in the opening problem must not answer
+  // a consequential question that was not asked yet. «Смена открыта ... не закрывается»
+  // used to be mistaken for «Тест драйвер не открывается» after the answer «Ресторан».
+  c = conversation("cash_shift_over_24_hours",
+    "кассовая смена открыта больше 24 часов и не закрывается");
+  r = await c.step();
+  t.check("an unspecified cash type is asked before the driver question",
+    r.turnKind === "questions" && r.answerKeys[0] === "posLocation", r);
+  r = await c.step({ incoming: "Ресторан", answers: { posLocation: "Ресторан" } });
+  t.check("answering only restaurant does not invent that Test Driver is unavailable",
+    r.turnKind === "questions" && r.answerKeys[0] === "kktDriverAvailable" &&
+    /Тест драйвера ККТ/.test(r.preQuestions[0]) && r.treeEnd === undefined, r);
+
+  c = conversation("cash_shift_over_24_hours",
+    "кассовая смена открыта больше 24 часов и не закрывается");
+  await c.step();
+  r = await c.step({
+    incoming: "Ресторан, смена открыта и не закрывается",
+    answers: { posLocation: "Ресторан" }
+  });
+  t.check("repeating the shift symptom still does not mean Test Driver is unavailable",
+    r.turnKind === "questions" && r.answerKeys[0] === "kktDriverAvailable" &&
+    /Тест драйвера ККТ/.test(r.preQuestions[0]), r);
+
   c = conversation("cash_shift_over_24_hours", "касса доставки: смена больше 24 часов");
   await c.step();
   r = await c.step({

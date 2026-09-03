@@ -396,6 +396,18 @@ function contiguousStemMatch(said, parts) {
   return false;
 }
 
+// Negation cannot be treated as an unordered bag of words. In «смена открыта и не
+// закрывается» both «не» and a form of «открыта» exist, but the sentence does not say
+// «не открывается». Keeping the declared order still tolerates natural fillers such as
+// «не могу её сейчас открыть».
+function orderedStemMatch(said, parts) {
+  let at = 0;
+  for (let i = 0; i < said.length && at < parts.length; i++) {
+    if (stemMatch(said[i], parts[at])) at++;
+  }
+  return at === parts.length;
+}
+
 function branchFromWords(node, said) {
   if (!said.length) return null;
 
@@ -407,7 +419,9 @@ function branchFromWords(node, said) {
       // A multi-word label counts only when the answer carries every word of it, so
       // «номер телефона» is not claimed by an answer that merely says «номер».
       const parts = words(label);
-      if (parts.length && parts.every(p => said.some(w => stemMatch(w, p)))) {
+      const hasNegation = parts.some(p => p === "не" || p === "нет" || p === "без");
+      if (parts.length && parts.every(p => said.some(w => stemMatch(w, p))) &&
+          (!hasNegation || orderedStemMatch(said, parts))) {
         // Word order matters most around negation. In «смена закрылась, Z-отчёт не вышел»
         // the bag of words contains «смена / не / закрылась», but it does not say «смена
         // не закрылась». A contiguous label gets a decisive bonus; the old unordered
@@ -752,7 +766,15 @@ if (topicKey) {
         // claim mean the partner has not decided, and he is asked.
         const askKey = branchKeyOf(target);
         if (askKey && !known[askKey]) {
-          const heard = branchFromWords(target, PARTNER_WORDS);
+          // A consequential fork may only be inferred from the CURRENT answer. Reusing
+          // the opening problem here crossed unrelated words around a live dialog:
+          // «смена открыта ... и не закрывается» supplied «открыта» + «не», so after the
+          // partner merely answered «Ресторан» it looked like «Тест драйвер не
+          // открывается» and the chat was handed over without asking about the driver.
+          const evidenceWords = target.requireBranchEvidence
+            ? words(dialogValue.incomingText)
+            : PARTNER_WORDS;
+          const heard = branchFromWords(target, evidenceWords);
           if (heard) {
             known[askKey] = heard.when[0];
             const heardPatch = {};
