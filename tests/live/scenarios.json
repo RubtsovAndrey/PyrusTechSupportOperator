@@ -494,6 +494,89 @@
       }
     },
     {
+      "id": "z-report-semantic-closed-ru",
+      "title": "Разговорная формулировка закрытой смены проходит через узкий Turn Interpreter",
+      "messages": [
+        "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался.",
+        "показывает, что закрыта"
+      ],
+      "expect": {
+        "turnCount": 2,
+        "turns": [
+          {
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": ["смена закрыта или всё ещё открыта"],
+              "excludes": ["Печать копии последнего документа"]
+            },
+            "internal": { "count": 0 },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["показывает, что закрыта"] },
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": ["другие фискальные документы"],
+              "excludes": ["смена закрыта или всё ещё открыта"]
+            },
+            "internal": { "count": 0 },
+            "path": {
+              "includes": [
+                "Turn Interpreter",
+                "Validate Turn Interpreter frame",
+                "Apply interpreted answer to policy"
+              ],
+              "excludes": ["Solver Agent"]
+            },
+            "noErrors": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "z-report-semantic-closed-mixed",
+      "title": "Смешанная формулировка closed проходит через узкий Turn Interpreter",
+      "messages": [
+        "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался.",
+        "пишет на экране closed"
+      ],
+      "expect": {
+        "turnCount": 2,
+        "turns": [
+          {
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": ["смена закрыта или всё ещё открыта"]
+            },
+            "internal": { "count": 0 },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["пишет на экране closed"] },
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": ["другие фискальные документы"],
+              "excludes": ["смена закрыта или всё ещё открыта"]
+            },
+            "internal": { "count": 0 },
+            "path": {
+              "includes": [
+                "Turn Interpreter",
+                "Validate Turn Interpreter frame",
+                "Apply interpreted answer to policy"
+              ],
+              "excludes": ["Solver Agent"]
+            },
+            "noErrors": true
+          }
+        ]
+      }
+    },
+    {
       "id": "z-report-open-shift-handover",
       "title": "Открытая смена останавливает Z-инструкцию и передаётся оператору с точной причиной",
       "messages": [

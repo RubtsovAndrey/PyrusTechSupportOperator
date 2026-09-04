@@ -50,8 +50,8 @@
   одинаково ловит возражение, вопрос обратно, постороннюю реплику и «сейчас узнаю у управляющей».
   Ответ на ЧАСТЬ вопросов по-прежнему двигает статью дальше: поля необязательные по решению.
 - **Просьбу человека слышно на любой стадии.** Проверка жила в промпте intake, а стадии
-  `awaiting_answers`, `awaiting_email` и `awaiting_confirmation` уходят в solver,
-  createSubtask и confirmation напрямую, минуя его — то есть бот не слышал просьбу ровно
+  `awaiting_answers`, `awaiting_email` и `awaiting_confirmation` уходят в Interpreter/Solver,
+  createSubtask и confirmation напрямую, минуя intake — то есть бот не слышал просьбу ровно
   там, где ветвящаяся статья проводит большинство витков. Теперь это код в `receiveWebhook`,
   без вызова модели, и оператор получает верную причину передачи.
 - **Вопрос про сам совет — вопрос, а не «не помогло».** «А где эту крышку искать?»
@@ -122,8 +122,9 @@
   ставит стадию `awaiting_email`; адрес из ответа вытаскивает регуляркой `receiveWebhook`,
   и виток идёт сразу в `createSubtask`, минуя intake и solver.
 - **Вопрос статьи тоже не выходит из ветки.** Исход `clarify_answers` ставит стадию
-  `awaiting_answers`, и ответ партнёра идёт сразу в `agent_solver`. Через `gathering` он
-  проходил intake и routing заново — два лишних вызова модели на каждый вопрос статьи,
+  `awaiting_answers`. Ответ на защищённый вопрос с конечными `value` идёт в
+  `agent_turn_interpreter`, остальные совместимые вопросы — сразу в `agent_solver`. Через
+  `gathering` ответ проходил intake и routing заново — два лишних вызова модели на вопрос,
   а главное, routing был вправе переписать `topicKey` на середине обхода дерева. Оба
   ограничителя зацикливания на этот исход распространяются.
 - **Критичная развилка читает только текущий ответ.** Для узла с
@@ -231,8 +232,9 @@
   и отсутствие upsert — раньше она принимала в фильтре `documentKey`, и именно
   поэтому тесты были зелёными, пока бот молча терял всё. Проверяются синтаксис
   всех функций, кавычки в YAML, связность графа, поведение `receiveWebhook`, `finalize`,
-  `parseAgentJson`, `createSubtask`, `matchUnit`, весь обход дерева БЗ вместе с формой
-  сводки и связка `applyOutcome` → `finalize` — 1032 проверки. Кроме кода проверяется то,
+  `parseAgentJson`, `parseTurnInterpretation`, `createSubtask`, `matchUnit`, весь обход
+  дерева БЗ вместе с формой сводки и связка `applyOutcome` → `finalize` — 1183 проверки.
+  Кроме кода проверяется то,
   что ломается уже после деплоя и тихо: статьи каталога (`start`, `go`, `else`, `onFail`,
   ключи `ask`, недостижимые и тупиковые узлы) и расхождение восьми копий `writeState` —
   платформа не даёт функциям импортировать друг друга, и копии успели разъехаться.
@@ -387,10 +389,11 @@
 
 ### Не сделано
 
-- Тесты покрывают `receiveWebhook`, `finalize`, `parseAgentJson`, `createSubtask`,
+- Тесты покрывают `receiveWebhook`, `finalize`, `parseAgentJson`, `parseTurnInterpretation`, `createSubtask`,
   `matchUnit`, `searchKnowledge` (весь обход дерева) и `applyOutcome` в связке с
-  `finalize`; `nextSolutionStep` отдельного набора не имеет. Сами агенты и их промпты
-  проверяются только прогонами в Pyrus — автотестами это не проверяется в принципе.
+  `finalize`; `nextSolutionStep` отдельного набора не имеет. Локальный разговор подставляет
+  образцовые ответы агентов; критические запреты промптов проверяются статически, но качество
+  смысловой классификации реальной модели подтверждается только живым прогоном.
 - Каталог знаний прогоняется отдельно: `node tests/catalog.check.js` печатает по каждому
   сценарию найденную тему, витки, вопросы и итоговые тексты оператору и в подзадачу.
 - `componentName` теперь может быть только тем, что есть в `knowledge_catalog`.
@@ -559,8 +562,9 @@
    «Текущее сообщение партнёра». Всё, о чём модель должна думать, кладётся строками,
    а не JSON: маленькая модель следует подписанной строке заметно лучше.
 3. **Стадия** из документа задачи выбирает ветку графа (см. карту ниже).
-4. **Агент** отвечает JSON, **`parseAgentJson`** его разбирает, сверяет с каталогами и
-   пишет факты; он же публикует заметку «Уточнённые данные по обращению».
+4. **Агент** отвечает JSON. Обычные роли разбирает **`parseAgentJson`**; защищённый ответ
+   проходит через **`parseTurnInterpretation`**, затем обычный function-узел вызывает
+   `searchKnowledge`. Parser сверяет результат с каталогом/активным вопросом и пишет факты.
 5. **`applyOutcome`** превращает исход витка в решение: текст партнёру, следующая стадия,
    поля Pyrus, саммари оператору. Всё это ложится в `pendingOutcome`.
 6. **`finalize`** — единственная точка записи в чат партнёра. Проверяет, не проиграл ли
@@ -680,7 +684,9 @@ trigger_webhook_pyrus → receiveWebhook → skip?
   attachment without text? attachment → Outcome - escalate (attachment) → finalize
   partner asked for a human? handover_request → Outcome - escalate (asked for a human) → finalize
   waiting for email?  awaiting_email → createSubtask
-  answering the article? awaiting_answers → agent_solver
+  answering a protected finite question? interpret_answer → agent_turn_interpreter
+      → parseTurnInterpretation → searchKnowledge → parse deterministic result
+  answering a legacy article question? awaiting_answers → agent_solver
   confirmation?  awaiting_confirmation → agent_confirmation → parseConfirmation
     │                                     resolved      → Outcome - solved → finalize
     │                                     language boundary → agent_intake
@@ -726,6 +732,7 @@ trigger_webhook_pyrus → receiveWebhook → skip?
 | `searchKnowledge` | ID_Tools | tool: подбор тематики, один узел дерева или один шаг линейной статьи |
 | `getKnowledgeMcp` | ID_Tools | управляемый MCP-поиск: внешние источники policy и проверенные кандидаты подготовленных тем |
 | `parseAgentJson` | ID_Tools | разбор ответа агента или детерминированного результата знания, запись фактов и попыток |
+| `parseTurnInterpretation` | ID_Tools | проверка узкого answer-frame: текущий вопрос, конечное value и дословная цитата |
 | `nextSolutionStep` | ID_Tools | решение после «не помогло»: следующий шаг, разъяснение того же или onFail |
 
 ## Инструменты разработчика
@@ -770,6 +777,13 @@ data.treeAnswers { ключ: слова партнёра } — ответы ст
 data.treeNode    на каком узле дерева стоит диалог
 data.treeDeliveredQuestionNode  узел, чей вопрос finalize успешно доставил партнёру
 data.treeDeliveredQuestionCommentId  комментарий, в ответ на который вопрос доставлен
+data.activeQuestionId, activeQuestionKey, activeQuestionNode  конечный контракт текущего
+                 защищённого вопроса; активируется только после успешной доставки
+data.activeQuestionCommentId  входящий комментарий витка, после которого вопрос доставлен;
+                 текущий ответ обязан иметь другой id
+data.activeQuestionValuesJson  допустимые value/meaning строкой JSON (массивы точечная
+                 запись Agent Platform не принимает)
+data.activeQuestionText  канонический текст действительно доставленного вопроса
 data.treeNoAnswerPending  достигнут предел ответов не по теме; parser сначала проверит
                  итоговый `answers` текущего solver-вызова и лишь затем передаст человеку
 data.treeEnd     close | subtask | escalate — чем кончилась ветка, читают условия графа
@@ -787,9 +801,8 @@ data.handoverReason  почему обращение уходит человек
                  и он побеждает объяснение модели: `prev.reason` — пересказ по мотивам.
                  Обнуляется в начале КАЖДОГО витка, как и pendingOutcome
 data.openAnswerPrompts  что статья ещё спросит, строкой «ключ — вопрос; …».
-                 Считает parseAgentJson, печатает в промпт receiveWebhook: на стадии
-                 awaiting_answers перед солвером не работает ни один агент, а читать
-                 каталог в receiveWebhook значило бы четвёртую копию обхода тематик
+                 Считает parseAgentJson, печатает в промпт receiveWebhook для совместимых
+                 вопросов; защищённому Interpreter передаётся отдельный активный контракт
 runtime          role (`chat` в MVP; значение `ticket` оставлено защитным наследием, но
                  receiveWebhook такую задачу не пропускает),
                  apiUrl, outboundChannel, incomingCommentId, formId,
