@@ -443,6 +443,9 @@ const done = {
   // The question belongs only to the solution delivered by this turn. Leaving it in the
   // document could append an old question to a later, unrelated `reply` outcome.
   "data.requiredFollowUpQuestion": null,
+  // The same one-turn ownership rule applies to article-authored clarification questions.
+  // If posting failed we returned above and keep the marker for a safe retry.
+  "data.requiredArticleQuestion": null,
   // Warning and source links belong to the external-KB answer delivered by this turn.
   "data.requiredKnowledgeNotice": null,
   // A solution is authorised only for the comment this turn has just answered. Clearing

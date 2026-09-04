@@ -208,6 +208,14 @@ async function main() {
   );
   t.check("ambiguous Z report asks whether the shift closed",
     /точно отображается закрытой/.test(r.replies.join(" ")) && r.internal.length === 0, r);
+  r = await bot.turn("Вроде да, заказы пропали с экрана, просто Z не вышел", {
+    answers: { shiftClosedInDodo: "вроде да, заказы пропали с экрана, просто Z не вышел" }
+  });
+  t.check("an uncertain shift status is clarified from the article without a handover",
+    r.stage === "awaiting_answers" && r.internal.length === 0 &&
+    r.replies.length === 1 &&
+    r.replies[0] === "Смена в Додо ИС точно отображается закрытой, а не распечатался только Z-отчёт?",
+    r);
   r = await bot.turn("Смена в Додо ИС закрыта, не вышел только Z-отчёт", {
     answers: { shiftClosedInDodo: "смена в Додо ИС закрыта" }
   });

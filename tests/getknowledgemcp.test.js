@@ -254,6 +254,7 @@ function runRouting(options) {
     updatedAt: "2026-09-04T08:00:00"
   };
   const routingData = o.existingEvidence ? { mcpRoutingEvidence: o.existingEvidence } : {};
+  if (o.treeAnswers) routingData.treeAnswers = JSON.parse(JSON.stringify(o.treeAnswers));
   if (o.activeTopic) {
     routingData.topicKey = String(o.activeTopic);
     routingData.routingRefinementCount = Number(o.refinementCount) || 0;
@@ -262,7 +263,8 @@ function runRouting(options) {
         topicKey: String(o.activeTopic),
         nodeId: "diagnose",
         fallbackBranch: "другая ошибка",
-        incomingCommentId: "routing-comment"
+        incomingCommentId: "routing-comment",
+        evidenceText: o.offerEvidence || null
       };
     }
   }
@@ -630,6 +632,27 @@ async function main() {
     r.result.refinement === true && r.result.topics.length === 1 &&
     r.state.data.routingRefinementCount === 1,
     { result: r.result, data: r.state.data });
+
+  // Live task 377118078 was interrupted after the broad article had already stored the
+  // concrete symptom. The next incoming message was only «Вы тут?». Refinement must use
+  // the durable partner evidence, not replace it with that service follow-up.
+  r = await runRouting({
+    activeTopic: "broad_diagnostics",
+    withRefinementOffer: true,
+    purpose: "routing_refinement",
+    query: "Вы тут?",
+    problemSummary: "непонятная проблема с кассой",
+    treeAnswers: {
+      posLocation: "касса ресторана",
+      problemDetails: "Чек не закрывается, пишет про неверную длину реквизита"
+    }
+  });
+  const resumedQuery = r.env.posts[0].body.params.arguments.request.query;
+  t.check("an interrupted refinement resumes from stored partner evidence",
+    resumedQuery.indexOf("Чек не закрывается") === 0 &&
+    resumedQuery.indexOf("неверную длину реквизита") >= 0 &&
+    r.result.found === true && r.result.topics[0].key === ROUTING_TOPIC.key,
+    { query: resumedQuery, result: r.result });
 
   r = await runRouting({
     activeTopic: "broad_diagnostics",

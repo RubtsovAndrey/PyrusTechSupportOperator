@@ -456,6 +456,7 @@ function fallbackResult(reason) {
     return { found: false, source: "prepared-mcp", topics: [], error: reason || null };
   }
   if (!externalPolicy) return { found: false, articles: [], error: reason || null };
+  const questions = externalPolicy.fallbackQuestions;
   writePaths({
     "data.treeNext": externalPolicy.fallbackNode,
     "data.solutionAuthorization": null,
@@ -464,7 +465,6 @@ function fallbackResult(reason) {
     "data.knowledgeSourceIds": null,
     "updatedAt": Date.now()
   });
-  const questions = externalPolicy.fallbackQuestions;
   return {
     found: false,
     articles: [],
@@ -506,11 +506,27 @@ const searchLimit = Math.min((candidateLimit || resultLimit) * SEARCH_MULTIPLIER
 // The graph-owned refinement has no AI-filled parameters: its query is built from the
 // current task context, so the model cannot omit, broaden or rewrite the symptom. A period
 // is deliberate — the KB search treats comma-separated tails inconsistently.
-// Put the newest, usually most concrete formulation first. `problemSummary` may still be
-// the vague opening that caused the broad route; it is useful context, but must not drown
-// the symptom the partner supplied after our question.
-const deterministicParts = [dialogValue.incomingText, dialogValue.problemSummary]
-  .map(value => String(value || "").replace(/\s+/g, " ").trim())
+// An offer carries the exact evidence that led the article to its fallback. Stored article
+// answers are the compatibility/recovery source for an offer written by an older build.
+// Both outrank the newest message: after an interrupted turn that message may be merely
+// «Вы тут?», while the useful symptom is already durable in the task document.
+const deterministicState = deterministicRoutingRefinement ? loadState() : {};
+const deterministicData = deterministicState.data || {};
+const deterministicOffer = deterministicData.routingRefinementOffer || {};
+const deterministicAnswers = deterministicData.treeAnswers &&
+  typeof deterministicData.treeAnswers === "object" ? deterministicData.treeAnswers : {};
+const durableEvidence = String(deterministicOffer.evidenceText || "").trim()
+  ? [deterministicOffer.evidenceText]
+  // Older offers have no snapshot. Put the richest partner answer first: short
+  // classification facts such as «касса ресторана» should provide context, not become
+  // the primary FTS phrase ahead of the exact failure symptom.
+  : Object.keys(deterministicAnswers).map(key => deterministicAnswers[key])
+    .sort((a, b) => String(b || "").length - String(a || "").length);
+const deterministicParts = durableEvidence
+  .concat([dialogValue.incomingText, dialogValue.problemSummary])
+  .map(value => String(value || "")
+    .replace(/\s*,\s*/g, ". ")
+    .replace(/\s+/g, " ").trim())
   .filter((value, index, all) => value && all.indexOf(value) === index);
 const text = deterministicRoutingRefinement
   ? deterministicParts.join(". ").slice(0, 1000)
@@ -527,7 +543,7 @@ if (!text) {
 // before any network call so a timeout cannot accidentally grant a second expensive crawl.
 let routingRefinement = null;
 if (routingMode) {
-  const state = loadState();
+  const state = deterministicRoutingRefinement ? deterministicState : loadState();
   const data = state.data || {};
   const activeTopicKey = data.topicKey ? String(data.topicKey) : null;
   if (activeTopicKey) {
@@ -843,6 +859,7 @@ writePaths({
   },
   "data.requiredKnowledgeNotice": notice,
   "data.requiredFollowUpQuestion": externalPolicy.followUpQuestion,
+  "data.requiredArticleQuestion": null,
   "data.knowledgeSourceIds": articles.map(a => a.articleId).join(", "),
   "updatedAt": Date.now()
 });

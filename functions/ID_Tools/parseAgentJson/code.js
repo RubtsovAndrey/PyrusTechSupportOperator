@@ -368,6 +368,52 @@ const raw = Context.getLastFunctionResult();
 const text = typeof raw === "string" ? raw : (raw && raw.content ? raw.content : String(raw || ""));
 const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
+// Structured output is an instruction on Agent Platform, not a grammar. In live task
+// 377121831 the Solver emitted a draft object and its corrected object one after another.
+// A greedy `{...}` regexp joined them into one invalid value; the prose fallback then
+// mistook two `kind: questions` objects for an ungrounded solution and handed the chat
+// over. Scan balanced top-level objects, respecting braces inside JSON strings, and use
+// the last valid one: a later object is the model's correction of its earlier draft.
+function jsonObjects(value) {
+  const source = String(value || "");
+  const out = [];
+  let start = -1;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source.charAt(i);
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') quoted = false;
+      continue;
+    }
+    if (ch === '"') {
+      quoted = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}" && depth > 0) {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        try {
+          const candidate = JSON.parse(source.slice(start, i + 1));
+          if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+            out.push(candidate);
+          }
+        } catch (e) {
+          // Keep scanning: a later self-correction may still be a complete JSON object.
+        }
+        start = -1;
+      }
+    }
+  }
+  return out;
+}
+
 let parsed = null;
 // A deterministic graph branch may put the verified searchKnowledge result directly in
 // front of this parser. Convert that tool result into the same small contract a Solver
@@ -404,12 +450,12 @@ if (raw && typeof raw === "object" && raw.turnKind) {
   try {
     parsed = JSON.parse(cleaned);
   } catch (e) {
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
-      try {
-        parsed = JSON.parse(match[0]);
-      } catch (e2) {
-        parsed = null;
+    const candidates = jsonObjects(cleaned);
+    if (candidates.length) {
+      parsed = candidates[candidates.length - 1];
+      if (candidates.length > 1) {
+        Log.warn({ message: "parseAgentJson(" + stage + "): agent returned " +
+          candidates.length + " JSON objects; using the last valid object" });
       }
     }
   }
@@ -936,6 +982,35 @@ if (taskId) {
       if (deterministicTreeEnd === "escalate") parsed.kind = "handover";
     }
 
+    // A question prepared by the article for THIS incoming comment is executable state,
+    // not prose the Solver is free to replace. This recovers three model failure shapes
+    // with the same generic rule: an invented instruction, an arbitrary handover, and an
+    // invalid/multiple JSON response that fell back to prose. A terminal or a pending MCP
+    // refinement still wins, because both are stronger decisions made by the article.
+    const requiredQuestion = data.requiredArticleQuestion || {};
+    const requiredCommentId = requiredQuestion.incomingCommentId == null
+      ? null : String(requiredQuestion.incomingCommentId);
+    const currentQuestionCommentId = state.runtime && state.runtime.incomingCommentId != null
+      ? String(state.runtime.incomingCommentId) : null;
+    const articleQuestionIsCurrent = String(stage || "") === "solver" &&
+      !data.treeEnd && currentQuestionCommentId != null &&
+      requiredCommentId === currentQuestionCommentId &&
+      String(requiredQuestion.topicKey || "") === String(data.topicKey || "") &&
+      !!String(requiredQuestion.text || "").trim();
+    if (articleQuestionIsCurrent) {
+      const canonicalQuestion = String(requiredQuestion.text).trim();
+      const replaced = String(parsed.kind || "") !== "questions" ||
+        String(parsed.replyText || "").trim() !== canonicalQuestion;
+      parsed.replyText = canonicalQuestion;
+      parsed.kind = "questions";
+      delete parsed.treeEnd;
+      data.handoverReason = null;
+      patch["data.handoverReason"] = null;
+      if (replaced) {
+        Log.warn({ message: "parseAgentJson: replaced Solver output with the current article question on task " + taskId });
+      }
+    }
+
     const solverClaimsSolution = String(stage || "") === "solver" && parsed.replyText &&
       String(parsed.kind || "solution") === "solution";
     if (solverClaimsSolution) {
@@ -953,7 +1028,9 @@ if (taskId) {
         patch["data.treeEnd"] = "escalate";
         data.handoverReason = "модель попыталась дать решение, которого searchKnowledge не выдавал в текущем витке";
         patch["data.handoverReason"] = data.handoverReason;
-        Log.error({ message: "parseAgentJson: blocked an ungrounded solver reply on task " + taskId +
+        // This is a handled policy violation, not a failed platform node. Keep it visible
+        // as a warning without painting the whole trace red as an infrastructure error.
+        Log.warn({ message: "parseAgentJson: blocked an ungrounded solver reply on task " + taskId +
           " (topic " + (data.topicKey || "?") + ", comment " + (currentCommentId || "?") + ")" });
       }
     } else if (String(stage || "") === "solver" && data.solutionAuthorization &&

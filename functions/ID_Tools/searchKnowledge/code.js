@@ -488,6 +488,25 @@ function solutionAuthorization(topicKey, nodeId) {
   };
 }
 
+// A question selected by an approved article is a small one-turn execution permit, just
+// like a solutionAuthorization but for clarification. The model may make it sound natural
+// when it behaves, while parseAgentJson can still recover the canonical wording when it
+// returns malformed JSON, invents advice or asks to hand over instead.
+function articleQuestionRequirement(topicKey, nodeId, questions) {
+  const text = (questions || []).map(q => String((q && q.question) || q || "").trim())
+    .filter(Boolean).join("\n");
+  if (!text) return null;
+  const state = loadState();
+  const incomingCommentId = currentCommentId(state);
+  if (incomingCommentId == null) return null;
+  return {
+    topicKey: String(topicKey || ""),
+    nodeId: nodeId == null ? null : String(nodeId),
+    incomingCommentId: incomingCommentId,
+    text: text.slice(0, 1500)
+  };
+}
+
 // The highest step of this article the partner has already been given. Counting the
 // attempts instead was what let one repeated answer shift the whole article: every
 // extra delivery moved the index on, and once it ran past the end it was clamped back
@@ -511,11 +530,23 @@ function makeRoutingRefinementOffer(topic, node, branch, data) {
   const state = loadState();
   const incomingCommentId = currentCommentId(state);
   if (incomingCommentId == null) return null;
+  const storedAnswers = facts.treeAnswers && typeof facts.treeAnswers === "object"
+    ? facts.treeAnswers : {};
+  // Keep the evidence that caused this fallback with the offer itself. If the platform
+  // stops between parseSolver and the graph-owned MCP node, the next message may be only
+  // «Вы тут?». A regenerated offer can then resume from the durable symptom instead of
+  // searching for that service phrase. Values come only from partner-answer fields and
+  // the task's partner-derived problem text; no model-generated advice enters the query.
+  const evidenceParts = (node.ask || []).map(q => storedAnswers[q.key])
+    .concat([dialogValue.incomingText, facts.problemSummary])
+    .map(value => String(value || "").replace(/\s+/g, " ").trim())
+    .filter((value, index, all) => value && all.indexOf(value) === index);
   return {
     topicKey: String(topic.key),
     nodeId: String(node.id),
     fallbackBranch: branch.when.join(" / "),
     incomingCommentId: incomingCommentId,
+    evidenceText: evidenceParts.join(". ").slice(0, 1000),
     at: Date.now()
   };
 }
@@ -850,6 +881,7 @@ if (effectiveTopicKey) {
         solutionAuthorization: null,
         requiredKnowledgeNotice: null,
         requiredFollowUpQuestion: null,
+        requiredArticleQuestion: null,
         operatorAdvice: null,
         routingRefinementOffer: null
       });
@@ -1132,6 +1164,7 @@ if (effectiveTopicKey) {
         handoverReason: null,
         treeExplain: null,
         operatorAdvice: null,
+        requiredArticleQuestion: null,
         routingRefinementOffer: null
       };
       if (component) patch.componentName = component;
@@ -1189,6 +1222,9 @@ if (effectiveTopicKey) {
         patch.treePreparedQuestionNode = target.id;
         patch.treePreparedQuestionCommentId = runtime.incomingCommentId == null
           ? null : String(runtime.incomingCommentId);
+        if (target.requireBranchEvidence === true) {
+          patch.requiredArticleQuestion = articleQuestionRequirement(topic.key, target.id, unanswered);
+        }
         patchData(patch);
         Log.info({ message: "searchKnowledge: topic " + topic.key + " -> node " + target.id + " (" + how + "), " + unanswered.length + " question(s)" + (ignoredTurns ? ", asked again after a reply that answered nothing" : "") });
         return {
@@ -1266,6 +1302,18 @@ if (effectiveTopicKey) {
         const visibleBranches = offer
           ? target.branches.filter(b => b.refineBeforeHandover !== true)
           : target.branches;
+        // Safety-critical nodes explicitly require current partner evidence. If the
+        // answer is still ambiguous, preserve the article's original question as the
+        // deterministic next action. Ordinary semantic branches keep their established
+        // model-assisted choice; they do not need this stricter contract.
+        const mustClarifyBranch = target.requireBranchEvidence === true && !offer;
+        if (mustClarifyBranch) {
+          const runtime = loadState().runtime || {};
+          patch.treePreparedQuestionNode = target.id;
+          patch.treePreparedQuestionCommentId = runtime.incomingCommentId == null
+            ? null : String(runtime.incomingCommentId);
+          patch.requiredArticleQuestion = articleQuestionRequirement(topic.key, target.id, target.ask);
+        }
         patchData(patch);
         Log.info({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " (" + how + ") is answered already and awaits a branch choice" });
         return {
@@ -1275,6 +1323,10 @@ if (effectiveTopicKey) {
           key: topic.key,
           awaitingBranch: true,
           treeNode: target.id,
+          needsPreQuestions: mustClarifyBranch,
+          preQuestions: mustClarifyBranch ? target.ask.map(q => q.question) : [],
+          questionSpecs: mustClarifyBranch ? questionSpecs(target.ask, target) : [],
+          mustClarifyBranch: mustClarifyBranch,
           // A refinement fallback is not a semantic answer alongside JavaScript or DNS.
           // Showing it in both arrays made the model choose it before the mandatory MCP
           // check. While the offer is active it exists only in refinementBranches.
@@ -1284,7 +1336,8 @@ if (effectiveTopicKey) {
           answerKeys: target.ask.map(q => q.key),
           onFail: topic.onFail,
           solverInstruction: null,
-          followUpQuestion: null
+          followUpQuestion: null,
+          reasked: String(data.treeDeliveredQuestionNode || "") === String(target.id)
         };
       }
 
@@ -1523,7 +1576,8 @@ if (effectiveTopicKey) {
       solutionAuthorization: solutionAuthorization(topic.key, null),
       treeExplain: null,
       // This is delivery state, not a prompt hint: applyOutcome appends it when needed.
-      requiredFollowUpQuestion: step.followUpQuestion
+      requiredFollowUpQuestion: step.followUpQuestion,
+      requiredArticleQuestion: null
     };
     // Новый шаг обнуляет счёт разъяснений: непонятность относится к шагу, а не к диалогу.
     if (!explainingStep) stepPatch.treeExplained = 0;

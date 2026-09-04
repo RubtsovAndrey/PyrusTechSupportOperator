@@ -176,6 +176,16 @@ async function main() {
     r.turnKind === "questions" && r.answerKeys[0] === "shiftClosedInDodo" &&
     /точно отображается закрытой/.test(r.preQuestions[0]), r);
   r = await c.step({
+    incoming: "Вроде да, заказы пропали с экрана, просто Z не вышел",
+    answers: { shiftClosedInDodo: "вроде да, заказы пропали с экрана, просто Z не вышел" }
+  });
+  t.check("an ambiguous safety answer carries the article question instead of guessing a branch",
+    r.turnKind === "choose-branch" && r.awaitingBranch === true &&
+    Array.isArray(r.preQuestions) && /точно отображается закрытой/.test(r.preQuestions[0]) &&
+    c.data.requiredArticleQuestion &&
+    /точно отображается закрытой/.test(c.data.requiredArticleQuestion.text),
+    { result: r, data: c.data });
+  r = await c.step({
     incoming: "Смена в Додо ИС закрыта, не вышел только Z-отчёт",
     answers: { shiftClosedInDodo: "смена в Додо ИС закрыта" }
   });
@@ -303,7 +313,9 @@ async function main() {
   r = await c.step();
   t.check("an unknown cash error offers one generic intent refinement before handover",
     r.turnKind === "refine-routing" && r.refinementAvailable === true &&
-    r.refinementBranches.length === 1 && !r.componentName && !c.data.componentName, r);
+    r.refinementBranches.length === 1 && !r.componentName && !c.data.componentName &&
+    /E-777/.test(c.data.routingRefinementOffer.evidenceText),
+    { result: r, offer: c.data.routingRefinementOffer });
   // The MCP attempt is owned by getKnowledgeMcp; simulate its recorded miss and return to
   // the article's declared fallback in the same solver invocation.
   c.data.routingRefinementCount = 1;

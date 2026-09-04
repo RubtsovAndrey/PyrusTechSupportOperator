@@ -93,6 +93,40 @@ async function main() {
   t.check("intake prose is used as a question instead of failing",
     r.result.action === "clarify" && /о какой точке/.test(r.result.clarifyingQuestion), r.result);
 
+  // Live Z-report dialog 377121831: the model emitted a draft JSON object and then its
+  // corrected JSON object in one response. The old greedy fallback tried to parse both as
+  // one value, failed, and treated the whole payload as an ungrounded solution.
+  r = await run("solver", [
+    json({ replyText: "", kind: "questions", partnerLanguage: "ru", answers: {} }),
+    json({ replyText: "Проверьте статус смены в Додо ИС.", kind: "questions", partnerLanguage: "ru", answers: {} })
+  ].join("\n"));
+  t.check("the last valid object wins when a model emits several JSON objects",
+    r.result.kind === "questions" &&
+    r.result.replyText === "Проверьте статус смены в Додо ИС." &&
+    !r.result.treeEnd, r.result);
+
+  // The article owns a pending question in the current comment. Even a malformed or
+  // disobedient Solver response cannot turn it into advice or an operator handover.
+  r = await run("solver", json({
+    replyText: "Попробуйте повторно закрыть смену.", kind: "solution", partnerLanguage: "ru"
+  }), {
+    runtime: { incomingCommentId: "z-answer" },
+    data: {
+      topicKey: "printer_no_receipt",
+      treeNode: "closedRestaurant",
+      requiredArticleQuestion: {
+        topicKey: "printer_no_receipt",
+        nodeId: "closedRestaurant",
+        incomingCommentId: "z-answer",
+        text: "Смена в Додо ИС отображается закрытой?"
+      }
+    }
+  });
+  t.check("a current article question deterministically replaces unsupported solver prose",
+    r.result.kind === "questions" &&
+    r.result.replyText === "Смена в Додо ИС отображается закрытой?" &&
+    !r.result.treeEnd && !r.state.data.handoverReason, r.result);
+
   r = await run("solver", "Проверьте кабель принтера.");
   t.check("solver prose without a solution issued by searchKnowledge is blocked",
     r.result.kind === "handover" && r.result.treeEnd === "escalate" && !r.result.replyText,
