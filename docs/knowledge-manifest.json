@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "topicCount": 5,
-  "catalogSha256": "a7271431d9f89cbf9d7f12aeca391f1ad9a458296413b2820fade734a0bcf35f",
+  "catalogSha256": "69dbd7d37bac277138c523f7a12b11df9b23da64d25495e9d25c4fde86619e2d",
   "topics": [
     {
       "key": "cash_receipt_error_148",
@@ -27,7 +27,7 @@
     {
       "key": "pos_terminal_troubleshooting",
       "source": "docs/knowledge/topics/pos_terminal_troubleshooting.json",
-      "sourceSha256": "b8df4846b0139b3433ada1cbaeec73676e759c9eca842075bf97c4b122316781",
+      "sourceSha256": "2a35ed03af106d5d7446aec6b75c5089411b74d8eb060dfda6fdbb0e23fd90f9",
       "rag": "docs/rag/pos_terminal_troubleshooting.md",
       "ragSha256": "303e971bade2ebce5a6ff94ef5b17c831a381b366a2d02479ffb0a7d4d044fde"
     },

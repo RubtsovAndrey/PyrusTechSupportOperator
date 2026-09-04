@@ -4,7 +4,8 @@ name: getKnowledgeMcp
 description: Ищет статьи в Базе Знаний через MCP и возвращает их содержимое с метаданными.
   Используй для поиска решений проблем партнёров.
 response-description: "Для обычного внутреннего поиска возвращает { found, articles\
-  \ }. Для topicKey возвращает управляемый результат: turnKind=external_answer с п\
+  \ }. Для purpose=routing возвращает только проверенные темы текущего каталога:\
+  \ { found, source: prepared-mcp, topics }. Для topicKey возвращает управляемый результат: turnKind=external_answer с п\
   рочитанными разрешёнными статьями, warning и followUpQuestion; либо turnKind=external_no_answer\
   \ с fallbackQuestions. ID, пространство и проверенная версия источников берутся\
   \ только из policy-каталога."
@@ -34,6 +35,14 @@ parameters:
   description: "Ключ выбранной тематики для закрытого поиска по разрешённым источн\
     икам текущего узла. ID статей и пространства берутся только из policy-каталога\
     , не из ответа модели."
+  properties: null
+  items: null
+- name: purpose
+  type: STRING
+  required: false
+  description: "Передай routing только при подборе подготовленной тематики маршру\
+    тизатором. В этом режиме поиск ограничен опубликованными статьями нашего прост\
+    ранства, а в ответ возвращаются только темы, полностью совпадающие с текущим runtime-каталогом."
   properties: null
   items: null
 language: JAVASCRIPT

@@ -293,7 +293,7 @@ function evidenceOptionMatches(saidWords, option) {
   return need.length > 0 && need.every(token => saidWords.some(said => stemMatch(said, token)));
 }
 
-function topicEvidenceMismatch(topic, saidWords) {
+function topicRequiredEvidenceMismatch(topic, saidWords) {
   const t = topic || {};
   const required = (Array.isArray(t.requiredEvidence) ? t.requiredEvidence : [])
     .map(group => Array.isArray(group) ? group.filter(Boolean) : [group].filter(Boolean));
@@ -302,9 +302,43 @@ function topicEvidenceMismatch(topic, saidWords) {
       return "нет обязательного признака группы " + (i + 1) + ": " + required[i].join(" / ");
     }
   }
+  return null;
+}
+
+function topicRequiredEvidenceMatchCount(topic, saidWords) {
+  const required = (Array.isArray(topic && topic.requiredEvidence) ? topic.requiredEvidence : [])
+    .map(group => Array.isArray(group) ? group.filter(Boolean) : [group].filter(Boolean));
+  return required.filter(group => group.some(option => evidenceOptionMatches(saidWords, option))).length;
+}
+
+function topicExcludedEvidenceMismatch(topic, saidWords) {
+  const t = topic || {};
   const excluded = (Array.isArray(t.excludedEvidence) ? t.excludedEvidence : []).filter(Boolean);
   const hit = excluded.find(option => evidenceOptionMatches(saidWords, option));
   return hit ? "обнаружен исключающий признак: " + hit : null;
+}
+
+function topicEvidenceMismatch(topic, saidWords) {
+  return topicRequiredEvidenceMismatch(topic, saidWords) ||
+    topicExcludedEvidenceMismatch(topic, saidWords);
+}
+
+// A controlled MCP routing search reads a published agent-topic article and accepts it
+// only when its full machine block equals the current runtime catalog. That is stronger
+// evidence than a literal marker such as an error number, and lets a symptom paraphrase
+// reach the prepared scenario. It may waive only missing *required* wording: market/role
+// scope and explicit exclusions remain hard guards.
+function hasMcpRoutingEvidence(topicKey) {
+  const state = loadState();
+  const data = state.data || {};
+  const runtime = state.runtime || {};
+  const evidence = data.mcpRoutingEvidence || {};
+  if (String(evidence.source || "") !== "published-agent-topic") return false;
+  if (runtime.incomingCommentId == null ||
+      String(evidence.incomingCommentId || "") !== String(runtime.incomingCommentId)) return false;
+  if (String(data.topicKey || "") !== String(topicKey || "")) return false;
+  return String(evidence.topicKeys || "").split(",").map(x => x.trim())
+    .some(key => key === String(topicKey || ""));
 }
 
 // ── How a point write addresses its document ──
@@ -423,13 +457,13 @@ function sameLabel(a, b) {
 //
 // Word forms are compared by their stems: an answer says «фамилию» where the branch says
 // «фамилия», and the whole point is lost to that one letter. Five common leading characters
-// are enough to tell «телефон» from «перевод» and short enough to survive any ending.
-// A flat five let the short labels down, though: «стаж» can never share five characters
-// with «стажа», so the shortest of the two words sets the bar — never below three, or a
-// two-letter word would start claiming branches.
+// are enough for long words. Four-character labels such as «стаж» use the whole shorter
+// word; a five-letter pair uses four so «длина/длины» and «касса/кассе» survive the ending.
+// The floor stays at three, or a two-letter word would start claiming branches.
 function stemMatch(a, b) {
   if (a === b) return true;
-  const need = Math.max(3, Math.min(5, a.length, b.length));
+  const shortest = Math.min(a.length, b.length);
+  const need = Math.max(3, Math.min(5, shortest === 5 ? 4 : shortest));
   const n = Math.min(a.length, b.length);
   let same = 0;
   while (same < n && a[same] === b[same]) same++;
@@ -684,7 +718,13 @@ if (topicKey) {
   const wanted = String(topicKey).toLowerCase();
   const exact = catalogTopics.filter(t => String(t.key || "").toLowerCase() === wanted);
   if (exact.length) {
-    const guardMismatch = topicScopeMismatch(exact[0]) || topicEvidenceMismatch(exact[0], PARTNER_WORDS);
+    const scopeMismatch = topicScopeMismatch(exact[0]);
+    const excludedMismatch = topicExcludedEvidenceMismatch(exact[0], PARTNER_WORDS);
+    const requiredMismatch = topicRequiredEvidenceMismatch(exact[0], PARTNER_WORDS);
+    const retrievalBacked = !!requiredMismatch &&
+      topicRequiredEvidenceMatchCount(exact[0], PARTNER_WORDS) > 0 &&
+      hasMcpRoutingEvidence(exact[0].key);
+    const guardMismatch = scopeMismatch || excludedMismatch || (retrievalBacked ? null : requiredMismatch);
     if (guardMismatch) {
       patchData({ treeEnd: "escalate", handoverReason: guardMismatch });
       Log.warn({ message: "searchKnowledge: topic " + exact[0].key + " refused by guard: " + guardMismatch });
@@ -693,6 +733,10 @@ if (topicKey) {
         key: String(exact[0].key), treeEnd: "escalate", onFail: "escalate",
         handoverReason: guardMismatch
       };
+    }
+    if (retrievalBacked) {
+      Log.info({ message: "searchKnowledge: topic " + exact[0].key +
+        " accepted by verified MCP routing evidence despite missing literal requiredEvidence" });
     }
     const topic = normalizeTopic(exact[0]);
 

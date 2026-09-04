@@ -28,6 +28,10 @@ parameters:
       type: STRING
       value: null
       filled-ai: true
+    purpose:
+      type: STRING
+      value: null
+      filled-ai: true
   context-config: null
   hitl-tool-config: null
   custom-headers: null

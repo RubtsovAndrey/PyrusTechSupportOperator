@@ -7,7 +7,7 @@
 const { loadFunction, makeEnv, suite } = require("./harness");
 
 const getKnowledge = loadFunction(
-  "functions/ID_Tools/getKnowledgeMcp/code.js", ["query", "spaceIds", "limit", "topicKey"]);
+  "functions/ID_Tools/getKnowledgeMcp/code.js", ["query", "spaceIds", "limit", "topicKey", "purpose"]);
 
 const OWN_SPACE = "6d8f5fa3-7fd4-44c8-978d-68743b232533";
 const OTHER_SPACE = "963b66c2-e111-43c6-a9ff-e7e5af3e4244";
@@ -37,6 +37,26 @@ const EXTERNAL_UPDATED_AT = "2026-05-22T09:01:53.619596";
 const EXTERNAL_APPEAL_UPDATED_AT = "2025-09-23T09:58:49.752124";
 const EXTERNAL_APPEAL_TITLE = "Правила подачи апелляций по рейтингу клиентского опыта";
 const EXTERNAL_CONTENT = "# Рейтинг клиентского опыта\n\nАпелляцию можно подать по правилам статьи.";
+const ROUTING_ARTICLE_ID = "c174c1a5-0ed4-4b5a-b85e-c34ea317ed80";
+const ROUTING_TOPIC = {
+  key: "cash_receipt_error_148",
+  description: "Чек не закрывается: ошибка 148 или неверная длина реквизита из-за ИНН кассира",
+  phrasings: ["ошибка 148 при закрытии чека"],
+  businessDomains: ["dodopizza.ru"],
+  roles: ["chat"],
+  requiredEvidence: [["148"], ["касса", "чек", "реквизит"]],
+  excludedEvidence: ["банковский терминал"],
+  start: "location",
+  onFail: "operator",
+  nodes: {
+    location: {
+      ask: [{ key: "posLocation", question: "Ресторан или доставка?" }],
+      branches: [{ when: ["ресторан"], go: "advice" }]
+    },
+    advice: { advice: "Выберите другого кассира.", onFail: "operator" },
+    operator: { end: "escalate" }
+  }
+};
 
 function hit(overrides) {
   return Object.assign({
@@ -88,7 +108,7 @@ function run(query, spaceIds, limit, options) {
       return wrap(found.length ? found[0] : { id: args.id, title: "нет", content: "" });
     }
   });
-  return getKnowledge(env, [query, spaceIds, limit, null]).then(r => ({ result: r, env: env }));
+  return getKnowledge(env, [query, spaceIds, limit, null, null]).then(r => ({ result: r, env: env }));
 }
 
 function runExternal(options) {
@@ -205,7 +225,69 @@ function runExternal(options) {
   });
   env.warnings = [];
   env.Log.warn = a => env.warnings.push(a && a.message);
-  return getKnowledge(env, ["Как подать апелляцию по РКО?", OTHER_SPACE, 10, "ratings_questions"])
+  return getKnowledge(env, ["Как подать апелляцию по РКО?", OTHER_SPACE, 10, "ratings_questions", null])
+    .then(result => ({ result: result, env: env, state: env.db[stateKey] }));
+}
+
+function routingMarkdown(topic) {
+  return "# [CASH] Ошибка 148\n\n```json\n" +
+    JSON.stringify(Object.assign({ schema: "agent-topic/1" }, topic), null, 2) +
+    "\n```";
+}
+
+function runRouting(options) {
+  const o = options || {};
+  const routingQuery = o.query || "Неверная длина реквизита";
+  const taskId = 11614;
+  const stateKey = "state:" + taskId;
+  const catalogTopic = JSON.parse(JSON.stringify(ROUTING_TOPIC));
+  const articleTopic = JSON.parse(JSON.stringify(o.articleTopic || ROUTING_TOPIC));
+  const routingHit = {
+    articleId: ROUTING_ARTICLE_ID,
+    articleTitle: "[CASH] Ошибка 148",
+    excerpt: "Неверная длина реквизита из-за ИНН кассира",
+    spaceId: OWN_SPACE,
+    spaceTitle: "ИИ Техподдержка - Конфигурация",
+    canReadFully: o.canReadFully === undefined ? true : o.canReadFully,
+    isWatermarksEnabled: false,
+    status: o.status === undefined ? "published" : o.status,
+    updatedAt: "2026-09-04T08:00:00"
+  };
+  const db = {
+    [stateKey]: {
+      taskId: taskId,
+      runtime: { incomingCommentId: "routing-comment" },
+      data: o.existingEvidence ? { mcpRoutingEvidence: o.existingEvidence } : {}
+    },
+    knowledge_catalog: { topics: [catalogTopic] }
+  };
+  const env = makeEnv({
+    db: db,
+    contextValues: { dialog: { taskId: String(taskId), incomingText: routingQuery } },
+    credentials: { [CRED]: "token-under-test" },
+    onPost: a => {
+      const name = a.body.params.name;
+      const request = a.body.params.arguments.request || {};
+      if (name === "search_content") return { status: 200, body: sse({ results: [routingHit] }) };
+      if (name === "get_content") return { status: 200, body: sse({
+        id: request.id,
+        title: routingHit.articleTitle,
+        content: routingMarkdown(articleTopic),
+        updatedAt: routingHit.updatedAt,
+        space: { id: OWN_SPACE, title: routingHit.spaceTitle }
+      }) };
+      if (name === "search_in_content") return { status: 200, body: sse({
+        found: true,
+        articleId: request.id,
+        articleTitle: routingHit.articleTitle,
+        excerpt: routingHit.excerpt
+      }) };
+      throw new Error("unexpected tool " + name);
+    }
+  });
+  env.infos = [];
+  env.Log.info = a => env.infos.push(a && a.message);
+  return getKnowledge(env, [routingQuery, null, null, null, "routing"])
     .then(result => ({ result: result, env: env, state: env.db[stateKey] }));
 }
 
@@ -437,6 +519,54 @@ async function main() {
   t.check("недоступный MCP безопасно переводит рейтинги к сбору данных для подзадачи",
     r.result.found === false && r.result.turnKind === "questions" &&
     r.result.fallbackNode === "rkoCollect", r.result);
+
+  // ── MCP fallback for prepared-topic routing ──
+  r = await runRouting();
+  t.check("routing mode returns a compact prepared-topic candidate without article body",
+    r.result.found === true && r.result.source === "prepared-mcp" &&
+    r.result.topics.length === 1 && r.result.topics[0].key === ROUTING_TOPIC.key &&
+    r.result.topics[0].searchExcerpt.indexOf("длина реквизита") >= 0 &&
+    !("articles" in r.result) && !("content" in r.result.topics[0]), r.result);
+  t.check("routing mode searches only the controlled space and then reads the article",
+    JSON.stringify(r.env.posts[0].body.params.arguments.request.spaces) === JSON.stringify([OWN_SPACE]) &&
+    r.env.posts[0].body.params.arguments.request.limit === 6 &&
+    r.env.posts.map(p => p.body.params.name).join(",") === "search_content,get_content",
+    r.env.posts.map(p => ({ name: p.body.params.name, args: p.body.params.arguments })));
+  t.check("a verified published article records routing evidence without an array-valued point write",
+    r.state.data.mcpRoutingEvidence.topicKeys === ROUTING_TOPIC.key &&
+    r.state.data.mcpRoutingEvidence.articleIds === ROUTING_ARTICLE_ID &&
+    r.env.puts.length === 0, { evidence: r.state.data.mcpRoutingEvidence, puts: r.env.puts });
+
+  const drifted = JSON.parse(JSON.stringify(ROUTING_TOPIC));
+  drifted.nodes.advice.advice = "Другой, ещё не опубликованный в runtime совет.";
+  r = await runRouting({ articleTopic: drifted });
+  t.check("a KB policy that drifted from the runtime catalog cannot authorise a route",
+    r.result.found === false && r.result.topics.length === 0 &&
+    !r.state.data.mcpRoutingEvidence, r.result);
+
+  r = await runRouting({ status: "draft" });
+  t.check("draft policy articles are ignored before their content is requested",
+    r.result.found === false && r.env.posts.length === 1 &&
+    r.env.posts[0].body.params.name === "search_content", r.env.posts.map(p => p.body.params.name));
+
+  r = await runRouting({ canReadFully: false });
+  t.check("a partial excerpt without the complete machine block cannot prove a prepared route",
+    r.result.found === false && r.env.posts.map(p => p.body.params.name).join(",") ===
+      "search_content,search_in_content", r.result);
+
+  r = await runRouting({ query: "ошибка длины реквизита банковского терминала" });
+  t.check("routing mode deterministically removes a candidate matched through excludedEvidence",
+    r.result.found === false && r.result.topics.length === 0 &&
+    !r.state.data.mcpRoutingEvidence &&
+    r.env.infos.some(line => /rejected by excludedEvidence/.test(line || "")),
+    { result: r.result, logs: r.env.infos });
+
+  r = await runRouting({ query: "не закрывается и не работает" });
+  t.check("an FTS hit with no matching requiredEvidence group cannot authorise a prepared route",
+    r.result.found === false && r.result.topics.length === 0 &&
+    !r.state.data.mcpRoutingEvidence &&
+    r.env.infos.some(line => /matched none of its requiredEvidence/.test(line || "")),
+    { result: r.result, logs: r.env.infos });
 
   return t.report();
 }

@@ -8,6 +8,7 @@
 //
 //   node tools/kb-mcp-live.js "смена превысила 24 часа"
 //   node tools/kb-mcp-live.js "как подать апелляцию по РКО" "" "" ratings_questions rkoKnowledge
+//   node tools/kb-mcp-live.js "неверная длина реквизита" "" "" "" "" routing
 //
 // Токен берётся из .env.local (MCP_KB_TOKEN) и подставляется вместо хранилища платформы.
 const fs = require("fs");
@@ -60,13 +61,14 @@ async function main() {
   const limit = process.argv[4] ? Number(process.argv[4]) : null;
   const topicKey = process.argv[5] || null;
   const treeNode = process.argv[6] || null;
+  const purpose = process.argv[7] || null;
 
   const getKnowledge = loadFunction(
-    "functions/ID_Tools/getKnowledgeMcp/code.js", ["query", "spaceIds", "limit", "topicKey"]);
+    "functions/ID_Tools/getKnowledgeMcp/code.js", ["query", "spaceIds", "limit", "topicKey", "purpose"]);
 
   const logs = [];
   const taskId = 990013;
-  const db = topicKey ? {
+  const db = (topicKey || purpose === "routing") ? {
     knowledge_catalog: require("../docs/knowledge_catalog.json"),
     ["state:" + taskId]: {
       taskId: taskId,
@@ -85,7 +87,7 @@ async function main() {
   });
 
   console.log("запрос: «" + query + "»" + (spaceIds ? ", пространства: " + spaceIds : ""));
-  const result = await getKnowledge(env, [query, spaceIds, limit, topicKey]);
+  const result = await getKnowledge(env, [query, spaceIds, limit, topicKey, purpose]);
 
   console.log("\n— лог функции —");
   logs.forEach(l => console.log("  " + l));
@@ -102,6 +104,14 @@ async function main() {
     console.log("     содержимое: " + String(a.content).length + " символов");
     if (a.url) console.log("     ссылка: " + a.url);
     console.log("     метаданные: " + JSON.stringify(a.metadata));
+  });
+  (result.topics || []).forEach((topic, i) => {
+    console.log("  " + (i + 1) + ". " + topic.key + " — " + topic.description);
+    console.log("     статья: " + topic.articleTitle + " (" + topic.articleId + ")");
+    console.log("     фрагмент поиска: " + topic.searchExcerpt);
+    if (topic.excludedEvidence && topic.excludedEvidence.length) {
+      console.log("     исключения: " + topic.excludedEvidence.join("; "));
+    }
   });
   if (!result.found) process.exitCode = 1;
 }

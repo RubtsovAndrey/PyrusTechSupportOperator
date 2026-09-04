@@ -43,6 +43,10 @@ const DEFAULT_LIMIT = 3;
 // лучше отсеивать из запаса, чем возвращать меньше, чем просили.
 const SEARCH_MULTIPLIER = 3;
 const MAX_SEARCH_LIMIT = 50;
+// Routing is latency-sensitive: one agent turn may call this mode twice with different
+// wording. Reading two candidates per call is enough for the model to resolve a genuine
+// ambiguity without turning one chat message into an unbounded crawl of the KB.
+const ROUTING_RESULT_LIMIT = 2;
 // In policy mode a semantic search can return one broad allowed article and omit a more
 // exact allowed one altogether. Probe only a small bounded number of missing reviewed
 // sources by their exact titles. This is deterministic, stays inside the allowlist and
@@ -220,6 +224,81 @@ async function rpc(token, name, args) {
 // business decision remains in the separately reviewed policy article.
 const dialogValue = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = dialogValue.taskId || null;
+const routingMode = String(purpose || "").toLowerCase() === "routing";
+
+let CATALOG_TOPICS = null;
+function catalogTopics() {
+  if (CATALOG_TOPICS) return CATALOG_TOPICS;
+  try {
+    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "knowledge_catalog" });
+    CATALOG_TOPICS = doc && doc.value && Array.isArray(doc.value.topics) ? doc.value.topics : [];
+  } catch (e) {
+    Log.warn({ message: "getKnowledgeMcp: knowledge_catalog read failed: " + e });
+    CATALOG_TOPICS = [];
+  }
+  return CATALOG_TOPICS;
+}
+
+// A published KB article may have been edited after the runtime catalog was reviewed and
+// uploaded. Such an article is useful neither as proof nor as a route: finding new wording
+// and then executing an old policy would silently mix two versions. Compare values with
+// sorted object keys so harmless JSON formatting/order changes do not look like drift.
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!value || typeof value !== "object") return value;
+  const out = {};
+  Object.keys(value).sort().forEach(key => {
+    if (key !== "schema") out[key] = canonical(value[key]);
+  });
+  return out;
+}
+
+function routingCatalogTopic(config) {
+  if (!config || !config.key) return null;
+  const topic = catalogTopics().find(t => t && String(t.key || "") === String(config.key));
+  if (!topic) return null;
+  return JSON.stringify(canonical(config)) === JSON.stringify(canonical(topic)) ? topic : null;
+}
+
+function evidenceWords(value) {
+  return String(value || "").toLowerCase().replace(/ё/g, "е")
+    .replace(/[^0-9a-zа-я]+/g, " ").trim().split(" ").filter(Boolean);
+}
+
+function evidenceStemMatch(a, b) {
+  if (a === b) return true;
+  const shortest = Math.min(a.length, b.length);
+  // Five-letter Russian nouns often change only their final vowel: длина/длины,
+  // касса/кассе. Requiring all five characters made the purported stem check behave as
+  // exact matching precisely on these common support phrases.
+  const need = Math.max(3, Math.min(5, shortest === 5 ? 4 : shortest));
+  const n = Math.min(a.length, b.length);
+  let same = 0;
+  while (same < n && a[same] === b[same]) same++;
+  return same >= need;
+}
+
+function routingExclusion(topic, text) {
+  const said = evidenceWords(text);
+  return (Array.isArray(topic && topic.excludedEvidence) ? topic.excludedEvidence : [])
+    .filter(Boolean).find(option => {
+      const need = evidenceWords(option);
+      return need.length > 0 && need.every(token =>
+        said.some(word => evidenceStemMatch(word, token)));
+    }) || null;
+}
+
+function routingRequiredEvidence(topic, text) {
+  const said = evidenceWords(text);
+  const groups = (Array.isArray(topic && topic.requiredEvidence) ? topic.requiredEvidence : [])
+    .map(group => Array.isArray(group) ? group.filter(Boolean) : [group].filter(Boolean));
+  const matched = groups.filter(group => group.some(option => {
+    const need = evidenceWords(option);
+    return need.length > 0 && need.every(token =>
+      said.some(word => evidenceStemMatch(word, token)));
+  })).length;
+  return { matched: matched, total: groups.length };
+}
 
 function loadState() {
   if (!taskId) return {};
@@ -235,8 +314,7 @@ function loadState() {
 function externalPolicyOf(key) {
   if (!key) return null;
   try {
-    const doc = Db.get({ dbIntegration: DB_ID, documentKey: "knowledge_catalog" });
-    const topics = doc && doc.value && Array.isArray(doc.value.topics) ? doc.value.topics : [];
+    const topics = catalogTopics();
     const topic = topics.find(t => t && String(t.key || "").toLowerCase() === String(key).toLowerCase());
     if (!topic || !topic.nodes || typeof topic.nodes !== "object") return null;
     const state = loadState();
@@ -316,9 +394,51 @@ function writePaths(paths) {
   }
 }
 
-const externalPolicy = externalPolicyOf(topicKey);
+const externalPolicy = routingMode ? null : externalPolicyOf(topicKey);
+
+function csvValues(value) {
+  return String(value || "").split(",").map(x => x.trim()).filter(Boolean);
+}
+
+function unique(values) {
+  return values.filter((value, index, all) => value && all.indexOf(value) === index);
+}
+
+// This attestation is the bridge between retrieval and execution. The routing model may
+// select only a returned catalog key, and searchKnowledge later accepts that key even when
+// a literal requiredEvidence guard (for example the number 148) was absent from the
+// partner's wording. Strings are used instead of arrays because Agent Platform's point
+// update adapter cannot serialise ArrayNode values.
+function rememberRoutingEvidence(text, matches) {
+  if (!taskId || !matches.length) return;
+  const state = loadState();
+  const previous = state.data && state.data.mcpRoutingEvidence || {};
+  const currentCommentId = state.runtime && state.runtime.incomingCommentId != null
+    ? String(state.runtime.incomingCommentId) : null;
+  const sameTurn = String(previous.incomingCommentId || "") === String(currentCommentId || "");
+  const topicKeys = unique((sameTurn ? csvValues(previous.topicKeys) : [])
+    .concat(matches.map(m => String(m.topic.key))));
+  const articleIds = unique((sameTurn ? csvValues(previous.articleIds) : [])
+    .concat(matches.map(m => String(m.article.articleId))));
+  const queries = unique((sameTurn ? String(previous.queries || "").split("\n").filter(Boolean) : [])
+    .concat([String(text)]));
+  writePaths({
+    "data.mcpRoutingEvidence": {
+      topicKeys: topicKeys.join(","),
+      articleIds: articleIds.join(","),
+      queries: queries.join("\n"),
+      incomingCommentId: currentCommentId,
+      source: "published-agent-topic",
+      at: Date.now()
+    },
+    "updatedAt": Date.now()
+  });
+}
 
 function fallbackResult(reason) {
+  if (routingMode) {
+    return { found: false, source: "prepared-mcp", topics: [], error: reason || null };
+  }
   if (!externalPolicy) return { found: false, articles: [], error: reason || null };
   writePaths({
     "data.treeNext": externalPolicy.fallbackNode,
@@ -349,20 +469,23 @@ function fallbackResult(reason) {
 
 // ── Сама работа ──
 
-if (topicKey && !externalPolicy) {
+if (!routingMode && topicKey && !externalPolicy) {
   return { found: false, articles: [], turnKind: "handover",
     error: "topic has no approved external knowledge at the current node" };
 }
 
 const candidateLimit = externalPolicy
   ? Math.max(1, Math.min(externalPolicy.sources.length, 10))
-  : null;
+  : routingMode ? ROUTING_RESULT_LIMIT : null;
 const resultLimit = externalPolicy
   ? externalPolicy.answerSourceLimit
-  : Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, 10));
+  : routingMode ? ROUTING_RESULT_LIMIT : Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, 10));
 const spaces = externalPolicy
   ? externalPolicy.sources.map(s => s.spaceId).filter((v, i, a) => a.indexOf(v) === i)
-  : parseSpaces(spaceIds);
+  : routingMode ? OWN_SPACES : parseSpaces(spaceIds);
+// Search asks for a small reserve because the first FTS hits may be drafts or otherwise
+// inadmissible. Only the first two published hits survive below, so this does not increase
+// the number of full article reads or candidates returned to the model.
 const searchLimit = Math.min((candidateLimit || resultLimit) * SEARCH_MULTIPLIER, MAX_SEARCH_LIMIT);
 const text = String(query || "").trim();
 
@@ -396,6 +519,15 @@ const allowedIds = externalPolicy
   : null;
 let ours = hits.filter(h => h && spaces.indexOf(String(h.spaceId)) >= 0 &&
   (!allowedIds || allowedIds.indexOf(String(h.articleId)) >= 0));
+if (routingMode) {
+  // Routing evidence must be an explicitly published policy article. Missing status is not
+  // accepted here: broad/manual retrieval remains permissive, but this mode can authorise
+  // an automated scenario and therefore fails closed.
+  ours = ours.filter(hit => String(hit.status || hit.Status || "").toLowerCase() === "published");
+  // Do not trust a server that returns more than requested: response time must remain
+  // bounded even if the MCP implementation changes its interpretation of `limit`.
+  ours = ours.slice(0, ROUTING_RESULT_LIMIT);
+}
 
 if (externalPolicy && ours.length < candidateLimit) {
   const seen = {};
@@ -450,6 +582,7 @@ if (!ours.length) {
 }
 
 const articles = [];
+const routingMatches = [];
 for (let i = 0; i < ours.length && articles.length < resultLimit; i++) {
   const hit = ours[i];
   const approved = externalPolicy
@@ -469,9 +602,9 @@ for (let i = 0; i < ours.length && articles.length < resultLimit; i++) {
   let article;
   const canReadFully = hit.canReadFully !== undefined ? hit.canReadFully : hit.CanReadFully;
   try {
-    if (externalPolicy && canReadFully !== true && canReadFully !== false) {
+    if ((externalPolicy || routingMode) && canReadFully !== true && canReadFully !== false) {
       Log.warn({ message: "getKnowledgeMcp: article " + hit.articleId +
-        " has no canReadFully flag; approved-answer flow fails closed" });
+        " has no canReadFully flag; controlled flow fails closed" });
       continue;
     }
     if (canReadFully === false) {
@@ -503,6 +636,12 @@ for (let i = 0; i < ours.length && articles.length < resultLimit; i++) {
     Log.warn({ message: "getKnowledgeMcp: статья " + hit.articleId + " пришла без содержимого, пропущена" });
     continue;
   }
+  if (routingMode && (String(article.id || "") !== String(hit.articleId || "") ||
+      !article.space || spaces.indexOf(String(article.space.id || "")) < 0)) {
+    Log.warn({ message: "getKnowledgeMcp: routing candidate " + hit.articleId +
+      " returned with a different article id or space, skipped" });
+    continue;
+  }
   const currentUpdatedAt = String((article && article.updatedAt) || hit.updatedAt || hit.UpdatedAt || "");
   if (approved && approved.reviewedUpdatedAt && currentUpdatedAt !== approved.reviewedUpdatedAt) {
     Log.warn({ message: "getKnowledgeMcp: approved article " + hit.articleId + " changed after review (" +
@@ -513,7 +652,28 @@ for (let i = 0; i < ours.length && articles.length < resultLimit; i++) {
   // Плоские метаданные читаются только там, где нет блока: иначе статья, размеченная
   // по-новому и содержащая пример ```yaml в тексте, получила бы два разных маршрута.
   const metadata = config || parseMetadata(content);
-  articles.push({
+  const prepared = routingMode ? routingCatalogTopic(config) : null;
+  if (routingMode && !prepared) {
+    Log.warn({ message: "getKnowledgeMcp: routing candidate " + hit.articleId +
+      " is not an exact copy of a current catalog topic, skipped" });
+    continue;
+  }
+  const excludedBy = routingMode ? routingExclusion(prepared, text) : null;
+  if (excludedBy) {
+    Log.info({ message: "getKnowledgeMcp: routing candidate " + hit.articleId +
+      " rejected by excludedEvidence: " + excludedBy });
+    continue;
+  }
+  const requiredMatch = routingMode ? routingRequiredEvidence(prepared, text) : { matched: 0, total: 0 };
+  // Retrieval may supply the missing exact marker, but it cannot replace every signal in
+  // the partner's own words. With no required group matched, an FTS hit on generic prose
+  // such as «не закрывается» is only search noise and must not become routing evidence.
+  if (routingMode && requiredMatch.total > 0 && requiredMatch.matched === 0) {
+    Log.info({ message: "getKnowledgeMcp: routing candidate " + hit.articleId +
+      " rejected because the partner matched none of its requiredEvidence groups" });
+    continue;
+  }
+  const preparedArticle = {
     articleId: article.id || hit.articleId,
     // В результате поиска заголовок называется `articleTitle`, в самой статье — `title`.
     title: article.title || hit.articleTitle || (approved && approved.title) || null,
@@ -526,13 +686,32 @@ for (let i = 0; i < ours.length && articles.length < resultLimit; i++) {
     // статья предназначена боту, а не просто нашлась поиском.
     config: config,
     metadata: metadata
-  });
+  };
+  articles.push(preparedArticle);
+  if (routingMode) routingMatches.push({ topic: prepared, article: preparedArticle });
 }
 
 Log.info({ message: "getKnowledgeMcp: «" + text.slice(0, 120) + "» → " + articles.length +
   " статья(ей) из " + ours.length + " попаданий; " +
   articles.map(a => (a.metadata.key || a.articleId) + (a.metadata.route ? "/" + a.metadata.route : "")).join(", ") });
 
+if (routingMode) {
+  rememberRoutingEvidence(text, routingMatches);
+  const topics = routingMatches.map(match => ({
+    key: String(match.topic.key),
+    description: match.topic.description ? String(match.topic.description) : null,
+    route: match.topic.nodes && typeof match.topic.nodes === "object"
+      ? "solver" : String(match.topic.route || "solver"),
+    componentName: match.topic.componentName ? String(match.topic.componentName) : null,
+    requiredEvidence: Array.isArray(match.topic.requiredEvidence) ? match.topic.requiredEvidence : [],
+    matchedRequiredGroups: routingRequiredEvidence(match.topic, text).matched,
+    excludedEvidence: Array.isArray(match.topic.excludedEvidence) ? match.topic.excludedEvidence : [],
+    articleId: String(match.article.articleId),
+    articleTitle: match.article.title,
+    searchExcerpt: match.article.excerpt
+  }));
+  return { found: topics.length > 0, source: "prepared-mcp", topics: topics };
+}
 if (!externalPolicy) return { found: articles.length > 0, articles: articles };
 if (!articles.length) return fallbackResult(null);
 

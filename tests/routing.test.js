@@ -189,6 +189,66 @@ async function main() {
   t.check("off не вызывает RAG даже когда подбор по словам ничего не нашёл",
     r.result.found === false && r.rags.length === 0, { result: r.result, calls: r.rags });
 
+  // ── Verified MCP evidence may replace only a missing literal marker ──
+  const preparedKey = "receipt_148";
+  const preparedCatalog = { topics: [{
+    key: preparedKey,
+    description: "Неверная длина реквизита: ошибка 148 из-за ИНН кассира",
+    phrasings: ["ошибка 148 при закрытии чека"],
+    roles: ["chat"],
+    requiredEvidence: [["148"], ["чек", "реквизит"]],
+    excludedEvidence: ["банковский терминал"],
+    route: "solver",
+    steps: [{ instruction: "Выберите другого кассира." }]
+  }] };
+  const preparedState = {
+    taskId: 1,
+    runtime: { role: "chat", incomingCommentId: "mcp-turn" },
+    data: {
+      topicKey: preparedKey,
+      mcpRoutingEvidence: {
+        topicKeys: preparedKey,
+        articleIds: "article-148",
+        queries: "неверная длина реквизита",
+        incomingCommentId: "mcp-turn",
+        source: "published-agent-topic"
+      }
+    }
+  };
+  let guardEnv = envFor("неверная длина реквизита", { catalog: preparedCatalog, state: preparedState });
+  let direct = await searchKnowledge(guardEnv, ["неверная длина реквизита", preparedKey, null, "{}"]);
+  t.check("verified MCP routing evidence lets a symptom paraphrase enter the prepared topic",
+    direct.found === true && direct.key === preparedKey &&
+    direct.solverInstruction === "Выберите другого кассира.", direct);
+  t.check("the log makes the requiredEvidence waiver explicit",
+    /accepted by verified MCP routing evidence/.test(guardEnv.logs()), guardEnv.logs());
+
+  const unverifiedState = JSON.parse(JSON.stringify(preparedState));
+  delete unverifiedState.data.mcpRoutingEvidence;
+  guardEnv = envFor("неверная длина реквизита", { catalog: preparedCatalog, state: unverifiedState });
+  direct = await searchKnowledge(guardEnv, ["неверная длина реквизита", preparedKey, null, "{}"]);
+  t.check("the same paraphrase without MCP evidence remains blocked by requiredEvidence",
+    direct.found === false && direct.source === "topic-guard-mismatch", direct);
+
+  const staleState = JSON.parse(JSON.stringify(preparedState));
+  staleState.data.mcpRoutingEvidence.incomingCommentId = "previous-turn";
+  guardEnv = envFor("неверная длина реквизита", { catalog: preparedCatalog, state: staleState });
+  direct = await searchKnowledge(guardEnv, ["неверная длина реквизита", preparedKey, null, "{}"]);
+  t.check("MCP routing evidence expires on the next incoming comment",
+    direct.found === false && direct.source === "topic-guard-mismatch", direct);
+
+  guardEnv = envFor("ничего не работает", { catalog: preparedCatalog, state: preparedState });
+  direct = await searchKnowledge(guardEnv, ["ничего не работает", preparedKey, null, "{}"]);
+  t.check("MCP evidence cannot waive every requiredEvidence group at once",
+    direct.found === false && direct.source === "topic-guard-mismatch", direct);
+
+  guardEnv = envFor("неверная длина реквизита банковского терминала",
+    { catalog: preparedCatalog, state: preparedState });
+  direct = await searchKnowledge(guardEnv,
+    ["неверная длина реквизита банковского терминала", preparedKey, null, "{}"]);
+  t.check("MCP evidence never waives an explicit exclusion",
+    direct.found === false && /исключающий признак/.test(direct.handoverReason || ""), direct);
+
   // ── Настройки читаются только там, где нужны ──
   // Солвер вызывает searchKnowledge с готовым `topicKey` и работает в разы чаще
   // маршрутизатора, а настройки подбора темы ему не нужны вовсе. Безусловное чтение `config`
