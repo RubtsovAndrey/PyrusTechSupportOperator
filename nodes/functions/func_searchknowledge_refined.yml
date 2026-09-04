@@ -1,0 +1,33 @@
+---
+id: func_searchknowledge_refined
+name: Execute uniquely refined topic
+position:
+  x: 5170
+  y: -2319
+next-step: func_parsejson_refined
+next-error-step: agent_summary_handover
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: searchKnowledge
+  is-tool: false
+  parameters:
+    query:
+      type: STRING
+      value: ""
+      filled-ai: false
+    topicKey:
+      type: STRING
+      value: null
+      filled-ai: false
+    branch:
+      type: STRING
+      value: null
+      filled-ai: false
+    answers:
+      type: STRING
+      value: "{}"
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

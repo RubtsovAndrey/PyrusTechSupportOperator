@@ -228,7 +228,9 @@ async function rpc(token, name, args) {
 // business decision remains in the separately reviewed policy article.
 const dialogValue = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = dialogValue.taskId || null;
-const routingMode = String(purpose || "").toLowerCase() === "routing";
+const routingPurpose = String(purpose || "").toLowerCase();
+const deterministicRoutingRefinement = routingPurpose === "routing_refinement";
+const routingMode = routingPurpose === "routing" || deterministicRoutingRefinement;
 
 let CATALOG_TOPICS = null;
 function catalogTopics() {
@@ -441,6 +443,16 @@ function rememberRoutingEvidence(text, matches) {
 
 function fallbackResult(reason) {
   if (routingMode) {
+    if (deterministicRoutingRefinement) {
+      writePaths({
+        "data.treeEnd": "escalate",
+        "data.routingRefinementOffer": null,
+        "data.handoverReason": reason
+          ? "не удалось уточнить подготовленную тему через Базу знаний: " + reason
+          : "База знаний не нашла единственную подготовленную тему для уточнённого симптома",
+        "updatedAt": Date.now()
+      });
+    }
     return { found: false, source: "prepared-mcp", topics: [], error: reason || null };
   }
   if (!externalPolicy) return { found: false, articles: [], error: reason || null };
@@ -491,7 +503,18 @@ const spaces = externalPolicy
 // inadmissible. Only the first two published hits survive below, so this does not increase
 // the number of full article reads or candidates returned to the model.
 const searchLimit = Math.min((candidateLimit || resultLimit) * SEARCH_MULTIPLIER, MAX_SEARCH_LIMIT);
-const text = String(query || "").trim();
+// The graph-owned refinement has no AI-filled parameters: its query is built from the
+// current task context, so the model cannot omit, broaden or rewrite the symptom. A period
+// is deliberate — the KB search treats comma-separated tails inconsistently.
+// Put the newest, usually most concrete formulation first. `problemSummary` may still be
+// the vague opening that caused the broad route; it is useful context, but must not drown
+// the symptom the partner supplied after our question.
+const deterministicParts = [dialogValue.incomingText, dialogValue.problemSummary]
+  .map(value => String(value || "").replace(/\s+/g, " ").trim())
+  .filter((value, index, all) => value && all.indexOf(value) === index);
+const text = deterministicRoutingRefinement
+  ? deterministicParts.join(". ").slice(0, 1000)
+  : String(query || "").trim();
 
 if (!text) {
   Log.warn({ message: "getKnowledgeMcp: пустой запрос" });
@@ -762,6 +785,16 @@ if (routingMode) {
     articleTitle: match.article.title,
     searchExcerpt: match.article.excerpt
   }));
+  if (deterministicRoutingRefinement && topics.length !== 1) {
+    writePaths({
+      "data.treeEnd": "escalate",
+      "data.routingRefinementOffer": null,
+      "data.handoverReason": topics.length
+        ? "MCP нашёл несколько подготовленных тем для уточнённого симптома; выбирать наугад нельзя"
+        : "MCP не подтвердил подготовленную тему для уточнённого симптома",
+      "updatedAt": Date.now()
+    });
+  }
   return {
     found: topics.length > 0,
     source: "prepared-mcp",

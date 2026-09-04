@@ -1,11 +1,11 @@
 ---
-id: func_parsejson_solver
-name: parseSolver
+id: func_parsejson_refined
+name: Parse deterministic knowledge result
 position:
-  x: 4054
-  y: -1812
-next-step: cond_tree_refine
-next-error-step: func_escalate_m9k4j
+  x: 5390
+  y: -2319
+next-step: cond_tree_subtask
+next-error-step: agent_summary_handover
 parameters:
   type: USER
   collection: ID_Tools

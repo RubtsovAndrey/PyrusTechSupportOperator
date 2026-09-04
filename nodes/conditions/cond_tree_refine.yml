@@ -1,0 +1,11 @@
+---
+id: cond_tree_refine
+name: article requested deterministic routing refinement?
+position:
+  x: 4510
+  y: -2219
+next-step: func_refine_knowledge_mcp
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).treeEnd === 'refine'"
+  false-step: cond_tree_subtask

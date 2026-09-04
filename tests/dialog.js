@@ -207,6 +207,19 @@ const AGENTS = {
       query: said, topicKey: activeTopicKey, answers: JSON.stringify(toolAnswers)
     }) || {};
 
+    // Reproduce the live failure mode independently of model wording: the Solver saw a
+    // valid refinement offer, ignored it, and tried to answer from its own assumptions.
+    // Production must not depend on the model obeying the tool-orchestration instruction;
+    // parseAgentJson should discard this text and let the graph perform the MCP branch.
+    if (turn.ignoreRefinement && r.refinementAvailable === true) {
+      return json({
+        replyText: "Проверьте длину всех полей и перезапустите кассу.",
+        kind: "solution",
+        partnerLanguage: partnerLanguage,
+        answers: answers
+      });
+    }
+
     async function refineOrUseFallback(result) {
       const fallback = result.fallbackBranch ||
         (Array.isArray(result.refinementBranches) ? result.refinementBranches[0] : null);

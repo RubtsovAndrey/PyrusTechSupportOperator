@@ -126,11 +126,18 @@ async function main() {
     answers: {
       posLocation: "касса ресторана",
       problemDetails: "у реквизита неверная длина"
-    }
+    },
+    // Deliberately make the reference Solver repeat the production mistake. The graph,
+    // not model compliance, now owns the one-time MCP refinement.
+    ignoreRefinement: true
   });
   t.check("a concrete paraphrase is refined into the prepared receipt scenario",
     r.stage === "awaiting_confirmation" && /ИНН/.test(r.replies.join(" ")) &&
     bot.data.topicKey === "cash_receipt_error_148", r);
+  t.check("invented Solver advice is discarded before it can reach the partner",
+    !/длину всех полей|перезапустите кассу/.test(r.replies.join(" ")) &&
+    r.agents.filter(id => id === "agent_solver").length === 1,
+    { replies: r.replies, agents: r.agents, trace: r.trace.map(step => step.id) });
   t.check("the refinement reads one controlled policy and keeps the component coherent",
     mcpCalls.join(",") === "search_content,get_content" &&
     bot.data.routingRefinementCount === 1 && bot.data.componentName === RESTAURANT,

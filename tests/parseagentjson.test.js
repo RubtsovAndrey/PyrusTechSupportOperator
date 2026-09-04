@@ -109,6 +109,26 @@ async function main() {
     r.result.kind === "handover" && r.result.treeEnd === "escalate" && !r.result.replyText,
     r.result);
 
+  r = await run("solver", {
+    found: true,
+    turnKind: "solution",
+    solverInstruction: "Выберите другого кассира.",
+    followUpQuestion: "Помогло ли это?"
+  }, {
+    runtime: { incomingCommentId: "refined-comment" },
+    data: {
+      topicKey: "printer_no_receipt",
+      solutionAuthorization: {
+        topicKey: "printer_no_receipt",
+        incomingCommentId: "refined-comment"
+      }
+    }
+  });
+  t.check("a verified deterministic knowledge result becomes partner text without another model",
+    r.result.kind === "solution" &&
+    r.result.replyText === "Выберите другого кассира.\n\nПомогло ли это?",
+    r.result);
+
   // Live ratings acceptance, task 377005885: searchKnowledge had already walked the
   // approved article to `end: subtask`. The model nevertheless wrote that specialists
   // had received the request. The generic grounding guard used to turn the correct

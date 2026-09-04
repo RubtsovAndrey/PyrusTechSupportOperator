@@ -1,0 +1,11 @@
+---
+id: cond_refinement_unique
+name: MCP refinement found exactly one prepared topic?
+position:
+  x: 4950
+  y: -2319
+next-step: func_searchknowledge_refined
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).refinement === true && Array.isArray((Context.getLastFunctionResult() || {}).topics) && (Context.getLastFunctionResult() || {}).topics.length === 1"
+  false-step: agent_summary_handover

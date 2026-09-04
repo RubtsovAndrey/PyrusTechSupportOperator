@@ -150,10 +150,12 @@
   уверенности недостаточно, но после выбора `topicKey` поздняя гипотеза модели не может
   его заменить. Единственное контролируемое исключение — резервная ветка
   `refineBeforeHandover` широкой статьи: до первого совета она один раз разрешает MCP
-  подтвердить другую подготовленную тему в том же сообщении партнёра. Разрешение,
-  попытка и найденная тема сверяются кодом; произвольная смена ключа Solver-ом приводит к
-  передаче оператору. Confirmation не создаёт «новое обращение» из неясной реплики и не
-  стирает контекст. Реальную смену темы после переоткрытия разбирает оператор.
+  подтвердить другую подготовленную тему в том же сообщении партнёра. Этот вызов выполняет
+  отдельная ветка графа, а не Solver: запрос строится из контекста, и только единственный
+  проверенный кандидат напрямую передаётся в `searchKnowledge`. Разрешение, попытка и
+  найденная тема сверяются кодом; ноль или несколько кандидатов и произвольная смена ключа
+  приводят к передаче оператору. Confirmation не создаёт «новое обращение» из неясной
+  реплики и не стирает контекст. Реальную смену темы после переоткрытия разбирает оператор.
 - **Оператор видит разницу между «статьи нет» и «статья велит передать человеку».**
   Маршрут статьи запоминается в `data.topicRoute` и попадает в саммари: для бота оба
   случая — эскалация, для человека — разная работа.
@@ -686,7 +688,11 @@ trigger_webhook_pyrus → receiveWebhook → skip?
         action=clarify  → Outcome - clarify  → finalize
         action=route    → agent_routing → parseRouting
           route=clarify → Outcome - clarify → finalize
-          route=solver  → agent_solver → parseSolver → tree ended?
+          route=solver  → agent_solver → parseSolver → refinement requested?
+                             yes → MCP refinement → exactly one topic?
+                                yes → searchKnowledge → parse deterministic result → tree ended?
+                                no  → summary → Outcome - escalate
+                             no → tree ended?
                              treeEnd=subtask  → summary → createSubtask
                              treeEnd=escalate → summary → Outcome - escalate
                              treeEnd=close    → Outcome - solved
@@ -713,7 +719,8 @@ trigger_webhook_pyrus → receiveWebhook → skip?
 | `createSubtask` | ID_Actions | создание подзадачи и перевод её этапа |
 | `matchUnit` | ID_Tools | tool: поиск юнита в каталоге, режимы unit и network |
 | `searchKnowledge` | ID_Tools | tool: подбор тематики, один узел дерева или один шаг линейной статьи |
-| `parseAgentJson` | ID_Tools | разбор ответа агента, запись фактов и попыток |
+| `getKnowledgeMcp` | ID_Tools | управляемый MCP-поиск: внешние источники policy и проверенные кандидаты подготовленных тем |
+| `parseAgentJson` | ID_Tools | разбор ответа агента или детерминированного результата знания, запись фактов и попыток |
 | `nextSolutionStep` | ID_Tools | решение после «не помогло»: следующий шаг, разъяснение того же или onFail |
 
 ## Инструменты разработчика

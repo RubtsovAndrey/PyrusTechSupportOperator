@@ -778,6 +778,18 @@ function refuseUnsupportedBranchAnswers(given, topic) {
   return accepted;
 }
 
+// In the deterministic graph branch the preceding function is getKnowledgeMcp. It returns
+// exactly one fully verified runtime topic or the graph hands over; no model copies the key
+// between the two functions. The ordinary tool path still requires an explicit topicKey.
+const upstream = Context.getLastFunctionResult() || {};
+const upstreamTopics = Array.isArray(upstream.topics) ? upstream.topics : [];
+if (!topicKey && upstream.source === "prepared-mcp" && upstream.refinement === true &&
+    upstreamTopics.length === 1 && upstreamTopics[0] && upstreamTopics[0].key) {
+  topicKey = String(upstreamTopics[0].key);
+  Log.info({ message: "searchKnowledge: executing the single deterministic MCP refinement candidate " +
+    topicKey + " without a model-selected key" });
+}
+
 // Exact lookup: the solver already knows which topic it must follow, and gets one
 // step at a time. Handing over the whole article invited the model to dump every
 // variant in a single reply, which left nothing to try when the partner said the
@@ -1247,6 +1259,9 @@ if (topicKey) {
           ? makeRoutingRefinementOffer(topic, target, refinable[0], data)
           : null;
         if (offer) patch.routingRefinementOffer = offer;
+        const visibleBranches = offer
+          ? target.branches.filter(b => b.refineBeforeHandover !== true)
+          : target.branches;
         patchData(patch);
         Log.info({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " (" + how + ") is answered already and awaits a branch choice" });
         return {
@@ -1256,7 +1271,10 @@ if (topicKey) {
           key: topic.key,
           awaitingBranch: true,
           treeNode: target.id,
-          branchOptions: target.branches.map(b => b.when.join(" / ")),
+          // A refinement fallback is not a semantic answer alongside JavaScript or DNS.
+          // Showing it in both arrays made the model choose it before the mandatory MCP
+          // check. While the offer is active it exists only in refinementBranches.
+          branchOptions: visibleBranches.map(b => b.when.join(" / ")),
           refinementAvailable: !!offer,
           refinementBranches: offer ? refinable.map(b => b.when.join(" / ")) : [],
           answerKeys: target.ask.map(q => q.key),

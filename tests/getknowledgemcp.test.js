@@ -276,12 +276,18 @@ function runRouting(options) {
   };
   const env = makeEnv({
     db: db,
-    contextValues: { dialog: { taskId: String(taskId), incomingText: routingQuery } },
+    contextValues: { dialog: {
+      taskId: String(taskId),
+      problemSummary: o.problemSummary || null,
+      incomingText: routingQuery
+    } },
     credentials: { [CRED]: "token-under-test" },
     onPost: a => {
       const name = a.body.params.name;
       const request = a.body.params.arguments.request || {};
-      if (name === "search_content") return { status: 200, body: sse({ results: [routingHit] }) };
+      if (name === "search_content") return { status: 200, body: sse({
+        results: o.routingHits === undefined ? [routingHit] : o.routingHits
+      }) };
       if (name === "get_content") return { status: 200, body: sse({
         id: request.id,
         title: routingHit.articleTitle,
@@ -300,7 +306,8 @@ function runRouting(options) {
   });
   env.infos = [];
   env.Log.info = a => env.infos.push(a && a.message);
-  return getKnowledge(env, [routingQuery, null, null, null, "routing"])
+  return getKnowledge(env, [o.callQuery === undefined ? routingQuery : o.callQuery,
+    null, null, null, o.purpose || "routing"])
     .then(result => ({ result: result, env: env, state: env.db[stateKey] }));
 }
 
@@ -605,6 +612,35 @@ async function main() {
     repeatedRefinement.found === false &&
     r.env.posts.length === postCountAfterRefinement,
     { result: repeatedRefinement, posts: r.env.posts.length });
+
+  r = await runRouting({
+    activeTopic: "broad_diagnostics",
+    withRefinementOffer: true,
+    purpose: "routing_refinement",
+    callQuery: "THIS MODEL-SUPPLIED QUERY MUST NOT BE USED",
+    problemSummary: "На кассе странная проблема",
+    query: "Чек не закрывается пишет про неверную длину реквизита"
+  });
+  const deterministicQuery = r.env.posts[0].body.params.arguments.request.query;
+  t.check("graph-owned refinement builds its query from task context, not model arguments",
+    deterministicQuery === "Чек не закрывается пишет про неверную длину реквизита. На кассе странная проблема" &&
+    deterministicQuery.indexOf(",") < 0,
+    deterministicQuery);
+  t.check("graph-owned refinement returns one verified prepared topic",
+    r.result.refinement === true && r.result.topics.length === 1 &&
+    r.state.data.routingRefinementCount === 1,
+    { result: r.result, data: r.state.data });
+
+  r = await runRouting({
+    activeTopic: "broad_diagnostics",
+    withRefinementOffer: true,
+    purpose: "routing_refinement",
+    routingHits: []
+  });
+  t.check("a deterministic refinement miss ends in safe handover state",
+    r.result.found === false && r.state.data.treeEnd === "escalate" &&
+    !r.state.data.routingRefinementOffer && /не нашла/.test(r.state.data.handoverReason),
+    { result: r.result, data: r.state.data });
 
   return t.report();
 }

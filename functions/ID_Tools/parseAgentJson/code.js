@@ -369,15 +369,48 @@ const text = typeof raw === "string" ? raw : (raw && raw.content ? raw.content :
 const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
 let parsed = null;
-try {
-  parsed = JSON.parse(cleaned);
-} catch (e) {
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (match) {
-    try {
-      parsed = JSON.parse(match[0]);
-    } catch (e2) {
-      parsed = null;
+// A deterministic graph branch may put the verified searchKnowledge result directly in
+// front of this parser. Convert that tool result into the same small contract a Solver
+// would return, without asking a second model to orchestrate tools or invent prose.
+if (raw && typeof raw === "object" && raw.turnKind) {
+  const treeEnd = ["subtask", "escalate", "close"].indexOf(String(raw.treeEnd || "")) >= 0
+    ? String(raw.treeEnd) : null;
+  if (treeEnd) {
+    parsed = { replyText: "", kind: treeEnd === "escalate" ? "handover" : "solution", treeEnd: treeEnd };
+  } else if (raw.turnKind === "solution" && String(raw.solverInstruction || "").trim()) {
+    parsed = {
+      replyText: [raw.solverInstruction, raw.followUpQuestion].filter(Boolean).join("\n\n"),
+      kind: "solution"
+    };
+  } else if (raw.turnKind === "questions" || raw.needsPreQuestions) {
+    const questions = (Array.isArray(raw.preQuestions) ? raw.preQuestions : [])
+      .map(value => String(value || "").trim()).filter(Boolean);
+    if (raw.subtaskEmailRequired && raw.subtaskEmailMissing) {
+      questions.push("Укажите email для обращения.");
+    }
+    parsed = {
+      replyText: [raw.solverInstruction, questions.join("\n")].filter(Boolean).join("\n\n"),
+      kind: questions.length ? "questions" : "handover"
+    };
+  } else {
+    // A newly refined topic that itself needs free-form article interpretation or another
+    // ambiguous branch is outside this deterministic fast path. Silence and a human are
+    // safer than turning the parser into another language model.
+    parsed = { replyText: "", kind: "handover" };
+  }
+  Log.info({ message: "parseAgentJson: converted deterministic knowledge result " +
+    raw.turnKind + " into " + parsed.kind });
+} else {
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        parsed = JSON.parse(match[0]);
+      } catch (e2) {
+        parsed = null;
+      }
     }
   }
 }
@@ -735,21 +768,21 @@ if (taskId) {
         if (value === null || value === undefined || value === "") return;
         if (typeof value === "object") { refused.push(k); return; }
         const answer = String(value);
+        const raw = String(dialog.incomingText || "").trim();
+        if (raw) {
+          // Keep the current partner evidence even when searchKnowledge already persisted
+          // the same semantic answer earlier in this tool loop. Otherwise a later safety
+          // override sees no "new" answer and a failed summary falls back to stale intake.
+          evidence[k] = raw;
+          patch["data.treeAnswerEvidence." + k] = raw;
+          data.latestPartnerEvidence = raw.slice(0, 900);
+          patch["data.latestPartnerEvidence"] = data.latestPartnerEvidence;
+        }
         if (stored[k] !== answer) {
           learnedAnswer = true;
           // The model supplies the semantic value used by the tree. The human-facing
           // evidence is the partner's actual message from which that value was learned.
           // This makes “verbatim” a data property rather than merely a prompt request.
-          const raw = String(dialog.incomingText || "").trim();
-          if (raw) {
-            evidence[k] = raw;
-            patch["data.treeAnswerEvidence." + k] = raw;
-            // The terminal summariser is advisory and can occasionally return no JSON.
-            // Keep the newest complete partner message as a deterministic fallback; it is
-            // safer and more useful than an old intake paraphrase or an isolated answer.
-            data.latestPartnerEvidence = raw.slice(0, 900);
-            patch["data.latestPartnerEvidence"] = data.latestPartnerEvidence;
-          }
         }
         stored[k] = answer;
         patch["data.treeAnswers." + k] = answer;
@@ -848,6 +881,32 @@ if (taskId) {
           Log.warn({ message: "parseAgentJson: task " + taskId +
             " still has no answer after the delivery-aware limit; handing over" });
         }
+      }
+    }
+
+    // Once an article has issued a current, unused refinement offer, tool orchestration is
+    // no longer entrusted to the Solver. Its reply is discarded and the graph proceeds to
+    // a non-AI getKnowledgeMcp node. This also rescues a model that repeats searchKnowledge
+    // or invents advice, while preserving the answers it correctly extracted above.
+    if (String(stage || "") === "solver") {
+      const offer = data.routingRefinementOffer || {};
+      const currentCommentId = state.runtime && state.runtime.incomingCommentId != null
+        ? String(state.runtime.incomingCommentId) : null;
+      const currentOffer = currentCommentId != null && data.topicKey &&
+        String(offer.topicKey || "") === String(data.topicKey) &&
+        String(offer.incomingCommentId || "") === currentCommentId &&
+        Number(data.routingRefinementCount || 0) < 1;
+      if (currentOffer) {
+        if (parsed.replyText) {
+          Log.warn({ message: "parseAgentJson: ignored Solver output because article-owned MCP refinement is pending on task " + taskId });
+        }
+        parsed.replyText = "";
+        parsed.kind = "refine";
+        parsed.treeEnd = "refine";
+        data.treeEnd = "refine";
+        patch["data.treeEnd"] = "refine";
+        data.handoverReason = null;
+        patch["data.handoverReason"] = null;
       }
     }
 

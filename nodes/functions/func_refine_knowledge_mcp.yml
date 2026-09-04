@@ -1,0 +1,37 @@
+---
+id: func_refine_knowledge_mcp
+name: Deterministic MCP routing refinement
+position:
+  x: 4730
+  y: -2319
+next-step: cond_refinement_unique
+next-error-step: agent_summary_handover
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: getKnowledgeMcp
+  is-tool: false
+  parameters:
+    query:
+      type: STRING
+      value: ""
+      filled-ai: false
+    spaceIds:
+      type: STRING
+      value: null
+      filled-ai: false
+    limit:
+      type: NUMBER
+      value: null
+      filled-ai: false
+    topicKey:
+      type: STRING
+      value: null
+      filled-ai: false
+    purpose:
+      type: STRING
+      value: routing_refinement
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null
