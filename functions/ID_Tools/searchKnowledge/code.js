@@ -101,6 +101,10 @@ function normalizeNodes(t) {
       "else": n["else"] ? String(n["else"]) : null,
       go: n.go ? String(n.go) : null,
       end: END_KINDS.indexOf(String(n.end || "")) >= 0 ? String(n.end) : null,
+      // A known terminal should explain itself to the operator without asking a model to
+      // infer the business reason from the transcript. It is internal metadata only and
+      // is acted on only for an explicit `end: escalate` node.
+      handoverReason: n.handoverReason ? String(n.handoverReason) : null,
       componentName: n.componentName ? String(n.componentName) : null,
       onFail: n.onFail ? String(n.onFail) : null,
       // Exact sources backing this branch. `operator_hint` is an execution mode, not a
@@ -1032,7 +1036,10 @@ if (effectiveTopicKey) {
       }
       if (Object.keys(givenPatch).length) {
         patchData(givenPatch);
-        Log.info({ message: "searchKnowledge: " + Object.keys(givenPatch).length + " answer(s) taken from the chat for " + topic.key + ": " + Object.keys(given).join(", ") });
+        // Evidence fields are observability metadata, not additional answers. Counting the
+        // whole patch made one live «не печатала» look like three collected answers.
+        const answerKeys = Object.keys(given);
+        Log.info({ message: "searchKnowledge: " + answerKeys.length + " answer(s) taken from the chat for " + topic.key + ": " + answerKeys.join(", ") });
       }
       const chosen = String(branch || "").trim();
 
@@ -1226,7 +1233,8 @@ if (effectiveTopicKey) {
         treeEnd: null,
         treeNext: null,
         treeNoAnswerPending: null,
-        handoverReason: null,
+        handoverReason: target.end === "escalate" && target.handoverReason
+          ? target.handoverReason : null,
         treeExplain: null,
         operatorAdvice: null,
         // A model may call the tool twice in one turn: first without a branch, then with
@@ -1555,6 +1563,7 @@ if (effectiveTopicKey) {
           componentName: component,
           treeNode: target.id,
           treeEnd: target.end,
+          handoverReason: target.end === "escalate" ? target.handoverReason : null,
           solverInstruction: target.advice,
           followUpQuestion: null,
           treeAnswers: known

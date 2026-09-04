@@ -4,7 +4,7 @@ name: tree ended in a handover?
 position:
   x: 4730
   y: -1919
-next-step: agent_summary_handover
+next-step: cond_deterministic_handover
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).treeEnd === 'escalate'"

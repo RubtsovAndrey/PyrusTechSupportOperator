@@ -521,6 +521,7 @@ if (!parsed || typeof parsed !== "object") {
 
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = dialog.taskId || null;
+let deterministicHandover = false;
 
 // What the task document already knows, read BEFORE anything is judged — because the
 // judgement depends on it. The document used to be opened only further down, at the point
@@ -1172,6 +1173,13 @@ if (taskId) {
     if ((known.openAnswerPrompts || null) !== openLine) patch["data.openAnswerPrompts"] = openLine;
 
     if (!documentExists) patch["data"] = data;
+    // A terminal article that already supplied a reason and a problem summary contains
+    // everything the operator template requires. Expose that fact to the graph so it can
+    // skip the advisory summary LLM; live traces showed that model selecting the platform's
+    // `switchToState` tool with empty content in every such Z-report handover.
+    deterministicHandover = String(data.treeEnd || "") === "escalate" &&
+      !!String(data.handoverReason || "").trim() &&
+      !!String(data.problemSummary || dialog.problemSummary || "").trim();
     writeState(taskId, patch, "parseAgentJson");
     // The facts this stage just resolved are republished as a note so the agents that
     // run later in the same pass (routing, solver) can see the unit and the topic.
@@ -1239,4 +1247,5 @@ if (taskId) {
 
 parsed.taskId = taskId;
 parsed.agentStage = String(stage || "");
+parsed.deterministicHandover = deterministicHandover;
 return parsed;

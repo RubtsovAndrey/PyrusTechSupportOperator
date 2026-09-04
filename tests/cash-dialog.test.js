@@ -253,6 +253,10 @@ async function main() {
   r = await bot.turn("Да, помогло");
   t.check("successful Z-report recovery closes without an internal note",
     r.stage === "closed" && r.internal.length === 0, r);
+  r = await bot.turn("спасибо", { reopened: true });
+  t.check("live Pyrus reopen on thanks closes the accepted Z dialog again",
+    r.stage === "closed" && r.internal.length === 0 && r.replies.length === 1 &&
+    r.agents.length === 0, r);
 
   bot = chat();
   r = await bot.turn(
@@ -345,6 +349,32 @@ async function main() {
 
   bot = chat();
   await bot.turn(
+    "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  r = await bot.turn("Смена всё ещё открыта");
+  t.check("an open shift reaches the operator with its article-owned reason",
+    r.stage === "escalated" && r.internal.length === 1 &&
+    /не подтвердил, что смена в Додо ИС закрыта/.test(r.internal[0]) &&
+    r.agents.indexOf("agent_summary_handover") < 0,
+    { internal: r.internal, agents: r.agents });
+
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  await bot.turn("Смена в Додо ИС закрыта");
+  await bot.turn("Не печатали");
+  r = await bot.turn("Не открывается");
+  t.check("an unavailable driver reaches the operator without an advisory summary call",
+    r.stage === "escalated" && r.internal.length === 1 &&
+    /Тест драйвера ККТ/.test(r.internal[0]) &&
+    r.agents.indexOf("agent_summary_handover") < 0,
+    { internal: r.internal, agents: r.agents });
+
+  bot = chat();
+  await bot.turn(
     "Тамбов-1, на кассе доставки смена закрылась, Z-отчёт не вышел",
     { unit: "Тамбов-1" }
   );
@@ -358,7 +388,10 @@ async function main() {
     r.stage === "escalated" && !/Печать копии/.test(r.replies.join(" ")), r.replies);
   t.check("that stop condition is visible only in one operator summary",
     r.internal.length === 1 && /Суть:/.test(r.internal[0]) &&
-    !/Собрано у партнёра|Что произошло до передачи/.test(r.internal[0]), r.internal);
+    /не подтверждено, что Z-отчёт остался последним фискальным документом/.test(r.internal[0]) &&
+    !/Собрано у партнёра|Что произошло до передачи/.test(r.internal[0]) &&
+    r.agents.indexOf("agent_summary_handover") < 0,
+    { internal: r.internal, agents: r.agents });
 
   // Country and role boundaries go through the same real graph.
   bot = chat({ units: ["[dodopizza.by] Минск-1 (улица Ленина, 1)"] });

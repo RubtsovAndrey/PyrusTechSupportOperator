@@ -462,16 +462,21 @@ function isJustThanks(text) {
 }
 
 let stage = "intake";
-if (reopenedForOperator) {
+// Pyrus marks the first partner comment after `finished` as `reopened`. That transport
+// fact must not outrank the deliberately narrow gratitude classifier: otherwise the
+// special case below works in a simulator that omits `action`, but every real «спасибо»
+// still wakes the first line. A genuine new question keeps the generic reopen path.
+if (storedStage === "closed" && isJustThanks(incomingText)) {
+  stage = "gratitude";
+  Log.info({ message: "receiveWebhook: task " + taskId + " — в закрытый чат пришла только благодарность, отвечаем и закрываем снова, оператора не беспокоим" });
+}
+else if (reopenedForOperator) {
   stage = "reopened";
   Log.info({ message: "receiveWebhook: task " + taskId +
     " reopened by the partner; MVP hands the conversation to an operator" });
 }
 else if (storedStage === "closed") {
-  stage = isJustThanks(incomingText) ? "gratitude" : "reopened";
-  if (stage === "gratitude") {
-    Log.info({ message: "receiveWebhook: task " + taskId + " — в закрытый чат пришла только благодарность, отвечаем и закрываем снова, оператора не беспокоим" });
-  }
+  stage = "reopened";
 }
 else if (storedStage === "escalated") stage = "escalated";      // operator owns the thread now
 else if (storedStage === "awaiting_confirmation") stage = "awaiting_confirmation";

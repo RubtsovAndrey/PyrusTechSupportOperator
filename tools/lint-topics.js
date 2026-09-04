@@ -149,6 +149,14 @@ function lintTopics(topics) {
       if (n.end && END_KINDS.indexOf(String(n.end)) < 0) {
         say(id + ".end=\"" + n.end + "\" is not one of " + END_KINDS.join("/"));
       }
+      if (n.handoverReason !== undefined) {
+        if (!String(n.handoverReason || "").trim()) {
+          say(id + ".handoverReason is empty");
+        }
+        if (String(n.end || "") !== "escalate") {
+          say(id + ".handoverReason is only valid on an end: escalate terminal");
+        }
+      }
       if (n.branchOn && !ask.some(q => q && q.key === n.branchOn)) {
         say(id + ".branchOn=\"" + n.branchOn + "\" is not one of the node's own ask keys");
       }

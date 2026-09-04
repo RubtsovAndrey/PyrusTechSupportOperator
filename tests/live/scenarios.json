@@ -391,6 +391,153 @@
           }
         ]
       }
+    },
+    {
+      "id": "z-report-success-close-and-thanks",
+      "title": "Z-отчёт восстанавливается по трём подтверждённым условиям, а благодарность не будит оператора",
+      "messages": [
+        "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался.",
+        "Смена в Додо ИС закрыта.",
+        "Не печатала.",
+        "Да, открывается.",
+        "Да, помогло.",
+        "Спасибо!"
+      ],
+      "expect": {
+        "turnCount": 6,
+        "turns": [
+          {
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": ["смена закрыта или всё ещё открыта"],
+              "excludes": ["Печать копии последнего документа"]
+            },
+            "internal": { "count": 0 },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["Смена в Додо ИС закрыта"] },
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": ["другие фискальные документы"]
+            },
+            "internal": { "count": 0 },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["Не печатала"] },
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": ["Тест драйвера ККТ"]
+            },
+            "logs": {
+              "includes": ["searchKnowledge: 1 answer(s)"],
+              "excludes": ["searchKnowledge: 3 answer(s)"]
+            },
+            "internal": { "count": 0 },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["Да, открывается"] },
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": ["Печать копии последнего документа", "Получилось решить вопрос"]
+            },
+            "internal": { "count": 0 },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["Да, помогло"] },
+            "outcome": "solved",
+            "replies": {
+              "count": 1,
+              "includes": ["Рад был помочь"],
+              "action": "finished",
+              "approval": null,
+              "fields": 2
+            },
+            "internal": { "count": 0 },
+            "task": {
+              "isClosed": true,
+              "reopenedAfterReply": false
+            },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["Спасибо"] },
+            "outcome": "solved",
+            "replies": {
+              "count": 1,
+              "includes": ["Рад был помочь"],
+              "action": "finished",
+              "approval": null,
+              "fields": 2
+            },
+            "internal": { "count": 0 },
+            "path": {
+              "excludes": ["Handover Summary Agent (operator)", "Outcome - silent handover"]
+            },
+            "task": {
+              "isClosed": true,
+              "reopenedAfterReply": false,
+              "laterComments": {
+                "excludes": ["Работаем над вашим вопросом"]
+              }
+            },
+            "noErrors": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "z-report-open-shift-handover",
+      "title": "Открытая смена останавливает Z-инструкцию и передаётся оператору с точной причиной",
+      "messages": [
+        "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался.",
+        "Смена всё ещё открыта."
+      ],
+      "expect": {
+        "turnCount": 2,
+        "turns": [
+          {
+            "outcome": "reply",
+            "replies": {
+              "count": 1,
+              "includes": ["смена закрыта или всё ещё открыта"],
+              "excludes": ["Печать копии последнего документа"]
+            },
+            "internal": { "count": 0 },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["Смена всё ещё открыта"] },
+            "outcome": "escalated",
+            "replies": {
+              "count": 1,
+              "includes": ["Понадобится время на изучение вопроса"],
+              "excludes": ["Печать копии последнего документа"],
+              "action": null,
+              "approval": "approved",
+              "fields": 2
+            },
+            "internal": {
+              "count": 1,
+              "includes": [
+                "Бот передаёт обращение оператору",
+                "партнёр не подтвердил, что смена в Додо ИС закрыта"
+              ]
+            },
+            "path": {
+              "excludes": ["Handover Summary Agent (operator)"]
+            },
+            "noErrors": true
+          }
+        ]
+      }
     }
   ]
 }

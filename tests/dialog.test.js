@@ -162,7 +162,7 @@ async function main() {
   // разбора закрытого вопроса.
   bot = chat();
   await bot.turn("Здравствуйте! Нужно поменять аватарку у курьера, Тамбов-1", { unit: "Тамбов-1" });
-  r = await bot.turn("Да, получилось, спасибо!");
+  r = await bot.turn("Да, получилось, спасибо!", { reopened: true });
   t.check("благодарность не уходит оператору", r.internal.length === 0, r.internal);
   t.check("бот отвечает и снова закрывает чат",
     r.replies.length === 1 && r.stage === "closed", r.stage + " / " + r.replies.length);

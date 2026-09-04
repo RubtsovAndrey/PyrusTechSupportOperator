@@ -69,9 +69,12 @@ function makeEnv(options) {
   const rags = [];
   // Ключи, по которым код спрашивал секреты: порядок обращения — часть поведения.
   const creds = [];
+  // Пользовательские логи — часть наблюдаемого поведения для регрессий, где неверная
+  // телеметрия скрывает реальный ход дерева, хотя бизнес-исход остаётся правильным.
+  const logs = [];
 
   const env = {
-    db, notes, values, posts, gets, updates, puts, rags, creds,
+    db, notes, values, posts, gets, updates, puts, rags, creds, logs,
     prev: clone(o.prev) || {},
     Context: {
       getMessageContent: () => ({ payload: o.payload }),
@@ -151,7 +154,13 @@ function makeEnv(options) {
         return { count: keys.length };
       }
     },
-    Log: { info() {}, warn() {}, error() {}, debug() {}, trace() {} },
+    Log: {
+      info: a => logs.push({ level: "info", message: String(a && a.message || "") }),
+      warn: a => logs.push({ level: "warn", message: String(a && a.message || "") }),
+      error: a => logs.push({ level: "error", message: String(a && a.message || "") }),
+      debug: a => logs.push({ level: "debug", message: String(a && a.message || "") }),
+      trace: a => logs.push({ level: "trace", message: String(a && a.message || "") })
+    },
     // Хранилище секретов платформы. `noCredentials: true` убирает неймспейс целиком: код,
     // который читает токен, обязан отличать «неймспейса нет» от «токен пустой», иначе
     // отсутствие доступа выглядит как «ничего не нашлось».

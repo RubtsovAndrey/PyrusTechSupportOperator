@@ -1,0 +1,11 @@
+---
+id: cond_deterministic_handover
+name: handover already has deterministic context?
+position:
+  x: 5010
+  y: -1919
+next-step: func_escalate_m9k4j
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).deterministicHandover === true"
+  false-step: agent_summary_handover

@@ -41,6 +41,7 @@ function conversation(key, problem, options) {
   let logicalTurn = 0;
   let preparedQuestionNode = null;
   let preparedOnComment = null;
+  let lastLogs = [];
 
   async function step(options) {
     const next = options || {};
@@ -69,6 +70,7 @@ function conversation(key, problem, options) {
       next.branch || null,
       JSON.stringify(next.answers || {})
     ]);
+    lastLogs = env.logs.slice();
     Object.keys(env.db).forEach(k => { db[k] = env.db[k]; });
     if (result && (result.turnKind === "questions" || result.needsPreQuestions === true) && result.treeNode) {
       preparedQuestionNode = String(result.treeNode);
@@ -77,7 +79,11 @@ function conversation(key, problem, options) {
     return result;
   }
 
-  return { step, get data() { return db[stateKey].data; } };
+  return {
+    step,
+    get data() { return db[stateKey].data; },
+    get logs() { return lastLogs; }
+  };
 }
 
 async function main() {
@@ -223,6 +229,9 @@ async function main() {
   });
   t.check("a standalone natural negative answer advances the protected branch",
     r.turnKind === "questions" && r.answerKeys[0] === "kktDriverAvailable", r);
+  t.check("one protected answer is logged as one answer, not as its evidence fields",
+    c.logs.some(row => /searchKnowledge: 1 answer\(s\).*laterFiscalDocuments/.test(row.message)) &&
+    !c.logs.some(row => /searchKnowledge: 3 answer\(s\)/.test(row.message)), c.logs);
 
   c = conversation("cash_shift_closed_z_report_missing",
     "касса ресторана: Z-отчёт не распечатался");
@@ -250,7 +259,9 @@ async function main() {
     answers: { shiftClosedInDodo: "смена не закрылась" }
   });
   t.check("an open shift never receives the copy instruction",
-    r.turnKind === "handover" && !r.solverInstruction && r.componentName === RESTAURANT, r);
+    r.turnKind === "handover" && !r.solverInstruction && r.componentName === RESTAURANT &&
+    /смена в Додо ИС закрыта/.test(c.data.handoverReason || ""),
+    { result: r, reason: c.data.handoverReason });
 
   c = conversation("cash_shift_closed_z_report_missing",
     "касса ресторана: смена в Додо ИС закрыта, Z-отчёт не вышел");
@@ -263,7 +274,20 @@ async function main() {
     }
   });
   t.check("a later receipt blocks copying the last document",
-    r.turnKind === "handover" && !r.solverInstruction, r);
+    r.turnKind === "handover" && !r.solverInstruction &&
+    /последним фискальным документом/.test(c.data.handoverReason || ""),
+    { result: r, reason: c.data.handoverReason });
+
+  c = conversation("cash_shift_closed_z_report_missing",
+    "касса ресторана: Z-отчёт не распечатался");
+  await c.step();
+  await c.step({ incoming: "Смена в Додо ИС закрыта" });
+  await c.step({ incoming: "Других документов не печатали" });
+  r = await c.step({ incoming: "Тест драйвера не открывается" });
+  t.check("an unavailable driver has a deterministic operator reason",
+    r.turnKind === "handover" && !r.solverInstruction &&
+    /Тест драйвера ККТ/.test(c.data.handoverReason || ""),
+    { result: r, reason: c.data.handoverReason });
 
   // Country/business domain and form role are hard runtime boundaries.
   c = conversation(null, "касса ресторана: ошибка 148 при закрытии чека", {

@@ -437,6 +437,20 @@ async function main() {
     { [KEY]: { stage: "closed", data: { unitFullName: "Москва 12" } } });
   t.check("chat closed by the bot goes to the operator silently", r.result.stage === "reopened", r.result);
 
+  // Exact Pyrus shape from a live accepted dialog: the first partner comment after
+  // `finished` carries `action: reopened`. The gratitude exception must win over that
+  // transport action, while a message containing a new request must not be swallowed.
+  r = await run([{ id: 22, author: PARTNER, text: "Спасибо!", action: "reopened", channel: CHAN }],
+    { [KEY]: { stage: "closed", data: { unitFullName: "Москва 12" } } });
+  t.check("pure thanks with Pyrus reopened action closes again without an operator",
+    r.result.stage === "gratitude", r.result);
+
+  r = await run([{ id: 23, author: PARTNER,
+    text: "Спасибо, появился ещё один вопрос", action: "reopened", channel: CHAN }],
+    { [KEY]: { stage: "closed", data: { unitFullName: "Москва 12" } } });
+  t.check("thanks plus a new request remains a genuine reopen",
+    r.result.stage === "reopened", r.result);
+
   // ── The answer to a question the ARTICLE asked goes straight back to the solver ──
   // Through the gathering stage it cost intake and routing on every answer — two extra model
   // calls on an article that legitimately asks up to a dozen questions — and routing was

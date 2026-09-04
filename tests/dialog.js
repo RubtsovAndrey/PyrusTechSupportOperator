@@ -478,6 +478,7 @@ function conversation(options) {
     };
     if (h.author !== "operator") comment.channel = CHANNEL;
     if (h.attachments) comment.attachments = h.attachments;
+    if (h.reopened) comment.action = "reopened";
     comments.push(comment);
 
     payload = {
@@ -492,8 +493,6 @@ function conversation(options) {
         comments: comments.slice()
       }
     };
-    if (h.reopened) payload.comment_action = "reopened";
-
     env.prev = {};
     env.posts.length = 0;
     const trace = await runTurn(GRAPH, env, START, {

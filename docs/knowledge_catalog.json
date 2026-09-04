@@ -236,7 +236,7 @@
                 "не знаю",
                 "нет"
               ],
-              "go": "operatorRestaurant"
+              "go": "operatorShiftNotClosedRestaurant"
             }
           ]
         },
@@ -273,7 +273,7 @@
                 "не знаю",
                 "нет"
               ],
-              "go": "operatorDelivery"
+              "go": "operatorShiftNotClosedDelivery"
             }
           ]
         },
@@ -310,7 +310,7 @@
                 "не знаю",
                 "да"
               ],
-              "go": "operatorRestaurant"
+              "go": "operatorLaterDocumentRestaurant"
             }
           ]
         },
@@ -347,7 +347,7 @@
                 "не знаю",
                 "да"
               ],
-              "go": "operatorDelivery"
+              "go": "operatorLaterDocumentDelivery"
             }
           ]
         },
@@ -383,7 +383,7 @@
                 "не знаю",
                 "нет"
               ],
-              "go": "operatorRestaurant"
+              "go": "operatorDriverUnavailableRestaurant"
             }
           ]
         },
@@ -419,7 +419,7 @@
                 "не знаю",
                 "нет"
               ],
-              "go": "operatorDelivery"
+              "go": "operatorDriverUnavailableDelivery"
             }
           ]
         },
@@ -470,6 +470,36 @@
             }
           ],
           "onFail": "operatorDelivery"
+        },
+        "operatorShiftNotClosedRestaurant": {
+          "componentName": "Касса → Касса ресторана → Печать чека",
+          "end": "escalate",
+          "handoverReason": "статья остановила автоматическую помощь: партнёр не подтвердил, что смена в Додо ИС закрыта"
+        },
+        "operatorShiftNotClosedDelivery": {
+          "componentName": "Касса → Касса доставки → Печать чека",
+          "end": "escalate",
+          "handoverReason": "статья остановила автоматическую помощь: партнёр не подтвердил, что смена в Додо ИС закрыта"
+        },
+        "operatorLaterDocumentRestaurant": {
+          "componentName": "Касса → Касса ресторана → Печать чека",
+          "end": "escalate",
+          "handoverReason": "статья остановила автоматическую помощь: не подтверждено, что Z-отчёт остался последним фискальным документом"
+        },
+        "operatorLaterDocumentDelivery": {
+          "componentName": "Касса → Касса доставки → Печать чека",
+          "end": "escalate",
+          "handoverReason": "статья остановила автоматическую помощь: не подтверждено, что Z-отчёт остался последним фискальным документом"
+        },
+        "operatorDriverUnavailableRestaurant": {
+          "componentName": "Касса → Касса ресторана → Печать чека",
+          "end": "escalate",
+          "handoverReason": "статья остановила автоматическую помощь: не подтверждено, что партнёр может открыть программу «Тест драйвера ККТ»"
+        },
+        "operatorDriverUnavailableDelivery": {
+          "componentName": "Касса → Касса доставки → Печать чека",
+          "end": "escalate",
+          "handoverReason": "статья остановила автоматическую помощь: не подтверждено, что партнёр может открыть программу «Тест драйвера ККТ»"
         },
         "operatorRestaurant": {
           "componentName": "Касса → Касса ресторана → Печать чека",
