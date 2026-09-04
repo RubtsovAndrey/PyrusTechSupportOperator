@@ -952,8 +952,9 @@ if (taskId) {
         } else if (!allAnswered) {
           data.treeEnd = "escalate";
           patch["data.treeEnd"] = "escalate";
-          data.handoverReason = "партнёр дважды ответил не на доставленный вопрос статьи (" +
-            requiredKeys.filter(k => !String(storedAnswers[k] || "").trim()).join(", ") + " так и не названы)";
+          data.handoverReason = "система не смогла извлечь ответ из двух реплик партнёра " +
+            "на доставленный вопрос статьи (не определены: " +
+            requiredKeys.filter(k => !String(storedAnswers[k] || "").trim()).join(", ") + ")";
           patch["data.handoverReason"] = data.handoverReason;
           parsed.kind = "handover";
           parsed.treeEnd = "escalate";

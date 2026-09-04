@@ -170,20 +170,26 @@ async function main() {
 
   // Missing Z report: every safety fact must be explicit.
   c = conversation("cash_shift_closed_z_report_missing",
+    "касса ресторана: Z-отчёт не распечатался при закрытии смены");
+  r = await c.step();
+  t.check("the phrase about closing a shift does not claim that the shift is closed",
+    r.turnKind === "questions" && r.answerKeys[0] === "shiftClosedInDodo", r);
+
+  c = conversation("cash_shift_closed_z_report_missing",
     "касса доставки: Z-отчёт не распечатался");
   r = await c.step();
   t.check("ambiguous missing Z report first asks whether the shift actually closed",
     r.turnKind === "questions" && r.answerKeys[0] === "shiftClosedInDodo" &&
-    /точно отображается закрытой/.test(r.preQuestions[0]), r);
+    /смена закрыта или всё ещё открыта/.test(r.preQuestions[0]), r);
   r = await c.step({
     incoming: "Вроде да, заказы пропали с экрана, просто Z не вышел",
     answers: { shiftClosedInDodo: "вроде да, заказы пропали с экрана, просто Z не вышел" }
   });
   t.check("an ambiguous safety answer carries the article question instead of guessing a branch",
     r.turnKind === "choose-branch" && r.awaitingBranch === true &&
-    Array.isArray(r.preQuestions) && /точно отображается закрытой/.test(r.preQuestions[0]) &&
+    Array.isArray(r.preQuestions) && /смена закрыта или всё ещё открыта/.test(r.preQuestions[0]) &&
     c.data.requiredArticleQuestion &&
-    /точно отображается закрытой/.test(c.data.requiredArticleQuestion.text),
+    /смена закрыта или всё ещё открыта/.test(c.data.requiredArticleQuestion.text),
     { result: r, data: c.data });
   r = await c.step({
     incoming: "Смена в Додо ИС закрыта, не вышел только Z-отчёт",
@@ -204,6 +210,37 @@ async function main() {
   t.check("all three facts unlock only the copy-last-document instruction",
     r.turnKind === "solution" && /Печать копии последнего документа/.test(r.solverInstruction) &&
     r.componentName === DELIVERY, r);
+
+  c = conversation("cash_shift_closed_z_report_missing",
+    "касса ресторана: Z-отчёт не распечатался");
+  await c.step();
+  r = await c.step({ incoming: "Да" });
+  t.check("a short confirmation reaches the later-document question",
+    r.turnKind === "questions" && r.answerKeys[0] === "laterFiscalDocuments", r);
+  r = await c.step({
+    incoming: "Не печатала",
+    answers: { laterFiscalDocuments: "не печатала" }
+  });
+  t.check("a standalone natural negative answer advances the protected branch",
+    r.turnKind === "questions" && r.answerKeys[0] === "kktDriverAvailable", r);
+
+  c = conversation("cash_shift_closed_z_report_missing",
+    "касса ресторана: Z-отчёт не распечатался");
+  await c.step();
+  await c.step({ incoming: "Да" });
+  r = await c.step({
+    incoming: "Касса больше ничего не выдавала",
+    answers: { laterFiscalDocuments: "касса больше ничего не выдавала" }
+  });
+  t.check("an unresolved paraphrase keeps the active article question",
+    r.turnKind === "choose-branch" && r.awaitingBranch === true, r);
+  r = await c.step({ incoming: "Нет" });
+  t.check("a fresh reply replaces an older unresolved answer to the active question",
+    r.turnKind === "questions" && r.answerKeys[0] === "kktDriverAvailable" &&
+    /не печатал/.test(c.data.treeAnswers.laterFiscalDocuments || "") &&
+    c.data.treeAnswerEvidence.laterFiscalDocuments === "Нет" &&
+    c.data.latestPartnerEvidence === "Нет",
+    { result: r, data: c.data });
 
   c = conversation("cash_shift_closed_z_report_missing",
     "касса ресторана: Z-отчёт не вышел");

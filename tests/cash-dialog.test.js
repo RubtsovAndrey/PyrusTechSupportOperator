@@ -203,18 +203,35 @@ async function main() {
   // Z report: the bot asks every safety question and stays out of internal correspondence.
   bot = chat();
   r = await bot.turn(
+    "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  t.check("word order does not turn the closing attempt into a closed shift",
+    /смена закрыта или всё ещё открыта/.test(r.replies.join(" ")) &&
+    !/другие фискальные документы/.test(r.replies.join(" ")), r);
+  r = await bot.turn("Смена в Додо ИС закрыта");
+  t.check("the live regression proceeds only after an explicit closed-shift answer",
+    r.stage === "awaiting_answers" && /другие фискальные документы/.test(r.replies.join(" ")), r);
+  r = await bot.turn("Не печатала");
+  t.check("the live regression understands the original standalone answer without a repeat",
+    r.stage === "awaiting_answers" && /Тест драйвера ККТ/.test(r.replies.join(" ")) &&
+    bot.data.treeAnswerEvidence.laterFiscalDocuments === "Не печатала" &&
+    bot.data.latestPartnerEvidence === "Не печатала", { result: r, data: bot.data });
+
+  bot = chat();
+  r = await bot.turn(
     "Тамбов-1, на кассе ресторана Z-отчёт не распечатался",
     { unit: "Тамбов-1" }
   );
   t.check("ambiguous Z report asks whether the shift closed",
-    /точно отображается закрытой/.test(r.replies.join(" ")) && r.internal.length === 0, r);
+    /смена закрыта или всё ещё открыта/.test(r.replies.join(" ")) && r.internal.length === 0, r);
   r = await bot.turn("Вроде да, заказы пропали с экрана, просто Z не вышел", {
     answers: { shiftClosedInDodo: "вроде да, заказы пропали с экрана, просто Z не вышел" }
   });
   t.check("an uncertain shift status is clarified from the article without a handover",
     r.stage === "awaiting_answers" && r.internal.length === 0 &&
     r.replies.length === 1 &&
-    r.replies[0] === "Смена в Додо ИС точно отображается закрытой, а не распечатался только Z-отчёт?",
+    r.replies[0] === "Что сейчас показывает Додо ИС: смена закрыта или всё ещё открыта?",
     r);
   r = await bot.turn("Смена в Додо ИС закрыта, не вышел только Z-отчёт", {
     answers: { shiftClosedInDodo: "смена в Додо ИС закрыта" }
@@ -243,7 +260,7 @@ async function main() {
     { unit: "Тамбов-1" }
   );
   t.check("an opening conversational yes does not answer a question that was never asked",
-    r.stage === "awaiting_answers" && /точно отображается закрытой/.test(r.replies.join(" ")) &&
+    r.stage === "awaiting_answers" && /смена закрыта или всё ещё открыта/.test(r.replies.join(" ")) &&
     !/другие фискальные документы/.test(r.replies.join(" ")), r);
 
   // Natural binary answers belong to the question immediately before them. The live
@@ -274,6 +291,19 @@ async function main() {
     r.stage === "awaiting_confirmation" && /Печать копии последнего документа/.test(r.replies.join(" ")),
     r);
 
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  await bot.turn("Да");
+  r = await bot.turn("Не печатала", {
+    answers: { laterFiscalDocuments: "не печатала" }
+  });
+  t.check("the natural standalone negative reaches the next safety question",
+    r.stage === "awaiting_answers" && /Тест драйвера ККТ/.test(r.replies.join(" ")) &&
+    r.internal.length === 0, r);
+
   // A safety fork may be clarified once, but two hedged answers cannot be converted into
   // evidence by repeating the same question forever.
   bot = chat();
@@ -286,13 +316,13 @@ async function main() {
   });
   t.check("one hedged safety answer is clarified once",
     r.stage === "awaiting_answers" && r.replies.length === 1 &&
-    /точно отображается закрытой/.test(r.replies[0]), r);
+    /смена закрыта или всё ещё открыта/.test(r.replies[0]), r);
   r = await bot.turn("Наверное", {
     answers: { shiftClosedInDodo: "наверное" }
   });
   t.check("a second ambiguous answer hands over instead of looping",
     r.stage === "escalated" && r.internal.length === 1 &&
-    /дважды не смог однозначно ответить/.test(r.internal[0]), r);
+    /система не смогла однозначно интерпретировать две реплики/.test(r.internal[0]), r);
 
   // A new concrete symptom discovered while trying approved advice may point to another
   // reviewed article, but only as an internal hint for the operator.

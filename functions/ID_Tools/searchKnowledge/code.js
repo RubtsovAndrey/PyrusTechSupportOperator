@@ -660,12 +660,15 @@ function branchFromWords(node, said, allowContextualAliases) {
         }
       }
       const hasNegation = parts.some(p => p === "не" || p === "нет" || p === "без");
+      // A protected fork needs the declared word order even in a positive label. Without
+      // it, «при закрытии смены» supplies the same unordered stems as «смена закрылась» and
+      // silently unlocks a safety branch. Ordinary descriptive branches retain the more
+      // tolerant bag-of-words behaviour; their outcome is not evidence-sensitive.
+      const needsOrder = hasNegation || (node.requireBranchEvidence === true && parts.length > 1);
       if (parts.length && parts.every(p => said.some(w => stemMatch(w, p))) &&
-          (!hasNegation || orderedStemMatch(said, parts))) {
-        // Word order matters most around negation. In «смена закрылась, Z-отчёт не вышел»
-        // the bag of words contains «смена / не / закрылась», but it does not say «смена
-        // не закрылась». A contiguous label gets a decisive bonus; the old unordered
-        // score remains as a tolerant fallback for free paraphrases.
+          (!needsOrder || orderedStemMatch(said, parts))) {
+        // A contiguous label gets a decisive bonus when several labels from one branch
+        // are present. Ordered matching still tolerates natural filler words.
         hits += contiguousStemMatch(said, parts) ? parts.length * 10 : parts.length;
       }
     });
@@ -1005,11 +1008,28 @@ if (effectiveTopicKey) {
             " was supplied before node " + at.id + " was delivered and is not supported by the partner's words; ignored" });
         }
       }
+      // The current reply to the currently delivered branching question is stronger than
+      // an older value that never selected a branch. In the live Z-report failure the
+      // unresolved «не печатала» occupied the key, so the next explicit «нет» was ignored
+      // before matching. Canonicalise fresh partner evidence here, before merging stored
+      // answers, and keep the verbatim text separately for summaries and diagnostics.
+      const activeBranchKey = at ? branchKeyOf(at) : null;
+      const activeWasDelivered = !!at &&
+        String(data.treeDeliveredQuestionNode || "") === String(at.id);
+      const currentRaw = String(dialogValue.incomingText || "").trim();
+      const heardActive = activeBranchKey && activeWasDelivered
+        ? branchFromWords(at, words(currentRaw), true) : null;
+      if (heardActive) given[activeBranchKey] = heardActive.when[0];
+
       const known = Object.assign({}, stored, given);
       const givenPatch = {};
       Object.keys(given).forEach(k => {
         if (stored[k] !== given[k]) givenPatch["treeAnswers." + k] = given[k];
       });
+      if (heardActive && currentRaw) {
+        givenPatch["treeAnswerEvidence." + activeBranchKey] = currentRaw;
+        givenPatch.latestPartnerEvidence = currentRaw.slice(0, 900);
+      }
       if (Object.keys(givenPatch).length) {
         patchData(givenPatch);
         Log.info({ message: "searchKnowledge: " + Object.keys(givenPatch).length + " answer(s) taken from the chat for " + topic.key + ": " + Object.keys(given).join(", ") });
@@ -1381,8 +1401,8 @@ if (effectiveTopicKey) {
           // a person and preserve the partner's wording in the summary instead.
           if (askedBefore && missCount >= 2) {
             patch.treeEnd = "escalate";
-            patch.handoverReason = "партнёр дважды не смог однозначно ответить на вопрос статьи " +
-              "о безопасном продолжении сценария";
+            patch.handoverReason = "система не смогла однозначно интерпретировать две реплики " +
+              "партнёра в ответ на вопрос статьи о безопасном продолжении сценария";
             patch.requiredArticleQuestion = null;
             patchData(patch);
             Log.warn({ message: "searchKnowledge: node " + target.id + " of " + topic.key +

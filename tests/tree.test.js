@@ -638,7 +638,8 @@ async function main() {
   parsed = await d.solver({ kind: "questions", replyText: "Какой результат ожидаете?", answers: {} });
   t.check("a genuinely unanswered delivered question still hands over at the limit",
     r.finalAnswerChance === true && parsed.treeEnd === "escalate" &&
-    /дважды/.test(d.data.handoverReason || ""), { result: r, parsed: parsed, data: d.data });
+    /система не смогла извлечь ответ из двух реплик партнёра/.test(d.data.handoverReason || ""),
+    { result: r, parsed: parsed, data: d.data });
 
   // ── Итог полагается на связный пересказ, а не на обрывки полей ──
   d = dialog();
