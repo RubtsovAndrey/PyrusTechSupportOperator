@@ -45,9 +45,15 @@ function checkSyntax() {
   const dir = path.join(ROOT, "functions");
   walk(dir, []).filter(f => f.endsWith("code.js")).forEach(file => {
     const rel = path.relative(ROOT, file).split(path.sep).join("/");
-    const params = (FUNCTION_PARAMS[rel] || []).join(", ");
+    // Agent Platform exposes schema parameters as immutable top-level bindings. A normal
+    // JavaScript function parameter is mutable, so the old wrapper missed production-only
+    // failures such as `topicKey = candidate`. Declare the same names with `const` inside
+    // the async wrapper to reproduce that contract while still allowing top-level await
+    // and return in user-function sources.
+    const params = (FUNCTION_PARAMS[rel] || [])
+      .map(name => "const " + name + " = undefined;").join("\n");
     try {
-      new vm.Script("(async function(" + params + "){\n" + fs.readFileSync(file, "utf8") + "\n})");
+      new vm.Script("(async function(){\n" + params + "\n" + fs.readFileSync(file, "utf8") + "\n})");
       rows.push([rel, true, null]);
     } catch (e) {
       rows.push([rel, false, e.message]);
@@ -66,6 +72,19 @@ function checkPlatformSyntax() {
     const rel = path.relative(ROOT, file).split(path.sep).join("/");
     const src = fs.readFileSync(file, "utf8");
     if (/\\[pP]\{/.test(src)) problems.push(rel + ": Unicode regexp property escapes are unsupported by Agent Platform");
+    // Schema parameters are `const` bindings on Agent Platform, unlike ordinary mutable
+    // arguments in tests/harness.js. Detect direct assignments without executing the
+    // function and its integrations. Declarations of same-named locals are ignored.
+    (FUNCTION_PARAMS[rel] || []).forEach(name => {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // User-function sources keep standalone mutations on their own line. Anchoring also
+      // avoids mistaking diagnostic strings such as `query="..."` for JavaScript writes.
+      const assignment = new RegExp("^\\s*" + escaped +
+        "\\s*(?:\\+\\+|--|[+\\-*/%&|^]?=(?!=|>))", "m");
+      if (assignment.test(src)) {
+        problems.push(rel + ": immutable platform parameter `" + name + "` is assigned");
+      }
+    });
   });
   return problems;
 }
@@ -425,7 +444,7 @@ function checkAgentPromptContracts() {
     failed++;
     platformSyntax.forEach(p => console.log("  FAIL  " + p));
   } else {
-    console.log("  PASS  no unsupported Unicode regexp property escapes");
+    console.log("  PASS  no unsupported Unicode regexp or immutable parameter assignments");
   }
 
   console.log("\nyaml quoting");

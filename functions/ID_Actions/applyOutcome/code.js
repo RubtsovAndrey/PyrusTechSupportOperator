@@ -702,6 +702,8 @@ if (spec.nextStage === "escalated") {
         : clarificationOverrun
         ? "сценарий задал больше " + MAX_CLARIFY_QUESTIONS + " уточняющих вопросов даже с учётом прогресса — требуется проверить сценарий"
         : "бот задал подряд " + MAX_CLARIFY_STREAK + " уточняющих вопроса и не продвинулся")
+      : data.treeEnd === "refine"
+      ? "MCP подтвердил уточнённую тему, но её внутреннее выполнение завершилось ошибкой"
       : (data.handoverReason ||
         (spec.silent && String(prev.stage || "") === "reopened"
           ? "партнёр написал в закрытый чат"

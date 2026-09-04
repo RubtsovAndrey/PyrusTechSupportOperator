@@ -697,6 +697,26 @@ async function main() {
     /Суть: странная проблема на кассе\. Партнёр уточнил: Это касса ресторана, там пишет что-то про ошибку реквизита/.test(fallbackNote),
     fallbackNote);
 
+  const refinementCrash = makeEnv({
+    prev: { taskId: "11613" },
+    db: { [KEY]: state({
+      stage: "awaiting_answers",
+      pendingOutcome: null,
+      data: {
+        topicKey: "pos_terminal_troubleshooting",
+        problemSummary: "непонятная проблема с кассой",
+        latestPartnerEvidence: "Касса ресторана. Чек не закрывается, пишет про неверную длину реквизита",
+        treeEnd: "refine"
+      }
+    }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(refinementCrash, ["escalated", null]);
+  t.check("an internal failure after MCP refinement is named in the operator summary",
+    /Причина передачи: MCP подтвердил уточнённую тему, но её внутреннее выполнение завершилось ошибкой/.test(
+      refinementCrash.db[KEY].pendingOutcome.internalNote),
+    refinementCrash.db[KEY].pendingOutcome.internalNote);
+
   r = await run({ db: decided.db });
   t.check("the partner is asked what the bot decided to ask",
     /о какой точке/i.test(r.posts[0].body.text), r.posts[0].body);

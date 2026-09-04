@@ -783,11 +783,15 @@ function refuseUnsupportedBranchAnswers(given, topic) {
 // between the two functions. The ordinary tool path still requires an explicit topicKey.
 const upstream = Context.getLastFunctionResult() || {};
 const upstreamTopics = Array.isArray(upstream.topics) ? upstream.topics : [];
-if (!topicKey && upstream.source === "prepared-mcp" && upstream.refinement === true &&
+let effectiveTopicKey = topicKey ? String(topicKey) : null;
+if (!effectiveTopicKey && upstream.source === "prepared-mcp" && upstream.refinement === true &&
     upstreamTopics.length === 1 && upstreamTopics[0] && upstreamTopics[0].key) {
-  topicKey = String(upstreamTopics[0].key);
+  // Function parameters are immutable bindings in Agent Platform. Keep the candidate in
+  // a local variable; assigning to `topicKey` works in the Node test wrapper but throws
+  // `TypeError: Assignment to constant variable` in production.
+  effectiveTopicKey = String(upstreamTopics[0].key);
   Log.info({ message: "searchKnowledge: executing the single deterministic MCP refinement candidate " +
-    topicKey + " without a model-selected key" });
+    effectiveTopicKey + " without a model-selected key" });
 }
 
 // Exact lookup: the solver already knows which topic it must follow, and gets one
@@ -804,8 +808,8 @@ if (automationBlocked) {
   };
 }
 
-if (topicKey) {
-  const wanted = String(topicKey).toLowerCase();
+if (effectiveTopicKey) {
+  const wanted = effectiveTopicKey.toLowerCase();
   const exact = catalogTopics.filter(t => String(t.key || "").toLowerCase() === wanted);
   if (exact.length) {
     const beforeSwitch = loadData();
@@ -1545,7 +1549,7 @@ if (topicKey) {
       prose: step.prose === true
     };
   }
-  Log.warn({ message: "searchKnowledge: no topic with key " + topicKey });
+  Log.warn({ message: "searchKnowledge: no topic with key " + effectiveTopicKey });
 }
 
 // Scope is applied before both lexical and semantic routing. Otherwise RAG could return
