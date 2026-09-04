@@ -292,6 +292,22 @@ function topicByKey(key) {
   return loadTopics().find(t => String(t.key || "") === String(key)) || null;
 }
 
+// A subtask is a capability of an approved policy, not a special property of the first
+// topic that happened to use it. receiveWebhook needs this fact before it decides whether
+// «передайте специалисту» means “continue collecting the ticket” or “hand this chat to an
+// operator”. Persist only a boolean derived from the validated catalog; it does not grant
+// permission to create anything. The actual side effect still requires the current tree
+// to reach end: subtask and createSubtask to validate every mandatory field.
+function topicSupportsSubtask(key) {
+  const topic = topicByKey(key);
+  if (!topic) return false;
+  if (String(topic.route || "") === "subtask" || String(topic.onFail || "") === "subtask" ||
+      String(topic.onFailRaw || "") === "subtask") return true;
+  const nodes = topic.nodes && typeof topic.nodes === "object" ? topic.nodes : null;
+  return !!(nodes && Object.keys(nodes).some(id =>
+    nodes[id] && String(nodes[id].end || "") === "subtask"));
+}
+
 function componentOfTopic(key) {
   const hit = topicByKey(key);
   return hit && hit.componentName ? String(hit.componentName) : null;
@@ -451,7 +467,10 @@ if (raw && typeof raw === "object" && raw.turnKind) {
     parsed = { replyText: "", kind: treeEnd === "escalate" ? "handover" : "solution", treeEnd: treeEnd };
   } else if (raw.turnKind === "solution" && String(raw.solverInstruction || "").trim()) {
     parsed = {
-      replyText: [raw.solverInstruction, raw.followUpQuestion].filter(Boolean).join("\n\n"),
+      // The follow-up belongs to applyOutcome. Keeping it out of the content plan gives
+      // Response Composer one owner for prose and the policy layer one owner for the
+      // required confirmation question.
+      replyText: String(raw.solverInstruction).trim(),
       kind: "solution"
     };
   } else if (raw.turnKind === "questions" || raw.turnKind === "choose-branch" ||
@@ -702,6 +721,13 @@ if (taskId) {
         patch["data." + key] = parsed[key];
       }
     });
+    if (data.topicKey) {
+      // Backfills an in-progress topic on any later agent stage as well as recording the
+      // capability immediately when routing first selects it.
+      data.topicSupportsSubtask = topicSupportsSubtask(data.topicKey);
+      patch["data.topicSupportsSubtask"] = data.topicSupportsSubtask;
+      parsed.topicSupportsSubtask = data.topicSupportsSubtask;
+    }
 
     // A summary is advisory text for a human, never a routing fact. Only the dedicated
     // terminal agent may write it, and a bad or empty answer simply leaves the old,

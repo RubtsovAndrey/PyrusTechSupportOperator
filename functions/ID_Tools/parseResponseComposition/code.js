@@ -63,13 +63,22 @@ if (String(plan.incomingCommentId || "") !== String(currentCommentId || "")) {
 }
 
 const raw = Context.getLastFunctionResult();
+// A protected policy question is already the final text. Calling a language model that
+// is contractually required to copy it byte for byte adds latency and another failure
+// surface without adding any conversational value. The graph sends that plan directly
+// here; ordinary plans still arrive from Response Composer and take the validated path
+// below.
+const directVerbatim = plan.verbatim === true && raw && typeof raw === "object" &&
+  raw.responsePlan && String(raw.responsePlan.id || "") === String(plan.id);
 const text = typeof raw === "string" ? raw : (raw && raw.content ? raw.content : raw);
-const parsed = lastJsonObject(text);
+const parsed = directVerbatim ? null : lastJsonObject(text);
 let replyText = "";
 let fallback = false;
 let fallbackReason = null;
 
-if (!parsed || String(parsed.planId || "") !== String(plan.id) ||
+if (directVerbatim) {
+  replyText = String(plan.contentPlan).trim();
+} else if (!parsed || String(parsed.planId || "") !== String(plan.id) ||
     !String(parsed.replyText || "").trim()) {
   fallback = true;
   fallbackReason = !parsed ? "composer did not return one JSON object"
@@ -82,7 +91,7 @@ if (!parsed || String(parsed.planId || "") !== String(plan.id) ||
 // A canonical protected question is policy text and cannot be paraphrased. For all other
 // plans, the composer may alter wording, but it may not introduce a URL that was absent
 // from the authorised content. Required KB links are appended later by applyOutcome.
-if (plan.verbatim === true) {
+if (plan.verbatim === true && !directVerbatim) {
   if (replyText !== String(plan.contentPlan).trim()) {
     fallback = true;
     fallbackReason = "composer changed a verbatim policy question";
@@ -96,7 +105,10 @@ if (plan.verbatim === true) {
   }
 }
 
-if (fallback) {
+if (directVerbatim) {
+  Log.info({ message: "parseResponseComposition: materialized verbatim response plan " +
+    plan.id + " without an LLM call on task " + taskId });
+} else if (fallback) {
   replyText = String(plan.contentPlan).trim();
   Log.warn({ message: "parseResponseComposition: safe plan fallback on task " + taskId +
     " (" + fallbackReason + ")" });
@@ -106,7 +118,7 @@ if (fallback) {
 }
 
 return {
-  source: "response-composer",
+  source: directVerbatim ? "response-plan-verbatim" : "response-composer",
   responsePlanId: String(plan.id),
   replyText: replyText,
   kind: String(plan.kind),

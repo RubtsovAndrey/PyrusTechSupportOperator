@@ -405,7 +405,7 @@ const AGENTS = {
       if (turn.proseAsk) return json({ contentPlan: turn.proseAsk, kind: "questions", responseMode: "question", partnerLanguage, answers: answers });
       const said = turn.proseSay || r.solverInstruction;
       return json({
-        contentPlan: [r.explaining ? "Поясню подробнее." : null, said, r.followUpQuestion || null]
+        contentPlan: [r.explaining ? "Поясню подробнее." : null, said]
           .filter(Boolean).join("\n\n"),
         kind: "solution",
         partnerLanguage: partnerLanguage,
@@ -419,8 +419,7 @@ const AGENTS = {
       // разницу между разъяснением и новым шагом.
       const text = [
         r.explaining ? "Поясню подробнее." : null,
-        r.solverInstruction,
-        r.followUpQuestion || null
+        r.solverInstruction
       ].filter(Boolean).join("\n\n");
       return json({ contentPlan: text, kind: "solution", responseMode: r.explaining ? "explanation" : "instruction", partnerLanguage, answers: answers });
     }

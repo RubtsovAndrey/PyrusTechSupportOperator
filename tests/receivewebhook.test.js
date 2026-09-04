@@ -540,19 +540,33 @@ async function main() {
 
   r = await run([{ id: 32, author: PARTNER,
     text: "Нет, передайте специалисту ситуацию, наша почта partner@example.ru", channel: CHAN }],
-    { [KEY]: { stage: "awaiting_confirmation", data: { topicKey: "ratings_questions" } } });
-  t.check("a volunteered ratings email is kept without restarting intake",
+    { [KEY]: { stage: "awaiting_confirmation", data: {
+      topicKey: "future_collection_topic", topicSupportsSubtask: true
+    } } });
+  t.check("a volunteered subtask email is kept without restarting intake",
     r.state.data.email === "partner@example.ru" && r.result.stage === "interpret_confirmation", r.state.data);
 
   r = await run([{ id: 33, author: PARTNER,
     text: "Передайте специалисту: ожидаю пересмотра результата", channel: CHAN }],
-    { [KEY]: { stage: "awaiting_answers", data: { topicKey: "ratings_questions" } } });
-  t.check("a ratings specialist request keeps collecting the subtask on an article question",
+    { [KEY]: { stage: "awaiting_answers", data: {
+      topicKey: "future_collection_topic", topicSupportsSubtask: true
+    } } });
+  t.check("a specialist request keeps collecting any policy-backed subtask",
     r.result.stage === "awaiting_answers", r.result);
 
+  r = await run([{ id: 35, author: PARTNER,
+    text: "Передайте специалисту: ожидаю пересмотра результата", channel: CHAN }],
+    { [KEY]: { stage: "awaiting_answers", data: {
+      topicKey: "ratings_questions", topicSupportsSubtask: false
+    } } });
+  t.check("a topic name alone cannot claim the subtask continuation exception",
+    r.result.stage === "handover_request", r.result);
+
   r = await run([{ id: 34, author: PARTNER, text: "Позовите живого оператора", channel: CHAN }],
-    { [KEY]: { stage: "awaiting_confirmation", data: { topicKey: "ratings_questions" } } });
-  t.check("an explicit chat operator request still overrides the ratings workflow",
+    { [KEY]: { stage: "awaiting_confirmation", data: {
+      topicKey: "future_collection_topic", topicSupportsSubtask: true
+    } } });
+  t.check("an explicit chat operator request still overrides the subtask workflow",
     r.result.stage === "handover_request", r.result);
 
   // ── A reopen after a handover remains with an operator ──

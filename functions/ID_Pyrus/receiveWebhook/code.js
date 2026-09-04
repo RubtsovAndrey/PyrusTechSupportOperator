@@ -590,24 +590,22 @@ function asksForHuman(text) {
 
 let handoverReason = null;
 const asksHumanNow = incomingText && asksForHuman(incomingText);
-// Ratings are the MVP's one explicit subtask workflow. «Передайте специалисту» in that
-// workflow means “create the specialist subtask”, not “connect me to the chat operator”.
-// Keep this exception deliberately narrower than asksForHuman: an explicit «позовите
-// оператора» must still be honoured immediately. It applies on every collection stage so
-// the same business request cannot change meaning merely because the article just asked
-// for the expected result or email.
-const asksRatingSpecialist = /(?:переда|направ)\S*(?:\s+\S+){0,3}\s+специалист\S*/i.test(String(incomingText || ""));
-const ratingCollectionStage = ["interpret_confirmation", "awaiting_answers", "interpret_answer",
+// In a policy that can end in a subtask, «передайте специалисту» means “continue
+// collecting the ticket”, not “connect me to the chat operator”. The capability is
+// derived from the validated catalog by parseAgentJson; it is not tied to ratings and it
+// does not itself authorise a subtask. An explicit «позовите оператора» still wins.
+const asksSubtaskSpecialist = /(?:переда|направ)\S*(?:\s+\S+){0,3}\s+специалист\S*/i.test(String(incomingText || ""));
+const subtaskCollectionStage = ["interpret_confirmation", "awaiting_answers", "interpret_answer",
   "awaiting_email"].indexOf(stage) >= 0;
-const ratingSpecialistContinuation = asksHumanNow && asksRatingSpecialist && ratingCollectionStage &&
-  String(data.topicKey || "") === "ratings_questions";
-if (asksHumanNow && !ratingSpecialistContinuation && stage !== "escalated" && stage !== "reopened") {
+const subtaskSpecialistContinuation = asksHumanNow && asksSubtaskSpecialist &&
+  subtaskCollectionStage && data.topicSupportsSubtask === true;
+if (asksHumanNow && !subtaskSpecialistContinuation && stage !== "escalated" && stage !== "reopened") {
   stage = "handover_request";
   handoverReason = "партнёр попросил связать его с человеком";
   Log.info({ message: "receiveWebhook: task " + taskId + " — партнёр просит человека, обращение уходит оператору со стадии " + (storedStage || "начало диалога") });
-} else if (ratingSpecialistContinuation) {
+} else if (subtaskSpecialistContinuation) {
   Log.info({ message: "receiveWebhook: task " + taskId +
-    " — просьба специалиста продолжает подтверждённый рейтинговый сценарий подзадачи" });
+    " — просьба специалиста продолжает подтверждённый policy-сценарий подзадачи" });
 }
 
 // MVP does not analyse attachments. A caption may be retained in the internal history,
@@ -625,15 +623,15 @@ if (attachmentCount && stage !== "escalated" && stage !== "reopened") {
 // so email capture must not be an accidental side effect of restarting the whole flow.
 //
 // Broad harvesting is still unsafe: «письмо от noreply@… не пришло» describes a symptom,
-// not a return address. Outside awaiting_email we therefore accept an address only in the
-// ratings subtask scenario or next to an explicit mail marker.
+// not a return address. Outside awaiting_email we therefore accept an address only while
+// an approved policy can lead to a subtask or next to an explicit mail marker.
 let emailHarvested = false;
 if (!data.email) {
   const source = String(incomingText || "");
   const emailMatch = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.exec(source);
   const explicitMail = /(почт|e-?mail|email|мейл)/i.test(source);
-  const ratingsScenario = String(data.topicKey || "") === "ratings_questions";
-  if (emailMatch && (stage === "awaiting_email" || explicitMail || ratingsScenario)) {
+  const subtaskScenario = data.topicSupportsSubtask === true;
+  if (emailMatch && (stage === "awaiting_email" || explicitMail || subtaskScenario)) {
     data.email = emailMatch[0];
     emailHarvested = true;
     Log.info({ message: "receiveWebhook: picked up volunteered email " + data.email +

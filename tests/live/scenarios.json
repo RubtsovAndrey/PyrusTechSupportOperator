@@ -394,14 +394,14 @@
     },
     {
       "id": "z-report-success-close-and-thanks",
-      "title": "Z-отчёт проходит через Interpreter и Composer, а разговорная благодарность не будит оператора",
+      "title": "Z-отчёт проходит через Interpreter и управляемую композицию, а естественная благодарность не будит оператора",
       "messages": [
         "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался.",
-        "Смена в Додо ИС закрыта.",
-        "Не печатала.",
-        "Да, открывается.",
-        "Да, помогло.",
-        "спасибо за помощь хорошего дня"
+        "смена закрыта",
+        "не печатали ничего",
+        "да всё норм как обычно",
+        "ага всё супер",
+        "нижайше вас благодарю"
       ],
       "expect": {
         "turnCount": 6,
@@ -415,12 +415,13 @@
             },
             "internal": { "count": 0 },
             "path": {
-              "includes": ["Solver / Policy Reader", "Response Composer", "Validate composed response"]
+              "includes": ["Solver / Policy Reader", "response plan is verbatim?", "Validate composed response"],
+              "excludes": ["Response Composer"]
             },
             "noErrors": true
           },
           {
-            "partner": { "includes": ["Смена в Додо ИС закрыта"] },
+            "partner": { "includes": ["смена закрыта"] },
             "outcome": "clarify_answers",
             "replies": {
               "count": 1,
@@ -428,13 +429,13 @@
             },
             "internal": { "count": 0 },
             "path": {
-              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "Response Composer", "Validate composed response"],
-              "excludes": ["Solver / Policy Reader"]
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "response plan is verbatim?", "Validate composed response"],
+              "excludes": ["Solver / Policy Reader", "Response Composer"]
             },
             "noErrors": true
           },
           {
-            "partner": { "includes": ["Не печатала"] },
+            "partner": { "includes": ["не печатали ничего"] },
             "outcome": "clarify_answers",
             "replies": {
               "count": 1,
@@ -446,13 +447,13 @@
             },
             "internal": { "count": 0 },
             "path": {
-              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "Response Composer", "Validate composed response"],
-              "excludes": ["Solver / Policy Reader"]
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "response plan is verbatim?", "Validate composed response"],
+              "excludes": ["Solver / Policy Reader", "Response Composer"]
             },
             "noErrors": true
           },
           {
-            "partner": { "includes": ["Да, открывается"] },
+            "partner": { "includes": ["да всё норм как обычно"] },
             "outcome": "reply",
             "replies": {
               "count": 1,
@@ -466,7 +467,7 @@
             "noErrors": true
           },
           {
-            "partner": { "includes": ["Да, помогло"] },
+            "partner": { "includes": ["ага всё супер"] },
             "outcome": "solved",
             "replies": {
               "count": 1,
@@ -486,7 +487,7 @@
             "noErrors": true
           },
           {
-            "partner": { "includes": ["спасибо за помощь хорошего дня"] },
+            "partner": { "includes": ["нижайше вас благодарю"] },
             "outcome": "solved",
             "replies": {
               "count": 1,
@@ -546,10 +547,10 @@
                 "Turn Interpreter",
                 "Validate Turn Interpreter frame",
                 "Apply interpreted answer to policy",
-                "Response Composer",
+                "response plan is verbatim?",
                 "Validate composed response"
               ],
-              "excludes": ["Solver / Policy Reader"]
+              "excludes": ["Solver / Policy Reader", "Response Composer"]
             },
             "noErrors": true
           }
@@ -589,10 +590,10 @@
                 "Turn Interpreter",
                 "Validate Turn Interpreter frame",
                 "Apply interpreted answer to policy",
-                "Response Composer",
+                "response plan is verbatim?",
                 "Validate composed response"
               ],
-              "excludes": ["Solver / Policy Reader"]
+              "excludes": ["Solver / Policy Reader", "Response Composer"]
             },
             "noErrors": true
           }

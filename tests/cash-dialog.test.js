@@ -239,8 +239,11 @@ async function main() {
     r.stage === "awaiting_answers" && /другие фискальные документы/.test(r.replies.join(" ")) &&
     !/смена закрыта или всё ещё открыта/.test(r.replies.join(" ")),
     r);
-  t.check("the protected answer uses the interpreter and the isolated response owner",
-    r.agents.join(",") === "agent_turn_interpreter,agent_response_composer", r.agents);
+  t.check("the protected answer uses the interpreter without a no-op composition call",
+    r.agents.join(",") === "agent_turn_interpreter" &&
+    r.trace.some(x => x.id === "cond_response_plan_verbatim" && x.value === true) &&
+    r.trace.some(x => x.id === "func_parse_response_composition"),
+    { agents: r.agents, trace: r.trace });
   t.check("semantic answer keeps the enum and the partner's exact evidence separately",
     bot.data.treeAnswerValues.shiftClosedInDodo === "shift_closed" &&
     bot.data.treeAnswerEvidence.shiftClosedInDodo === "закрыта" &&
@@ -258,7 +261,9 @@ async function main() {
     r.stage === "awaiting_answers" && /другие фискальные документы/.test(r.replies.join(" ")),
     r);
   t.check("the paraphrase never returns to the overloaded solver",
-    r.agents.join(",") === "agent_turn_interpreter,agent_response_composer", r.agents);
+    r.agents.join(",") === "agent_turn_interpreter" &&
+    r.trace.some(x => x.id === "cond_response_plan_verbatim" && x.value === true),
+    { agents: r.agents, trace: r.trace });
 
   // Exact live failure from task 377178226: Solver understood the phrase in its prose but
   // failed to perform a second tool call and invented advice. A malformed Interpreter
@@ -277,11 +282,14 @@ async function main() {
     !/перезапустите кассу/i.test(r.replies.join(" ")),
     r);
   t.check("an invalid frame still invokes no general solver",
-    r.agents.join(",") === "agent_turn_interpreter,agent_response_composer", r.agents);
+    r.agents.join(",") === "agent_turn_interpreter" &&
+    r.trace.some(x => x.id === "cond_response_plan_verbatim" && x.value === true),
+    { agents: r.agents, trace: r.trace });
   r = await bot.turn("пишет на экране closed", { answerValue: "shift_closed" });
   t.check("the next natural answer survives the previous protocol miss and advances",
     r.stage === "awaiting_answers" && /другие фискальные документы/.test(r.replies.join(" ")) &&
-    r.agents.join(",") === "agent_turn_interpreter,agent_response_composer",
+    r.agents.join(",") === "agent_turn_interpreter" &&
+    r.trace.some(x => x.id === "cond_response_plan_verbatim" && x.value === true),
     r);
 
   bot = chat();

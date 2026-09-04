@@ -172,9 +172,34 @@ async function main() {
   t.check("a verified deterministic knowledge result becomes an authorised composition plan",
     r.result.kind === "solution" &&
     r.result.responsePlan &&
-    r.result.responsePlan.contentPlan === "Выберите другого кассира.\n\nПомогло ли это?" &&
+    r.result.responsePlan.contentPlan === "Выберите другого кассира." &&
     !r.result.replyText,
     r.result);
+  t.check("the content plan does not duplicate the policy-owned follow-up",
+    r.result.responsePlan.contentPlan.indexOf("Помогло ли это?") < 0,
+    { plan: r.result.responsePlan, data: r.state.data });
+
+  r = await run("routing", json({
+    topicKey: "answer_retry", route: "solver", partnerLanguage: "ru"
+  }), {
+    runtime: { role: "chat" },
+    data: { unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)" }
+  });
+  t.check("subtask capability is derived from policy instead of a topic name",
+    r.state.data.topicKey === "answer_retry" &&
+    r.state.data.topicSupportsSubtask === true &&
+    r.result.topicSupportsSubtask === true,
+    { result: r.result, data: r.state.data });
+
+  r = await run("routing", json({
+    topicKey: "printer_no_receipt", route: "solver", partnerLanguage: "ru"
+  }), {
+    runtime: { role: "chat" },
+    data: { unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)" }
+  });
+  t.check("a topic without a subtask terminal does not gain that capability",
+    r.state.data.topicSupportsSubtask === false,
+    { result: r.result, data: r.state.data });
 
   // Live ratings acceptance, task 377005885: searchKnowledge had already walked the
   // approved article to `end: subtask`. The model nevertheless wrote that specialists

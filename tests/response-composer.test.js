@@ -91,6 +91,24 @@ async function main() {
     r.result && r.result.compositionFallback &&
     r.result.replyText === "Смена закрыта или открыта?" && r.result.kind === "questions", r);
 
+  const directPlan = plan({
+    id: "response:11613:22:questions",
+    kind: "questions",
+    contentPlan: "Смена закрыта или открыта?",
+    verbatim: true
+  });
+  r = await parse({ responsePlan: directPlan }, {
+    id: directPlan.id,
+    kind: directPlan.kind,
+    contentPlan: directPlan.contentPlan,
+    verbatim: true
+  });
+  t.check("a protected question is materialized without an LLM composition",
+    r.result && !r.result.compositionFallback &&
+    r.result.source === "response-plan-verbatim" &&
+    r.result.replyText === directPlan.contentPlan &&
+    r.logs.some(x => /without an LLM call/.test(x.message)), r);
+
   r = await parse(JSON.stringify({
     planId: "response:11613:21:solution",
     replyText: "Старый ответ"
