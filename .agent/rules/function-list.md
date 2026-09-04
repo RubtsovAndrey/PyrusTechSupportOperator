@@ -219,7 +219,7 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Actions/applyOutcome/
 - `ID_Tools.matchUnit` — Находит юнит партнёра в каталоге. Вызывай всегда, когда партнёр назвал город, номер точки или бренд. Инструмент решает сам и возвращает точную строку каталога только тогда, когда ответ однозначен: одно и то же название бывает и у пиццерии, и у кофейни, и тогда он просит уточнить, а не угадывает.
   Directory: functions/ID_Tools/matchUnit/
-- `ID_Tools.searchKnowledge` — Ищет в базе знаний тематику, подходящую под описание проблемы. Если ничего не подходит, возвращает found=false без кандидатов и никогда не угадывает. Когда тематика уже известна, передавай topicKey.
+- `ID_Tools.searchKnowledge` — Ищет в базе знаний тематику, подходящую под описание проблемы. Если ничего не подходит, возвращает found=false без кандидатов и никогда не угадывает. Когда тематика уже известна, передавай topicKey. Защищённый activeQuestionId обрабатывает отдельный Turn Interpreter; Solver не должен угадывать его значение.
   Directory: functions/ID_Tools/searchKnowledge/
 - `ID_Tools.parseAgentJson` — Parses the JSON answer of an agent, validates the unit, the topic and the component against the catalogs, persists the collected facts into the task document and clears the previous problem when the partner moves on to a new question. Throws when the answer is not parseable, so the node error edge can hand the task to an operator.
   Directory: functions/ID_Tools/parseAgentJson/
@@ -229,4 +229,3 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Tools/getKnowledgeMcp/
 - `ID_Tools.findOperatorKnowledge` — Ищет по всей доступной Базе Знаний возможные материалы для оператора, когда утверждённый сценарий бота не найден. Ничего не отправляет партнёру.
   Directory: functions/ID_Tools/findOperatorKnowledge/
-
