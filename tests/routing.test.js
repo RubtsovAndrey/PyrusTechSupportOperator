@@ -9,7 +9,8 @@
 // и делать вид, что помещается, нельзя — заглушка проверяла бы саму себя.
 const { loadFunction, makeEnv, suite } = require("./harness");
 
-const searchKnowledge = loadFunction("functions/ID_Tools/searchKnowledge/code.js", ["query", "topicKey", "branch", "answers"]);
+const searchKnowledge = loadFunction("functions/ID_Tools/searchKnowledge/code.js",
+  ["query", "topicKey", "branch", "answers", "activeQuestionId", "answerValue", "evidenceText"]);
 
 const CATALOG = {
   topics: [

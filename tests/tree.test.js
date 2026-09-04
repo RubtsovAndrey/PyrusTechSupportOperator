@@ -7,7 +7,8 @@
 // bug in the handover between them is invisible to a test that calls them in isolation.
 const { loadFunction, makeEnv, suite } = require("./harness");
 
-const searchKnowledge = loadFunction("functions/ID_Tools/searchKnowledge/code.js", ["query", "topicKey", "branch", "answers"]);
+const searchKnowledge = loadFunction("functions/ID_Tools/searchKnowledge/code.js",
+  ["query", "topicKey", "branch", "answers", "activeQuestionId", "answerValue", "evidenceText"]);
 const parseAgentJson = loadFunction("functions/ID_Tools/parseAgentJson/code.js", ["stage"]);
 const applyOutcome = loadFunction("functions/ID_Actions/applyOutcome/code.js", ["outcome", "replyText"]);
 const nextSolutionStep = loadFunction("functions/ID_Tools/nextSolutionStep/code.js", []);
@@ -188,9 +189,11 @@ function dialog(seed) {
       carry(e);
       return r;
     },
-    async search(topicKey, branch, given) {
+    async search(topicKey, branch, given, semantic) {
       const e = env();
-      const r = await searchKnowledge(e, ["", topicKey, branch, given]);
+      const frame = semantic || {};
+      const r = await searchKnowledge(e, ["", topicKey, branch, given,
+        frame.activeQuestionId || null, frame.answerValue || null, frame.evidenceText || null]);
       carry(e);
       return r;
     },
@@ -201,6 +204,12 @@ function dialog(seed) {
       // writes this marker in finalize; reproduce that boundary before parsing the answer.
       if (answer && answer.answers && db[KEY].data && db[KEY].data.treePreparedQuestionNode) {
         db[KEY].data.treeDeliveredQuestionNode = db[KEY].data.treePreparedQuestionNode;
+        if (db[KEY].data.preparedQuestionId && db[KEY].data.preparedQuestionKey) {
+          db[KEY].data.activeQuestionId = db[KEY].data.preparedQuestionId;
+          db[KEY].data.activeQuestionKey = db[KEY].data.preparedQuestionKey;
+          db[KEY].data.activeQuestionNode = db[KEY].data.preparedQuestionNode;
+          db[KEY].data.activeQuestionCommentId = "previous-turn";
+        }
       }
       const e = makeEnv({ db: db, prev: JSON.stringify(answer), contextValues: { dialog: { taskId: String(TASK) } } });
       const r = await parseAgentJson(e, ["solver"]);

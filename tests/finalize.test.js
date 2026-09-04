@@ -794,7 +794,10 @@ async function main() {
   const round = makeEnv({
     prev: { taskId: "11613", agentStage: "solver", kind: "questions", replyText: "На какое значение поменять?" },
     db: { [KEY]: state({ stage: "gathering", pendingOutcome: null, data: {
-      topicKey: "employee_change", treeNode: "phone", unitFullName: "Москва 12"
+      topicKey: "employee_change", treeNode: "phone", unitFullName: "Москва 12",
+      preparedQuestionId: "employee_change:phone:newValue",
+      preparedQuestionKey: "newValue",
+      preparedQuestionNode: "phone"
     } }) },
     contextValues: { dialog: { taskId: "11613" } }
   });
@@ -802,6 +805,10 @@ async function main() {
   t.check("preparing an article question carries its node only inside the pending outcome",
     round.db[KEY].pendingOutcome.askedTreeNode === "phone" &&
     !round.db[KEY].data.treeDeliveredQuestionNode, round.db[KEY]);
+  t.check("preparing a semantic article question carries its typed identity",
+    round.db[KEY].pendingOutcome.askedQuestionId === "employee_change:phone:newValue" &&
+    round.db[KEY].pendingOutcome.askedQuestionKey === "newValue" &&
+    !round.db[KEY].data.activeQuestionId, round.db[KEY]);
 
   const delivering = makeEnv({ prev: { taskId: "11613" }, onGet: UNCHANGED, payload: ownPayload(42), db: round.db });
   const delivered = await finalize(delivering);
@@ -812,6 +819,11 @@ async function main() {
   t.check("only successful delivery commits which article question the partner saw",
     delivering.db[KEY].data.treeDeliveredQuestionNode === "phone" &&
     delivering.db[KEY].data.treeDeliveredQuestionCommentId === "42", delivering.db[KEY].data);
+  t.check("successful delivery activates the semantic question for the next partner turn",
+    delivering.db[KEY].data.activeQuestionId === "employee_change:phone:newValue" &&
+    delivering.db[KEY].data.activeQuestionKey === "newValue" &&
+    delivering.db[KEY].data.activeQuestionNode === "phone" &&
+    delivering.db[KEY].data.activeQuestionCommentId === "42", delivering.db[KEY].data);
 
   // The partner answers. A fresh webhook, the same task document.
   const answering = makeEnv({

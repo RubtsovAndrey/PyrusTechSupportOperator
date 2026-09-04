@@ -218,6 +218,96 @@ async function main() {
     bot.data.treeAnswerEvidence.laterFiscalDocuments === "Не печатала" &&
     bot.data.latestPartnerEvidence === "Не печатала", { result: r, data: bot.data });
 
+  // The primary language-understanding path no longer needs an ever-growing phrase list.
+  // The reference agent cannot perform semantic classification, so `answerValue` declares
+  // the finite interpretation a real Solver is expected to produce. Everything around it
+  // is production code: active-question delivery, evidence binding and policy transition.
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  t.check("a delivered protected question receives a stable semantic id",
+    bot.data.activeQuestionId ===
+      "cash_shift_closed_z_report_missing:closedRestaurant:shiftClosedInDodo" &&
+    bot.data.activeQuestionKey === "shiftClosedInDodo" &&
+    bot.data.activeQuestionNode === "closedRestaurant",
+    bot.data);
+  r = await bot.turn("закрыта", { answerValue: "shift_closed" });
+  t.check("semantic closed-shift answer advances without a phrase-list repeat",
+    r.stage === "awaiting_answers" && /другие фискальные документы/.test(r.replies.join(" ")) &&
+    !/смена закрыта или всё ещё открыта/.test(r.replies.join(" ")),
+    r);
+  t.check("semantic answer keeps the enum and the partner's exact evidence separately",
+    bot.data.treeAnswerValues.shiftClosedInDodo === "shift_closed" &&
+    bot.data.treeAnswerEvidence.shiftClosedInDodo === "закрыта" &&
+    bot.data.activeQuestionId ===
+      "cash_shift_closed_z_report_missing:laterDocumentsRestaurant:laterFiscalDocuments",
+    bot.data);
+
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  r = await bot.turn("показывает, что закрыта", { answerValue: "shift_closed" });
+  t.check("a natural semantic paraphrase advances the same protected branch",
+    r.stage === "awaiting_answers" && /другие фискальные документы/.test(r.replies.join(" ")),
+    r);
+
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  r = await bot.turn("смена открыта сказал кассир", { answerValue: "shift_not_closed" });
+  t.check("semantic open-shift answer reaches its article terminal without a re-ask",
+    r.stage === "escalated" &&
+    !/смена закрыта или всё ещё открыта/.test(r.replies.join(" ")) &&
+    r.internal.length === 1 && /не подтвердил, что смена в Додо ИС закрыта/.test(r.internal[0]),
+    r);
+
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  await bot.turn("закрыта", { answerValue: "shift_closed" });
+  await bot.turn("нет");
+  r = await bot.turn("открывается", { answerValue: "driver_available" });
+  t.check("semantic standalone driver answer reaches only the approved instruction",
+    r.stage === "awaiting_confirmation" &&
+    /Печать копии последнего документа/.test(r.replies.join(" ")) &&
+    bot.data.treeAnswerValues.kktDriverAvailable === "driver_available",
+    { result: r, data: bot.data });
+
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  r = await bot.turn("закрыта", {
+    answerValue: "shift_closed",
+    evidenceText: "смена в Додо ИС закрыта"
+  });
+  t.check("a semantic value with invented evidence cannot select a branch",
+    r.stage === "awaiting_answers" && r.internal.length === 0 &&
+    /смена закрыта или всё ещё открыта/.test(r.replies.join(" ")) &&
+    (!bot.data.treeAnswerValues || bot.data.treeAnswerValues.shiftClosedInDodo == null),
+    { result: r, data: bot.data });
+
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  r = await bot.turn("вроде закрыта", { answerValue: "shift_closed" });
+  t.check("the semantic interpreter cannot turn a hedged answer into certainty",
+    r.stage === "awaiting_answers" && r.internal.length === 0 &&
+    /смена закрыта или всё ещё открыта/.test(r.replies.join(" ")) &&
+    (!bot.data.treeAnswerValues || bot.data.treeAnswerValues.shiftClosedInDodo == null),
+    { result: r, data: bot.data });
+
   bot = chat();
   r = await bot.turn(
     "Тамбов-1, на кассе ресторана Z-отчёт не распечатался",

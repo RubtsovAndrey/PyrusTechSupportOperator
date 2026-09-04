@@ -116,6 +116,11 @@ function lintTopics(topics) {
       const n = nodes[id] || {};
       const ask = Array.isArray(n.ask) ? n.ask : [];
       const branches = Array.isArray(n.branches) ? n.branches : [];
+      const semanticBranches = branches.filter(b => b && (b.value !== undefined || b.meaning !== undefined));
+      if (semanticBranches.length && semanticBranches.length !== branches.length) {
+        say(id + " mixes semantic and legacy branches: every branch must declare value and meaning, or none may");
+      }
+      const semanticValues = {};
       ref(n.go, id + ".go");
       ref(n["else"], id + ".else");
       ref(n.onFail, id + ".onFail");
@@ -124,6 +129,18 @@ function lintTopics(topics) {
         if (!b || !b.go) return say(id + ".branches[" + i + "] has no go, so it is not a branch at all");
         ref(b.go, id + ".branches[" + i + "]");
         reached[String(b.go)] = true;
+        if (semanticBranches.length) {
+          const value = String(b.value || "").trim();
+          const meaning = String(b.meaning || "").trim();
+          if (!/^[a-z][a-z0-9_]*$/.test(value)) {
+            say(id + ".branches[" + i + "].value must be a stable lower_snake_case identifier");
+          } else if (semanticValues[value]) {
+            say(id + ".branches[" + i + "].value duplicates \"" + value + "\" in the same question");
+          } else {
+            semanticValues[value] = true;
+          }
+          if (!meaning) say(id + ".branches[" + i + "].meaning is empty");
+        }
         if (!(Array.isArray(b.when) ? b.when : [b.when]).filter(Boolean).length) {
           say(id + ".branches[" + i + "] declares no `when`, so nothing can ever choose it");
         }

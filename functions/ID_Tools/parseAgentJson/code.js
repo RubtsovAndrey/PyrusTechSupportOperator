@@ -1194,6 +1194,9 @@ if (taskId) {
      // article's internals instead of answering the partner.
      "treeNode", "treeEnd", "treeHandoverAsked", "treeNext", "treeAskedNode",
      "treeDeliveredQuestionNode", "treeDeliveredQuestionCommentId", "treeNoAnswerPending",
+     "preparedQuestionId", "preparedQuestionKey", "preparedQuestionNode",
+     "activeQuestionId", "activeQuestionKey", "activeQuestionNode", "activeQuestionCommentId",
+     "treeAnswerValues", "lastSemanticAnswerQuestionId", "lastSemanticAnswerCommentId",
      "operatorAdvice",
      // Printed as a labelled line in the note below; as a second copy inside the serialised
      // `dialog` value it would only say the same thing in a worse format.

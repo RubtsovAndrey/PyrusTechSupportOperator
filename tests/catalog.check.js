@@ -7,7 +7,7 @@ const CATALOG = require("../docs/knowledge_catalog.json");
 const KEY = "pos_terminal_troubleshooting";
 const searchKnowledge = loadFunction(
   "functions/ID_Tools/searchKnowledge/code.js",
-  ["query", "topicKey", "branch", "answers"]
+  ["query", "topicKey", "branch", "answers", "activeQuestionId", "answerValue", "evidenceText"]
 );
 
 let task = 1000;

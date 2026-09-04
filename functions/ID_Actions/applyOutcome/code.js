@@ -742,7 +742,17 @@ const pendingOutcome = {
   nextStage: spec.nextStage,
   // Preparing an article question is not the same as asking it. finalize owns the only
   // reliable delivery signal and commits this node after Pyrus accepts the message.
-  askedTreeNode: spec.nextStage === "awaiting_answers" && text && treeNode ? treeNode : null
+  askedTreeNode: spec.nextStage === "awaiting_answers" && text && treeNode ? treeNode : null,
+  // The semantic id/key are prepared by the article but become active only after the
+  // corresponding question has actually reached Pyrus. Keeping them in the pending
+  // outcome binds delivery to this exact reply without teaching finalize how to walk an
+  // article or infer which of several questions controls a branch.
+  askedQuestionId: spec.nextStage === "awaiting_answers" && text && treeNode &&
+    String(data.preparedQuestionNode || "") === String(treeNode)
+    ? (data.preparedQuestionId || null) : null,
+  askedQuestionKey: spec.nextStage === "awaiting_answers" && text && treeNode &&
+    String(data.preparedQuestionNode || "") === String(treeNode)
+    ? (data.preparedQuestionKey || null) : null
 };
 
 // Only the two paths this function owns. Writing the whole document put back the facts

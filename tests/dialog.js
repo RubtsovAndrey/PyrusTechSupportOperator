@@ -249,8 +249,28 @@ const AGENTS = {
       const options = Array.isArray(r.branchOptions) ? r.branchOptions : [];
       const refinementBranches = Array.isArray(r.refinementBranches) ? r.refinementBranches : [];
       const exact = turn.branch || options.filter(o => saysAll(said, o))[0] || null;
-      if (r.refinementAvailable && (!exact || refinementBranches.indexOf(exact) >= 0)) {
+      const semanticValues = Array.isArray(r.answerValues) ? r.answerValues : [];
+      const semanticValue = turn.answerValue || null;
+      if (r.activeQuestionId && semanticValues.length && semanticValue) {
+        r = await callTool(env, "searchKnowledge", {
+          query: said,
+          topicKey: activeTopicKey,
+          answers: JSON.stringify(toolAnswers),
+          activeQuestionId: turn.activeQuestionId || r.activeQuestionId,
+          answerValue: semanticValue,
+          evidenceText: turn.evidenceText || said
+        }) || {};
+      } else if (r.refinementAvailable && (!exact || refinementBranches.indexOf(exact) >= 0)) {
         r = await refineOrUseFallback(r);
+      } else if (r.activeQuestionId && semanticValues.length && !exact) {
+        // Free-text interpretation is the one capability the reference agent cannot
+        // honestly emulate. Tests provide `answerValue` when they exercise that path;
+        // without it the safe model behaviour is to clarify, never to pick the first enum.
+        r = Object.assign({}, r, {
+          turnKind: "questions",
+          needsPreQuestions: true,
+          preQuestions: r.preQuestions || []
+        });
       } else {
         const chosen = exact || options[0] || null;
         r = await callTool(env, "searchKnowledge", {

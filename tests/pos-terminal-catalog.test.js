@@ -6,7 +6,7 @@ const { loadFunction, makeEnv, suite } = require("./harness");
 
 const searchKnowledge = loadFunction(
   "functions/ID_Tools/searchKnowledge/code.js",
-  ["query", "topicKey", "branch", "answers"]
+  ["query", "topicKey", "branch", "answers", "activeQuestionId", "answerValue", "evidenceText"]
 );
 
 const RESTAURANT = "Касса → Касса ресторана → Печать чека";
@@ -53,6 +53,12 @@ function conversation(key, problem, options) {
     // one agent invocation pass the same explicit comment id and intentionally skip it.
     if (preparedQuestionNode && preparedOnComment !== commentId) {
       db[stateKey].data.treeDeliveredQuestionNode = preparedQuestionNode;
+      if (db[stateKey].data.preparedQuestionId && db[stateKey].data.preparedQuestionKey) {
+        db[stateKey].data.activeQuestionId = db[stateKey].data.preparedQuestionId;
+        db[stateKey].data.activeQuestionKey = db[stateKey].data.preparedQuestionKey;
+        db[stateKey].data.activeQuestionNode = db[stateKey].data.preparedQuestionNode;
+        db[stateKey].data.activeQuestionCommentId = preparedOnComment;
+      }
     }
     db[stateKey].runtime.incomingCommentId = commentId;
     const env = makeEnv({
@@ -68,7 +74,10 @@ function conversation(key, problem, options) {
       next.query === undefined ? "" : next.query,
       next.route ? null : key,
       next.branch || null,
-      JSON.stringify(next.answers || {})
+      JSON.stringify(next.answers || {}),
+      next.activeQuestionId || null,
+      next.answerValue || null,
+      next.evidenceText || null
     ]);
     lastLogs = env.logs.slice();
     Object.keys(env.db).forEach(k => { db[k] = env.db[k]; });
@@ -271,7 +280,11 @@ async function main() {
     answers: {
       shiftClosedInDodo: "смена в Додо ИС закрыта",
       laterFiscalDocuments: "после закрытия печатали другой чек"
-    }
+    },
+    activeQuestionId:
+      "cash_shift_closed_z_report_missing:laterDocumentsRestaurant:laterFiscalDocuments",
+    answerValue: "later_documents_or_unknown",
+    evidenceText: "После этого печатали другой чек"
   });
   t.check("a later receipt blocks copying the last document",
     r.turnKind === "handover" && !r.solverInstruction &&
@@ -341,6 +354,51 @@ async function main() {
   t.check("direct partner words may resolve the branch without an extra delivery turn",
     r.turnKind === "questions" && r.treeNode === "diagnoseRestaurant" &&
     r.answerKeys[0] === "problemDetails", r);
+
+  // Semantic values are scoped more tightly than legacy branch labels: the exact active
+  // question must first have reached Pyrus, and a stale id cannot be reused on another
+  // node. These calls deliberately mimic a model trying the tool twice in one invocation.
+  c = conversation("cash_shift_closed_z_report_missing",
+    "касса ресторана: Z-отчёт не распечатался");
+  r = await c.step({ commentId: "semantic-opening" });
+  const shiftQuestionId =
+    "cash_shift_closed_z_report_missing:closedRestaurant:shiftClosedInDodo";
+  r = await c.step({
+    incoming: "смена открыта показывает",
+    commentId: "semantic-opening",
+    answers: { shiftClosedInDodo: "смена открыта показывает" },
+    activeQuestionId: shiftQuestionId,
+    answerValue: "shift_not_closed",
+    evidenceText: "смена открыта показывает"
+  });
+  t.check("a semantic answer cannot bind to a question before it was delivered",
+    r.turnKind === "choose-branch" && r.treeNode === "closedRestaurant" &&
+    (!c.data.treeAnswerValues || c.data.treeAnswerValues.shiftClosedInDodo == null),
+    { result: r, data: c.data });
+  r = await c.step({
+    incoming: "смена открыта показывает",
+    commentId: "semantic-answer",
+    answers: { shiftClosedInDodo: "смена открыта показывает" },
+    activeQuestionId:
+      "cash_shift_closed_z_report_missing:driverRestaurant:kktDriverAvailable",
+    answerValue: "shift_not_closed",
+    evidenceText: "смена открыта показывает"
+  });
+  t.check("a semantic answer with a stale question id cannot select the current branch",
+    r.turnKind === "choose-branch" && r.treeNode === "closedRestaurant" &&
+    (!c.data.treeAnswerValues || c.data.treeAnswerValues.shiftClosedInDodo == null),
+    { result: r, data: c.data });
+  r = await c.step({
+    incoming: "смена открыта показывает",
+    commentId: "semantic-answer",
+    answers: { shiftClosedInDodo: "смена открыта показывает" },
+    activeQuestionId: shiftQuestionId,
+    answerValue: "shift_not_closed",
+    evidenceText: "смена открыта показывает"
+  });
+  t.check("the same evidence advances once the active semantic contract matches",
+    r.turnKind === "handover" && r.treeNode === "operatorShiftNotClosedRestaurant",
+    r);
 
   // The remaining broad cash topic stays operator-only, but carries real components.
   c = conversation("pos_terminal_troubleshooting", "касса ресторана: ККМ не подключен");

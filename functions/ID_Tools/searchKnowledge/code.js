@@ -75,6 +75,12 @@ function normalizeNodes(t) {
         .filter(b => b && b.go)
         .map(b => ({
           when: (Array.isArray(b.when) ? b.when : [b.when]).filter(Boolean).map(String),
+          // `value` is the finite semantic fact the model may report after reading the
+          // partner's answer. It is deliberately independent of both Russian wording and
+          // the destination node: language understanding names the fact, policy owns `go`.
+          // `when` remains a high-precision deterministic fallback while articles migrate.
+          value: b.value ? String(b.value) : null,
+          meaning: b.meaning ? String(b.meaning) : null,
           go: String(b.go),
           // A fallback branch may mean only that THIS article cannot explain the latest
           // wording. Before such a branch hands the chat to an operator, the solver gets
@@ -696,6 +702,110 @@ function branchFromAnswers(node, known, allowContextualAliases) {
   return branchFromWords(node, said, allowContextualAliases);
 }
 
+function activeQuestionContract(topic, node) {
+  if (!topic || !node || !node.branches || !node.branches.length) return null;
+  const key = branchKeyOf(node);
+  if (!key) return null;
+  const valued = node.branches.filter(b => b.value && b.meaning);
+  if (!valued.length || valued.length !== node.branches.length) return null;
+  return {
+    id: String(topic.key) + ":" + String(node.id) + ":" + String(key),
+    key: String(key),
+    node: String(node.id),
+    values: valued.map(b => ({ value: String(b.value), meaning: String(b.meaning) }))
+  };
+}
+
+function normalizedEvidence(value) {
+  return String(value || "").toLowerCase().replace(/ё/g, "е")
+    .replace(/[^0-9a-zа-я]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function currentEvidenceContains(evidence, currentText) {
+  const needle = normalizedEvidence(evidence);
+  const haystack = normalizedEvidence(currentText);
+  if (!needle || !haystack) return false;
+  return (" " + haystack + " ").indexOf(" " + needle + " ") >= 0;
+}
+
+function carriesUncertainty(text) {
+  const tokenList = words(text);
+  if (tokenList.some(token => ["вроде", "кажется", "наверное", "возможно", "скорее",
+    "похоже", "probably", "maybe", "perhaps"].indexOf(token) >= 0)) return true;
+  const normal = normalizedEvidence(text);
+  return /(^| )(не уверен|не уверена|не уверены|может быть)( |$)/.test(normal);
+}
+
+// The Solver is allowed to interpret language, not to authorise a business transition.
+// A semantic answer is accepted only for the one question that was actually delivered,
+// from a finite value declared by that article, and with a quote from THIS partner turn.
+// Supplying a well-shaped object therefore cannot answer a future/stale question or invent
+// a new outcome. Whether the chosen value leads to advice, a subtask or a human remains in
+// the article's `go` edge.
+function semanticBranchFromInput(topic, node, data, questionId, semanticValue, evidence) {
+  const supplied = [questionId, semanticValue, evidence]
+    .some(value => String(value || "").trim());
+  if (!supplied) return { attempted: false, branch: null, contract: null, reason: null };
+
+  const contract = activeQuestionContract(topic, node);
+  if (!contract) {
+    return { attempted: true, branch: null, contract: null,
+      reason: "active node has no semantic answer contract" };
+  }
+  if (String(data.treeDeliveredQuestionNode || "") !== String(node.id)) {
+    return { attempted: true, branch: null, contract: contract,
+      reason: "question was not delivered" };
+  }
+  if (String(questionId || "") !== contract.id) {
+    return { attempted: true, branch: null, contract: contract,
+      reason: "activeQuestionId does not match the delivered question" };
+  }
+  if (data.activeQuestionId && String(data.activeQuestionId) !== contract.id) {
+    return { attempted: true, branch: null, contract: contract,
+      reason: "stored activeQuestionId does not match the delivered question" };
+  }
+  if (data.activeQuestionNode && String(data.activeQuestionNode) !== String(node.id)) {
+    return { attempted: true, branch: null, contract: contract,
+      reason: "stored activeQuestionNode does not match the current node" };
+  }
+  if (data.activeQuestionKey && String(data.activeQuestionKey) !== contract.key) {
+    return { attempted: true, branch: null, contract: contract,
+      reason: "stored activeQuestionKey does not match the current question" };
+  }
+  const state = loadState();
+  const incomingId = currentCommentId(state);
+  if (incomingId != null && data.activeQuestionCommentId != null &&
+      String(data.activeQuestionCommentId) === incomingId) {
+    return { attempted: true, branch: null, contract: contract,
+      reason: "the model tried to answer a question in the same turn that prepared it" };
+  }
+  if (!currentEvidenceContains(evidence, dialogValue.incomingText)) {
+    return { attempted: true, branch: null, contract: contract,
+      reason: "evidenceText is not a fragment of the current partner message" };
+  }
+  const wanted = String(semanticValue || "").trim();
+  const hit = node.branches.find(b => String(b.value || "") === wanted) || null;
+  if (!hit) {
+    return { attempted: true, branch: null, contract: contract,
+      reason: "answerValue is not declared by the active question" };
+  }
+  if (carriesUncertainty(dialogValue.incomingText)) {
+    return { attempted: true, branch: null, contract: contract,
+      reason: "current partner message carries uncertainty" };
+  }
+  // The lexical matcher is no longer required to understand every paraphrase, but when it
+  // does find strong evidence for the opposite declared outcome it remains a useful veto.
+  // A semantic classifier cannot overrule an explicit contradiction already recognised by
+  // the policy article's conservative fallback.
+  const lexical = branchFromWords(node, words(dialogValue.incomingText), true);
+  if (lexical && String(lexical.go) !== String(hit.go)) {
+    return { attempted: true, branch: null, contract: contract,
+      reason: "answerValue conflicts with deterministic evidence in the current message" };
+  }
+  return { attempted: true, branch: hit, contract: contract, reason: null,
+    evidence: String(evidence || "").trim(), value: wanted };
+}
+
 // Which question of the node the branches read, if it can be told at all.
 function branchKeyOf(node) {
   if (!node.branches.length) return null;
@@ -714,6 +824,10 @@ function questionSpecs(questions, node) {
     fallbackQuestion: q.question,
     answerOptions: node && branchKeyOf(node) === q.key
       ? node.branches.map(b => b.when.join(" / "))
+      : [],
+    answerValues: node && branchKeyOf(node) === q.key
+      ? node.branches.filter(b => b.value && b.meaning)
+        .map(b => ({ value: b.value, meaning: b.meaning }))
       : [],
     doNotAssume: q.doNotAssume || null
   }));
@@ -921,6 +1035,16 @@ if (effectiveTopicKey) {
         treePreparedQuestionCommentId: null,
         treeDeliveredQuestionNode: null,
         treeDeliveredQuestionCommentId: null,
+        preparedQuestionId: null,
+        preparedQuestionKey: null,
+        preparedQuestionNode: null,
+        activeQuestionId: null,
+        activeQuestionKey: null,
+        activeQuestionNode: null,
+        activeQuestionCommentId: null,
+        treeAnswerValues: null,
+        lastSemanticAnswerQuestionId: null,
+        lastSemanticAnswerCommentId: null,
         treeNoAnswerPending: null,
         treeHandoverAsked: null,
         treeSilent: 0,
@@ -1025,14 +1149,51 @@ if (effectiveTopicKey) {
         ? branchFromWords(at, words(currentRaw), true) : null;
       if (heardActive) given[activeBranchKey] = heardActive.when[0];
 
+      const semanticAnswer = at
+        ? semanticBranchFromInput(topic, at, data, activeQuestionId, answerValue, evidenceText)
+        : { attempted: [activeQuestionId, answerValue, evidenceText]
+          .some(value => String(value || "").trim()), branch: null, contract: null,
+          reason: "there is no active article node" };
+      if (semanticAnswer.attempted && !semanticAnswer.branch) {
+        Log.warn({ message: "searchKnowledge: semantic answer was ignored on " + topic.key +
+          (at ? "/" + at.id : "") + ": " + semanticAnswer.reason });
+      }
+
+      // On a valued safety question the model's free-form `answers` value is evidence for
+      // the summary, not an alternate authorisation path. Before this contract existed,
+      // one tool-call shape rejected «закрыта», while another accepted the model's expanded
+      // paraphrase «смена закрылась» for the same partner text. Keep direct lexical matches
+      // as a fast fallback; otherwise branch only through the checked semantic frame.
+      const activeSemanticContract = at ? activeQuestionContract(topic, at) : null;
+      if (activeBranchKey && activeWasDelivered && activeSemanticContract && !heardActive) {
+        if (currentRaw) given[activeBranchKey] = currentRaw;
+        else delete given[activeBranchKey];
+      }
+      if (semanticAnswer.branch && semanticAnswer.contract) {
+        given[semanticAnswer.contract.key] = currentRaw || semanticAnswer.evidence;
+      }
+
       const known = Object.assign({}, stored, given);
       const givenPatch = {};
       Object.keys(given).forEach(k => {
         if (stored[k] !== given[k]) givenPatch["treeAnswers." + k] = given[k];
       });
       if (heardActive && currentRaw) {
+        if (activeSemanticContract && heardActive.value) {
+          givenPatch["treeAnswerValues." + activeBranchKey] = heardActive.value;
+        }
         givenPatch["treeAnswerEvidence." + activeBranchKey] = currentRaw;
         givenPatch.latestPartnerEvidence = currentRaw.slice(0, 900);
+      }
+      if (semanticAnswer.branch && semanticAnswer.contract) {
+        const key = semanticAnswer.contract.key;
+        givenPatch["treeAnswerValues." + key] = semanticAnswer.value;
+        givenPatch["treeAnswerEvidence." + key] = currentRaw;
+        givenPatch.latestPartnerEvidence = currentRaw.slice(0, 900);
+        givenPatch.lastSemanticAnswerQuestionId = semanticAnswer.contract.id;
+        givenPatch.lastSemanticAnswerCommentId = currentCommentId(loadState());
+        Log.info({ message: "searchKnowledge: semantic answer " + semanticAnswer.value +
+          " accepted for " + semanticAnswer.contract.id + " from current partner evidence" });
       }
       if (Object.keys(givenPatch).length) {
         patchData(givenPatch);
@@ -1070,7 +1231,15 @@ if (effectiveTopicKey) {
         target = at;
         how = "end";
       } else if (at.branches.length) {
-        if (chosen) {
+        if (semanticAnswer.branch) {
+          const hit = semanticAnswer.branch;
+          if (hit.refineBeforeHandover) {
+            refinementBranch = hit;
+            refinementNode = at;
+          }
+          target = resolveNode(topic.nodes, hit.go);
+          how = "semantic answer value \"" + semanticAnswer.value + "\"";
+        } else if (chosen) {
           const hit = at.branches.find(b => b.when.some(w => sameLabel(w, chosen)))
             || at.branches.find(b => sameLabel(b.go, chosen))
             || at.branches.find(b => b.when.some(w => String(chosen).toLowerCase().indexOf(String(w).toLowerCase()) >= 0));
@@ -1097,6 +1266,7 @@ if (effectiveTopicKey) {
                 delete known[branchKey];
                 const clear = {};
                 clear["treeAnswers." + branchKey] = null;
+                clear["treeAnswerValues." + branchKey] = null;
                 patchData(clear);
               }
               target = at;
@@ -1161,6 +1331,7 @@ if (effectiveTopicKey) {
           target.ask.forEach(q => {
             delete known[q.key];
             fresh["treeAnswers." + q.key] = null;
+            fresh["treeAnswerValues." + q.key] = null;
           });
           fresh.suppressAnswerKeys = target.ask.map(q => q.key).join(",");
           fresh.suppressAnswerCommentId = runtime.incomingCommentId == null
@@ -1249,6 +1420,15 @@ if (effectiveTopicKey) {
         requiredArticleQuestion: null,
         routingRefinementOffer: null
       };
+      if (at && String(target.id) !== String(at.id)) {
+        patch.activeQuestionId = null;
+        patch.activeQuestionKey = null;
+        patch.activeQuestionNode = null;
+        patch.activeQuestionCommentId = null;
+        patch.preparedQuestionId = null;
+        patch.preparedQuestionKey = null;
+        patch.preparedQuestionNode = null;
+      }
       if (component) patch.componentName = component;
 
       // A node that asks — with or without a recommendation above the question. The turn
@@ -1304,6 +1484,10 @@ if (effectiveTopicKey) {
         patch.treePreparedQuestionNode = target.id;
         patch.treePreparedQuestionCommentId = runtime.incomingCommentId == null
           ? null : String(runtime.incomingCommentId);
+        const semanticQuestion = activeQuestionContract(topic, target);
+        patch.preparedQuestionId = semanticQuestion ? semanticQuestion.id : null;
+        patch.preparedQuestionKey = semanticQuestion ? semanticQuestion.key : null;
+        patch.preparedQuestionNode = semanticQuestion ? semanticQuestion.node : null;
         if (target.requireBranchEvidence === true) {
           patch.requiredArticleQuestion = articleQuestionRequirement(topic.key, target.id, unanswered);
         }
@@ -1428,6 +1612,10 @@ if (effectiveTopicKey) {
           }
           patch.treePreparedQuestionNode = target.id;
           patch.treePreparedQuestionCommentId = currentCommentId;
+          const semanticQuestion = activeQuestionContract(topic, target);
+          patch.preparedQuestionId = semanticQuestion ? semanticQuestion.id : null;
+          patch.preparedQuestionKey = semanticQuestion ? semanticQuestion.key : null;
+          patch.preparedQuestionNode = semanticQuestion ? semanticQuestion.node : null;
           patch.requiredArticleQuestion = articleQuestionRequirement(topic.key, target.id, target.ask);
         }
         patchData(patch);
@@ -1443,6 +1631,12 @@ if (effectiveTopicKey) {
           preQuestions: mustClarifyBranch ? target.ask.map(q => q.question) : [],
           questionSpecs: mustClarifyBranch ? questionSpecs(target.ask, target) : [],
           mustClarifyBranch: mustClarifyBranch,
+          activeQuestionId: activeQuestionContract(topic, target)
+            ? activeQuestionContract(topic, target).id : null,
+          answerKey: activeQuestionContract(topic, target)
+            ? activeQuestionContract(topic, target).key : null,
+          answerValues: activeQuestionContract(topic, target)
+            ? activeQuestionContract(topic, target).values : [],
           // A refinement fallback is not a semantic answer alongside JavaScript or DNS.
           // Showing it in both arrays made the model choose it before the mandatory MCP
           // check. While the offer is active it exists only in refinementBranches.
