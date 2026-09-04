@@ -4,32 +4,32 @@ name: searchKnowledge
 description: "Ищет в базе знаний тематику, подходящую под описание проблемы. Если\
   \ ничего не подходит, возвращает found=false без кандидатов и никогда не угадыва\
   ет. Когда тематика уже известна, передавай topicKey. Защищённый activeQuestionId\
-  \ обрабатывает отдельный Turn Interpreter; Solver не должен угадывать его значение."
+  \ обрабатывает отдельный Turn Interpreter; Solver не должен угадывать его значен\
+  ие."
 response-description: "В ответе всегда есть turnKind — он говорит, чем сейчас этот\
-  \ виток: choose-branch (при activeQuestionId задай вопрос — следующий ответ обработает\
-  \ отдельный Interpreter; иначе передай branch), questions (с\
-  формулируй вопросы по questionSpecs, а без него используй preQuestions), solution\
-  \ (выдай solverInstruction), handover (не говори ничего, передачей занимается сц\
-  енарий). При questions может прийти reasked: true — эти вопросы уже задавались,\
-  \ а партнёр ответил не на них; повторять их слово в слово нельзя. При questions\
-  \ поля subtaskEmailRequired и subtaskEmailMissing говорят, нужно ли вместе с воп\
-  росами запросить email для подзадачи техподдержки. На query: { found, source, topics:\
-  \ [{ score, key, description, route, componentName }] }. На topicKey ветвящаяся\
-  \ статья возвращает один узел: { turnKind, treeNode, preQuestions, questionSpecs,\
-  \ answerKeys, branchOptions, activeQuestionId, answerValues, refinementAvailable,\
-  \ refinementBranches, solverInstruction, treeEnd }. turnKind=refine-routing или\
-  \ refinementAvailable=true разрешает один\
-  \ MCP-поиск более конкретной подготовленной темы перед резервной передачей опера\
-  тору. Линейная статья возвращает либо свои вопросы — { needsPreQuestions: true,\
-  \ preQuestions, answerKeys }, и если answerKeys непусты, ответы на эти вопросы в\
-  ерни в поле answers следующим витком, как и для ветвящейся статьи; либо один шаг\
-  , который надо выдать сейчас — { solverInstruction, followUpQuestion, stepNumber,\
-  \ stepCount, isLastStep, onFail }; либо то, что пробовать больше нечего — { found:\
-  \ false, stepsExhausted: true, onFail }. questionSpecs задаёт смысл вопросов, бе\
-  зопасную запасную формулировку, варианты ответа и запрещённые предположения; фор\
-  мулировку выбери естественную, не меняя этот контракт. При prose: true в solverInstruction\
-  \ лежит статья целиком, возможно с условиями внутри: выбери подходящую партнёру\
-  \ часть, а если выбрать нельзя — задай один различающий вопрос и верни kind: questions"
+  \ виток: choose-branch (при activeQuestionId задай вопрос — следующий ответ обра\
+  ботает отдельный Interpreter; иначе передай branch), questions (сформулируй вопр\
+  осы по questionSpecs, а без него используй preQuestions), solution (выдай solverInstruction),\
+  \ handover (не говори ничего, передачей занимается сценарий). При questions може\
+  т прийти reasked: true — эти вопросы уже задавались, а партнёр ответил не на них\
+  ; повторять их слово в слово нельзя. При questions поля subtaskEmailRequired и subtaskEmailMissing\
+  \ говорят, нужно ли вместе с вопросами запросить email для подзадачи техподдержк\
+  и. На query: { found, source, topics: [{ score, key, description, route, componentName\
+  \ }] }. На topicKey ветвящаяся статья возвращает один узел: { turnKind, treeNode,\
+  \ preQuestions, questionSpecs, answerKeys, branchOptions, activeQuestionId, answerValues,\
+  \ refinementAvailable, refinementBranches, solverInstruction, treeEnd }. turnKind=refine-routing\
+  \ или refinementAvailable=true разрешает один MCP-поиск более конкретной подгото\
+  вленной темы перед резервной передачей оператору. Линейная статья возвращает либ\
+  о свои вопросы — { needsPreQuestions: true, preQuestions, answerKeys }, и если answerKeys\
+  \ непусты, ответы на эти вопросы верни в поле answers следующим витком, как и дл\
+  я ветвящейся статьи; либо один шаг, который надо выдать сейчас — { solverInstruction,\
+  \ followUpQuestion, stepNumber, stepCount, isLastStep, onFail }; либо то, что пр\
+  обовать больше нечего — { found: false, stepsExhausted: true, onFail }. questionSpecs\
+  \ задаёт смысл вопросов, безопасную запасную формулировку, варианты ответа и зап\
+  рещённые предположения; формулировку выбери естественную, не меняя этот контракт\
+  . При prose: true в solverInstruction лежит статья целиком, возможно с условиями\
+  \ внутри: выбери подходящую партнёру часть, а если выбрать нельзя — задай один р\
+  азличающий вопрос и верни kind: questions"
 parameters:
 - name: query
   type: STRING
@@ -67,19 +67,22 @@ parameters:
 - name: activeQuestionId
   type: STRING
   required: false
-  description: "Идентификатор активного вопроса. Заполняется проверенным результатом отдельного Turn Interpreter; обычный Solver его не создаёт."
+  description: Идентификатор активного вопроса. Заполняется проверенным результатом
+    отдельного Turn Interpreter; обычный Solver его не создаёт.
   properties: null
   items: null
 - name: answerValue
   type: STRING
   required: false
-  description: "Одно конечное смысловое значение активного вопроса из проверенного Turn Interpreter. Это не имя ветки или следующего узла."
+  description: Одно конечное смысловое значение активного вопроса из проверенного
+    Turn Interpreter. Это не имя ветки или следующего узла.
   properties: null
   items: null
 - name: evidenceText
   type: STRING
   required: false
-  description: "Дословный непрерывный фрагмент ТЕКУЩЕГО сообщения партнёра из проверенного Turn Interpreter."
+  description: Дословный непрерывный фрагмент ТЕКУЩЕГО сообщения партнёра из проверенного
+    Turn Interpreter.
   properties: null
   items: null
 language: JAVASCRIPT
