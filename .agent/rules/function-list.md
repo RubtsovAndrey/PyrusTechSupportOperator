@@ -221,15 +221,16 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Tools/matchUnit/
 - `ID_Tools.searchKnowledge` — Ищет в базе знаний тематику, подходящую под описание проблемы. Если ничего не подходит, возвращает found=false без кандидатов и никогда не угадывает. Когда тематика уже известна, передавай topicKey. Защищённый activeQuestionId обрабатывает отдельный Turn Interpreter; Solver не должен угадывать его значение.
   Directory: functions/ID_Tools/searchKnowledge/
-- `ID_Tools.parseAgentJson` — Parses ordinary agent output, validates facts and policy permissions, persists state and turns an accepted Solver contentPlan into a responsePlan bound to the current task and partner comment.
+- `ID_Tools.parseAgentJson` — Parses the JSON answer of an agent, validates the unit, the topic and the component against the catalogs, persists the collected facts into the task document and clears the previous problem when the partner moves on to a new question. Throws when the answer is not parseable, so the node error edge can hand the task to an operator.
   Directory: functions/ID_Tools/parseAgentJson/
-- `ID_Tools.parseTurnInterpretation` — Validates the common finite interpretation contract for an article answer, confirmation or post-close intent: exact contract id, allowed value and current-message evidence. It never chooses a policy edge itself.
-  Directory: functions/ID_Tools/parseTurnInterpretation/
-- `ID_Tools.parseResponseComposition` — Validates that Response Composer answered the current responsePlan, preserves the policy-owned kind, rejects new URLs or a changed canonical question and falls back to the authorised contentPlan when composition is malformed.
-  Directory: functions/ID_Tools/parseResponseComposition/
 - `ID_Tools.nextSolutionStep` — Decides what to do after the partner reports that a solution did not help: offer the next step of the knowledge article, or leave the topic through its onFail route. Not a tool — called by the graph after the confirmation stage.
   Directory: functions/ID_Tools/nextSolutionStep/
 - `ID_Tools.getKnowledgeMcp` — Ищет статьи в Базе Знаний через MCP и возвращает их содержимое с метаданными. Используй для поиска решений проблем партнёров.
   Directory: functions/ID_Tools/getKnowledgeMcp/
 - `ID_Tools.findOperatorKnowledge` — Ищет по всей доступной Базе Знаний возможные материалы для оператора, когда утверждённый сценарий бота не найден. Ничего не отправляет партнёру.
   Directory: functions/ID_Tools/findOperatorKnowledge/
+- `ID_Tools.parseTurnInterpretation` — Проверяет общий конечный контракт Turn Interpreter для ответа статье, реакции на совет или сообщения после закрытия. Не является tool агента и не выполняет бизнес-действий.
+  Directory: functions/ID_Tools/parseTurnInterpretation/
+- `ID_Tools.parseResponseComposition` — Проверяет привязку ответа Response Composer к авторизованному responsePlan. Не позволяет менять kind или действие; при повреждённом ответе использует безопасный текст плана.
+  Directory: functions/ID_Tools/parseResponseComposition/
+
