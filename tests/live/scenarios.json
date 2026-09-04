@@ -394,14 +394,14 @@
     },
     {
       "id": "z-report-success-close-and-thanks",
-      "title": "Z-отчёт восстанавливается по трём подтверждённым условиям, а благодарность не будит оператора",
+      "title": "Z-отчёт проходит через Interpreter и Composer, а разговорная благодарность не будит оператора",
       "messages": [
         "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался.",
         "Смена в Додо ИС закрыта.",
         "Не печатала.",
         "Да, открывается.",
         "Да, помогло.",
-        "Спасибо!"
+        "спасибо за помощь хорошего дня"
       ],
       "expect": {
         "turnCount": 6,
@@ -414,6 +414,9 @@
               "excludes": ["Печать копии последнего документа"]
             },
             "internal": { "count": 0 },
+            "path": {
+              "includes": ["Solver / Policy Reader", "Response Composer", "Validate composed response"]
+            },
             "noErrors": true
           },
           {
@@ -424,6 +427,10 @@
               "includes": ["другие фискальные документы"]
             },
             "internal": { "count": 0 },
+            "path": {
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "Response Composer", "Validate composed response"],
+              "excludes": ["Solver / Policy Reader"]
+            },
             "noErrors": true
           },
           {
@@ -438,6 +445,10 @@
               "excludes": ["searchKnowledge: 3 answer(s)"]
             },
             "internal": { "count": 0 },
+            "path": {
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "Response Composer", "Validate composed response"],
+              "excludes": ["Solver / Policy Reader"]
+            },
             "noErrors": true
           },
           {
@@ -448,6 +459,10 @@
               "includes": ["Печать копии последнего документа", "Получилось решить вопрос"]
             },
             "internal": { "count": 0 },
+            "path": {
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "Response Composer", "Validate composed response"],
+              "excludes": ["Solver / Policy Reader"]
+            },
             "noErrors": true
           },
           {
@@ -461,6 +476,9 @@
               "fields": 2
             },
             "internal": { "count": 0 },
+            "path": {
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "parseConfirmation", "Outcome - solved"]
+            },
             "task": {
               "isClosed": true,
               "reopenedAfterReply": false
@@ -468,7 +486,7 @@
             "noErrors": true
           },
           {
-            "partner": { "includes": ["Спасибо"] },
+            "partner": { "includes": ["спасибо за помощь хорошего дня"] },
             "outcome": "solved",
             "replies": {
               "count": 1,
@@ -479,6 +497,7 @@
             },
             "internal": { "count": 0 },
             "path": {
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "pure gratitude by meaning?", "Outcome - solved"],
               "excludes": ["Handover Summary Agent (operator)", "Outcome - silent handover"]
             },
             "task": {

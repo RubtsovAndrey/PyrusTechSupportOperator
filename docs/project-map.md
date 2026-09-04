@@ -233,7 +233,7 @@
   поэтому тесты были зелёными, пока бот молча терял всё. Проверяются синтаксис
   всех функций, кавычки в YAML, связность графа, поведение `receiveWebhook`, `finalize`,
   `parseAgentJson`, `parseTurnInterpretation`, `createSubtask`, `matchUnit`, весь обход
-  дерева БЗ вместе с формой сводки и связка `applyOutcome` → `finalize` — 1183 проверки.
+  дерева БЗ вместе с формой сводки и связка `applyOutcome` → `finalize` — 1206 проверок.
   Кроме кода проверяется то,
   что ломается уже после деплоя и тихо: статьи каталога (`start`, `go`, `else`, `onFail`,
   ключи `ask`, недостижимые и тупиковые узлы) и расхождение восьми копий `writeState` —
@@ -562,9 +562,11 @@
    «Текущее сообщение партнёра». Всё, о чём модель должна думать, кладётся строками,
    а не JSON: маленькая модель следует подписанной строке заметно лучше.
 3. **Стадия** из документа задачи выбирает ветку графа (см. карту ниже).
-4. **Агент** отвечает JSON. Обычные роли разбирает **`parseAgentJson`**; защищённый ответ
-   проходит через **`parseTurnInterpretation`**, затем обычный function-узел вызывает
-   `searchKnowledge`. Parser сверяет результат с каталогом/активным вопросом и пишет факты.
+4. **Агент** отвечает JSON. Обычные роли разбирает **`parseAgentJson`**; смысл текущей
+   реплики по конечному контракту — **`parseTurnInterpretation`**. Solver возвращает
+   внутренний `responsePlan`, а внешний текст отдельного Composer проверяет
+   **`parseResponseComposition`**. Parser-слой связывает каждый результат с текущими
+   задачей, комментарием и policy-контрактом.
 5. **`applyOutcome`** превращает исход витка в решение: текст партнёру, следующая стадия,
    поля Pyrus, саммари оператору. Всё это ложится в `pendingOutcome`.
 6. **`finalize`** — единственная точка записи в чат партнёра. Проверяет, не проиграл ли
@@ -631,10 +633,10 @@
 ### 6. Подтверждение результата
 
 После совета стадия — `awaiting_confirmation`, и следующее сообщение читает
-`agent_confirmation`: `resolved` — закрываем, `failed` — `nextSolutionStep` даёт следующий
-шаг или уводит по `onFail`, `question` — разъясняем тот же совет, `unclear` — безопасно
-двигаемся по правилам статьи. Ошибочный `more_questions` из ответа модели код трактует как
-`failed`; отдельный технический исход сохранён только для языковой границы.
+общий `agent_turn_interpreter` по контракту `confirmation`: `resolved` — закрываем,
+`failed` — `nextSolutionStep` даёт следующий шаг или уводит по `onFail`, `question` —
+разъясняем тот же совет, `unclear` — безопасно двигаемся по правилам статьи. Агент не знает
+следующий узел и не пишет ответ: он возвращает только разрешённое значение и точную цитату.
 
 ### 7. Стабильность темы
 
@@ -679,6 +681,9 @@
 trigger_webhook_pyrus → receiveWebhook → skip?
   skip=true                         → finalize
   just a thank-you?      gratitude  → Outcome - solved → finalize
+  other closed text? interpret_post_close → agent_turn_interpreter → parseTurnInterpretation
+      gratitude_only → Outcome - solved → finalize
+      other/unclear  → Outcome - silent handover → finalize
   conversation reopened? reopened   → Outcome - silent handover → finalize
   asked to close the chat? close_request → Outcome - solved → finalize
   attachment without text? attachment → Outcome - escalate (attachment) → finalize
@@ -687,7 +692,7 @@ trigger_webhook_pyrus → receiveWebhook → skip?
   answering a protected finite question? interpret_answer → agent_turn_interpreter
       → parseTurnInterpretation → searchKnowledge → parse deterministic result
   answering a legacy article question? awaiting_answers → agent_solver
-  confirmation?  awaiting_confirmation → agent_confirmation → parseConfirmation
+  confirmation? interpret_confirmation → agent_turn_interpreter → parseTurnInterpretation → parseConfirmation
     │                                     resolved      → Outcome - solved → finalize
     │                                     language boundary → agent_intake
     │                                     иначе          → next solution step?
@@ -707,7 +712,7 @@ trigger_webhook_pyrus → receiveWebhook → skip?
                              treeEnd=subtask  → summary → createSubtask
                              treeEnd=escalate → summary → Outcome - escalate
                              treeEnd=close    → Outcome - solved
-                             иначе → solver asked questions?
+                             иначе → agent_response_composer → parseResponseComposition → solver asked questions?
                                 kind=questions → Outcome - clarify (article questions)
                                 иначе          → Outcome - reply
           route=subtask → summary → createSubtask → subtask created?
@@ -732,7 +737,8 @@ trigger_webhook_pyrus → receiveWebhook → skip?
 | `searchKnowledge` | ID_Tools | tool: подбор тематики, один узел дерева или один шаг линейной статьи |
 | `getKnowledgeMcp` | ID_Tools | управляемый MCP-поиск: внешние источники policy и проверенные кандидаты подготовленных тем |
 | `parseAgentJson` | ID_Tools | разбор ответа агента или детерминированного результата знания, запись фактов и попыток |
-| `parseTurnInterpretation` | ID_Tools | проверка узкого answer-frame: текущий вопрос, конечное value и дословная цитата |
+| `parseTurnInterpretation` | ID_Tools | общий конечный контракт смысла: актуальные id/value и дословное доказательство |
+| `parseResponseComposition` | ID_Tools | проверка привязки Composer к responsePlan; запрет нового URL и изменения канонического вопроса; безопасный fallback |
 | `nextSolutionStep` | ID_Tools | решение после «не помогло»: следующий шаг, разъяснение того же или onFail |
 
 ## Инструменты разработчика
@@ -841,11 +847,12 @@ subtaskIntegrity creating | uncertain_response | unconfirmed_parent | complete
 
 ## Соглашения
 
-- **Текст партнёру формируется в коде, а не моделью**, всюду, где он предсказуем:
-  уточняющие вопросы, приветствие, стандартные ответы. Модель отвечает свободным текстом
-  только там, где содержание действительно зависит от статьи БЗ.
+- **Текст партнёру формируется в коде**, где он предсказуем: приветствие, стандартные
+  ответы и обязательные добавления статьи. Свободную формулировку пишет только
+  `agent_response_composer`, получив уже авторизованный и привязанный к витку план.
 - **Разделение этапов жёсткое.** У `agent_intake` нет доступа к БЗ, у `agent_solver` — к
-  каталогу юнитов. Один агент не может выполнить работу другого даже при желании.
+  каталогу юнитов, у Interpreter и Composer нет tools. Один агент не может выполнить
+  работу другого даже при желании.
 - **В Pyrus пишет только `finalize`** (единственное исключение — `createSubtask`, который
   создаёт саму подзадачу).
 - **Комментарий без `channel` — внутренняя переписка.** Так уходят все саммари
