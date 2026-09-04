@@ -1,11 +1,11 @@
 ---
 id: cond_stage_interpreter
-name: semantic answer to an active question?
+name: semantic interpretation required?
 position:
   x: 1512
   y: -430
 next-step: agent_turn_interpreter
 next-error-step: null
 parameters:
-  condition: "(Context.getLastFunctionResult() || {}).stage === 'interpret_answer'"
+  condition: "['interpret_answer','interpret_confirmation','interpret_post_close'].indexOf((Context.getLastFunctionResult() || {}).stage) >= 0"
   false-step: cond_stage_answers

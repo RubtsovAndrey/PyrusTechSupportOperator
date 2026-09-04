@@ -12,11 +12,17 @@ function evidenceIsCurrent(evidence, currentText) {
   return (" " + haystack + " ").indexOf(" " + needle + " ") >= 0;
 }
 
-// Agent Platform calls structured output an instruction, not a grammar. Read the last
-// complete object so a short self-correction does not turn an otherwise valid semantic
-// answer into prose. Unlike Solver output, prose has no useful fallback here: it cannot
-// safely name a finite fact and therefore means `unclear`.
+function evidenceIsWholeMessage(evidence, currentText) {
+  const quoted = normalizeEvidence(evidence);
+  const current = normalizeEvidence(currentText);
+  return !!quoted && quoted === current;
+}
+
+// Agent Platform structured output is still treated as an instruction at this boundary.
+// Read the last complete object so a short self-correction does not turn a valid frame
+// into prose. Prose has no useful fallback: it cannot safely name a finite value.
 function lastJsonObject(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
   const source = String(value || "").replace(/```json/gi, "").replace(/```/g, "");
   const objects = [];
   let start = -1;
@@ -40,9 +46,7 @@ function lastJsonObject(value) {
       if (depth === 0 && start >= 0) {
         try {
           const parsed = JSON.parse(source.slice(start, i + 1));
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            objects.push(parsed);
-          }
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) objects.push(parsed);
         } catch (e) {
           // A later complete object may still be the model's correction.
         }
@@ -62,7 +66,7 @@ function lastJsonObject(value) {
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
 const taskId = dialog.taskId == null ? null : String(dialog.taskId);
 const raw = Context.getLastFunctionResult();
-const text = typeof raw === "string" ? raw : (raw && raw.content ? raw.content : String(raw || ""));
+const text = typeof raw === "string" ? raw : (raw && raw.content ? raw.content : raw);
 const parsed = lastJsonObject(text);
 
 let state = {};
@@ -77,66 +81,135 @@ if (taskId) {
 const data = state.data || {};
 const runtime = state.runtime || {};
 const currentText = String(dialog.incomingText || "").trim();
-const currentCommentId = runtime.incomingCommentId == null
-  ? null : String(runtime.incomingCommentId);
-const activeCommentId = data.activeQuestionCommentId == null
-  ? null : String(data.activeQuestionCommentId);
+const currentCommentId = runtime.incomingCommentId == null ? null : String(runtime.incomingCommentId);
+const activeCommentId = data.activeQuestionCommentId == null ? null : String(data.activeQuestionCommentId);
 
-let values = [];
-try {
-  const decoded = JSON.parse(String(data.activeQuestionValuesJson || "[]"));
-  if (Array.isArray(decoded)) values = decoded.filter(item => item && item.value && item.meaning);
-} catch (e) {
-  Log.warn({ message: "parseTurnInterpretation: active answer values are invalid JSON on task " +
-    (taskId || "?") });
+// In-progress conversations from the previous deployment do not yet carry the general
+// contract in AgentContext. Synthesize only the old article-answer form; confirmation and
+// post-close contracts are request-scoped and must never be guessed from stale state.
+let contract = dialog.interpretationContract;
+if (!contract && data.activeQuestionId && data.activeQuestionValuesJson) {
+  let oldValues = [];
+  try {
+    const decoded = JSON.parse(String(data.activeQuestionValuesJson || "[]"));
+    if (Array.isArray(decoded)) oldValues = decoded;
+  } catch (e) {
+    // The incomplete contract fails closed below.
+  }
+  contract = {
+    id: String(data.activeQuestionId),
+    kind: "article_answer",
+    evidenceScope: "fragment",
+    values: oldValues
+  };
 }
+contract = contract && typeof contract === "object" && !Array.isArray(contract) ? contract : null;
+const contractKind = contract ? String(contract.kind || "") : "";
+const contractId = contract ? String(contract.id || "") : "";
+const values = contract && Array.isArray(contract.values)
+  ? contract.values.filter(item => item && String(item.value || "").trim() && String(item.meaning || "").trim())
+  : [];
+const partnerLanguage = parsed && /^[a-z]{2}$/i.test(String(parsed.partnerLanguage || ""))
+  ? String(parsed.partnerLanguage).toLowerCase()
+  : (data.partnerLanguage || dialog.partnerLanguage || null);
 
 function unclear(reason) {
-  Log.warn({ message: "parseTurnInterpretation: unclear on task " + (taskId || "?") +
-    ": " + reason });
-  return {
+  Log.warn({ message: "parseTurnInterpretation: unclear " + (contractKind || "unknown") +
+    " on task " + (taskId || "?") + ": " + reason });
+  const result = {
     source: "turn-interpreter",
+    contractKind: contractKind || null,
+    contractId: contractId || null,
     interpretation: "unclear",
     topicKey: data.topicKey || dialog.topicKey || null,
+    partnerLanguage: partnerLanguage,
+    evidenceText: null,
     reason: reason,
     taskId: taskId
   };
+  if (contractKind === "confirmation") result.status = "unclear";
+  if (contractKind === "post_close") result.postCloseIntent = "unclear";
+  return result;
 }
 
-if (!taskId || !data.topicKey || !data.activeQuestionId || !data.activeQuestionKey ||
-    !data.activeQuestionNode || !values.length) {
-  return unclear("active semantic question context is incomplete");
+if (!taskId || !contractId || !values.length ||
+    ["article_answer", "confirmation", "post_close"].indexOf(contractKind) < 0) {
+  return unclear("interpretation contract is incomplete");
 }
-if (String(state.stage || "") !== "awaiting_answers") {
-  return unclear("task is not waiting for an article answer");
+
+const expectedStage = {
+  article_answer: "awaiting_answers",
+  confirmation: "awaiting_confirmation",
+  post_close: "closed"
+}[contractKind];
+if (String(state.stage || "") !== expectedStage) {
+  return unclear("task stage does not match the interpretation contract");
 }
-if (currentCommentId != null && activeCommentId != null && currentCommentId === activeCommentId) {
-  return unclear("the active question and its alleged answer belong to the same turn");
+
+if (contractKind === "article_answer") {
+  if (!data.topicKey || !data.activeQuestionId || !data.activeQuestionKey ||
+      !data.activeQuestionNode || String(contractId) !== String(data.activeQuestionId)) {
+    return unclear("active semantic question context is incomplete");
+  }
+  if (currentCommentId != null && activeCommentId != null && currentCommentId === activeCommentId) {
+    return unclear("the active question and its alleged answer belong to the same turn");
+  }
 }
-if (!parsed || String(parsed.kind || "") !== "answer") {
-  return unclear(parsed && String(parsed.kind || "") === "unclear"
-    ? "interpreter reported ambiguity" : "interpreter did not return the answer contract");
+
+const kind = parsed ? String(parsed.kind || "") : "";
+if (!parsed || (kind !== "interpretation" && kind !== "answer")) {
+  return unclear(parsed && kind === "unclear"
+    ? "interpreter reported ambiguity" : "interpreter did not return the interpretation contract");
 }
-if (String(parsed.activeQuestionId || "") !== String(data.activeQuestionId)) {
-  return unclear("activeQuestionId does not match the delivered question");
+
+// `answer`/activeQuestionId/answerValue is accepted only as a compatibility shape for a
+// model invocation already running during deployment. New calls use the common fields.
+const returnedContractId = String(parsed.contractId || parsed.activeQuestionId || "");
+if (returnedContractId !== contractId) {
+  return unclear("contractId does not match the current interpretation contract");
 }
-const selected = String(parsed.answerValue || "");
+const selected = String(parsed.value || parsed.answerValue || "");
 if (!values.some(item => String(item.value) === selected)) {
-  return unclear("answerValue is not allowed by the active question");
+  return unclear("value is not allowed by the interpretation contract");
 }
-if (!evidenceIsCurrent(parsed.evidenceText, currentText)) {
-  return unclear("evidenceText is not a continuous fragment of the current partner message");
+
+const fullMessage = String(contract.evidenceScope || "") === "full_message";
+const evidenceValid = fullMessage
+  ? evidenceIsWholeMessage(parsed.evidenceText, currentText)
+  : evidenceIsCurrent(parsed.evidenceText, currentText);
+if (!evidenceValid) {
+  return unclear(fullMessage
+    ? "evidenceText does not cover the whole current partner message"
+    : "evidenceText is not a continuous fragment of the current partner message");
 }
 
 Log.info({ message: "parseTurnInterpretation: accepted " + selected + " for " +
-  data.activeQuestionId + " on task " + taskId });
-return {
+  contractKind + " contract " + contractId + " on task " + taskId });
+
+const result = {
   source: "turn-interpreter",
-  interpretation: "answer",
-  topicKey: String(data.topicKey),
-  activeQuestionId: String(data.activeQuestionId),
-  answerValue: selected,
+  contractKind: contractKind,
+  contractId: contractId,
+  interpretation: "value",
+  interpretationValue: selected,
+  topicKey: data.topicKey || dialog.topicKey || null,
   evidenceText: String(parsed.evidenceText || "").trim(),
+  partnerLanguage: partnerLanguage,
   reason: null,
   taskId: taskId
 };
+
+if (contractKind === "article_answer") {
+  result.interpretation = "answer";
+  result.activeQuestionId = contractId;
+  result.answerValue = selected;
+}
+if (contractKind === "confirmation") result.status = selected;
+if (contractKind === "post_close") {
+  result.postCloseIntent = selected;
+  if (selected !== "gratitude_only") {
+    result.reason = "сообщение после закрытия содержит не только благодарность; обращение передано оператору";
+  }
+}
+
+return result;

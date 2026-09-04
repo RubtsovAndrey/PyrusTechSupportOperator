@@ -83,12 +83,26 @@ async function main() {
     new Set(advices).size === 4, advices.map(a => a.slice(0, 30)));
   t.check("после каждого совета бот ждёт подтверждения",
     bot.turns.slice(0, 4).every(x => x.stage === "awaiting_confirmation"), bot.turns.map(x => x.stage));
+  const firstPolicyParse = bot.turns[0].trace.find(step => step.id === "func_parsejson_solver");
+  t.check("Solver передаёт внутренний plan, а текстом владеет Response Composer",
+    bot.turns[0].agents.join(">") === "agent_intake>agent_routing>agent_solver>agent_response_composer" &&
+    firstPolicyParse && firstPolicyParse.value && firstPolicyParse.value.responsePlan &&
+    firstPolicyParse.value.replyText === undefined,
+    { agents: bot.turns[0].agents, parsed: firstPolicyParse && firstPolicyParse.value });
   t.check("шаги кончились — обращение у человека",
     bot.turns[4].stage === "escalated" && bot.turns[4].internal.length === 1, bot.turns[4]);
   t.check("оператор получает один связный пересказ вместо обрывков переписки",
     /Суть: .*Ответ из Базы знаний не решил вопрос/.test(bot.turns[4].internal[0]) &&
     !/Собрано у партнёра|Что произошло до передачи|Что уже пробовали/.test(bot.turns[4].internal[0]),
     bot.turns[4].internal[0]);
+
+  bot = chat();
+  r = await bot.turn("Тамбов-1, касса не печатает чек", {
+    unit: "Тамбов-1", composerInvalid: true
+  });
+  t.check("сбой Composer не теряет уже авторизованный ответ",
+    r.stage === "awaiting_confirmation" && r.replies.length === 1 &&
+    r.errors.length === 0 && /agent_response_composer/.test(r.agents.join(" ")), r);
 
   // ── Сбор данных сжимается с каждым ответом и не зацикливается ──
   bot = chat();
@@ -104,7 +118,8 @@ async function main() {
   t.check("приветствие во втором ответе не повторяется",
     !/Добрый день/.test(bot.turns[1].replies[0]), bot.turns[1].replies[0]);
   t.check("собрав всё, бот переходит к статье, а не спрашивает снова",
-    bot.turns[2].agents.join(">") === "agent_intake>agent_routing>agent_solver", bot.turns[2].agents);
+    bot.turns[2].agents.join(">") === "agent_intake>agent_routing>agent_solver>agent_response_composer",
+    bot.turns[2].agents);
 
   // ── Реплика, которая не отвечает на вопрос статьи ──
   // Формат объявляет поля необязательными: «не ответил — статья идёт дальше без этого
@@ -174,6 +189,13 @@ async function main() {
   t.check("эмодзи не мешает распознать чистую благодарность",
     r.internal.length === 0 && r.replies.length === 1 && r.stage === "closed", r);
 
+  bot = chat();
+  await bot.turn("Здравствуйте! Нужно поменять аватарку у курьера, Тамбов-1", { unit: "Тамбов-1" });
+  r = await bot.turn("вы очень выручили хорошего вам дня", { reopened: true });
+  t.check("неожиданная формулировка благодарности понимается по смыслу",
+    r.stage === "closed" && r.internal.length === 0 &&
+    r.agents.join(",") === "agent_turn_interpreter", r);
+
   // ── Явная просьба закрыть чат слышна на вопросе статьи ──
   // Эта стадия идёт прямо в solver, где живая модель однажды написала «закрываю», но
   // вернула handover. Слова партнёру и действие в Pyrus теперь определяет один кодовый исход.
@@ -208,6 +230,8 @@ async function main() {
   t.check("благодарность с новым вопросом — это новый вопрос, и он у человека",
     r.stage === "escalated" && r.internal.length === 1, r.stage);
   t.check("и партнёру бот при этом ничего не пишет", r.replies.length === 0, r.replies);
+  t.check("смешанное сообщение решает общий Interpreter, а не словарь",
+    r.agents[0] === "agent_turn_interpreter", r.agents);
 
   bot = chat();
   await bot.turn("Здравствуйте! Нужно поменять аватарку у курьера, Тамбов-1", { unit: "Тамбов-1" });
@@ -225,6 +249,9 @@ async function main() {
   const advice = bot.turns[0].replies.join(" ");
   r = await bot.turn("А где эту крышку искать?");
   t.check("вопрос про совет не уводит обращение к человеку", r.stage !== "escalated", r.stage);
+  t.check("Confirmation больше не отдельный агент",
+    r.agents[0] === "agent_turn_interpreter" && r.agents.indexOf("agent_confirmation") < 0,
+    r.agents);
   t.check("и не тратит шаг статьи: следующий совет не выдан",
     !/чековую ленту/i.test(r.replies.join(" ")), r.replies.join(" ").slice(0, 120));
   t.check("бот остался на том же шаге и ждёт партнёра",
@@ -305,7 +332,7 @@ async function main() {
     intake: fs.readFileSync(path.join(ROOT, "nodes/agents/agent_intake.yml"), "utf8"),
     solver: fs.readFileSync(path.join(ROOT, "nodes/agents/agent_solver.yml"), "utf8"),
     routing: fs.readFileSync(path.join(ROOT, "nodes/agents/agent_routing.yml"), "utf8"),
-    confirmation: fs.readFileSync(path.join(ROOT, "nodes/agents/agent_confirmation.yml"), "utf8")
+    composer: fs.readFileSync(path.join(ROOT, "nodes/agents/agent_response_composer.yml"), "utf8")
   };
   t.check("ни один агент не обязан говорить только по-русски",
     !Object.keys(prompts).some(k => /только на русском/i.test(prompts[k])),
@@ -428,7 +455,7 @@ async function main() {
     r.stage === "awaiting_answers" && /целиком/i.test(r.replies.join(" ")), r.stage);
   r = await bot.turn("целиком", { proseSay: "Обратитесь к провайдеру." });
   t.check("и ответ возвращается прямо к солверу, без intake и маршрутизации",
-    r.agents.join(">") === "agent_solver", r.agents);
+    r.agents.join(">") === "agent_solver>agent_response_composer", r.agents);
 
   // Шаг один, и он не помог: продолжать нечем, статья уходит по onFail.
   bot = prose();

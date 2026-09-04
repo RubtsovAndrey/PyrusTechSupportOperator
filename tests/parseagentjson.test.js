@@ -50,6 +50,12 @@ async function run(stage, answer, state, dialog) {
     db: db(state),
     contextValues: { dialog: Object.assign({ taskId: "11613" }, dialog || {}) }
   });
+  // Unlike the generic unit-test harness, this suite exercises the real isolation
+  // boundary used before Response Composer.
+  env.AgentContext.clearContext = () => {
+    env.notes.length = 0;
+    Object.keys(env.values).forEach(key => { delete env.values[key]; });
+  };
   const result = await parseAgentJson(env, [stage]);
   return {
     result, state: env.db[KEY], values: env.values, notes: env.notes,
@@ -102,7 +108,9 @@ async function main() {
   ].join("\n"));
   t.check("the last valid object wins when a model emits several JSON objects",
     r.result.kind === "questions" &&
-    r.result.replyText === "Проверьте статус смены в Додо ИС." &&
+    r.result.responsePlan &&
+    r.result.responsePlan.contentPlan === "Проверьте статус смены в Додо ИС." &&
+    !r.result.replyText &&
     !r.result.treeEnd, r.result);
 
   // The article owns a pending question in the current comment. Even a malformed or
@@ -124,7 +132,10 @@ async function main() {
   });
   t.check("a current article question deterministically replaces unsupported solver prose",
     r.result.kind === "questions" &&
-    r.result.replyText === "Смена в Додо ИС отображается закрытой?" &&
+    r.result.responsePlan &&
+    r.result.responsePlan.contentPlan === "Смена в Додо ИС отображается закрытой?" &&
+    r.result.responsePlan.verbatim === true &&
+    !r.result.replyText &&
     !r.result.treeEnd && !r.state.data.handoverReason, r.result);
 
   r = await run("solver", "Проверьте кабель принтера.");
@@ -158,9 +169,11 @@ async function main() {
       }
     }
   });
-  t.check("a verified deterministic knowledge result becomes partner text without another model",
+  t.check("a verified deterministic knowledge result becomes an authorised composition plan",
     r.result.kind === "solution" &&
-    r.result.replyText === "Выберите другого кассира.\n\nПомогло ли это?",
+    r.result.responsePlan &&
+    r.result.responsePlan.contentPlan === "Выберите другого кассира.\n\nПомогло ли это?" &&
+    !r.result.replyText,
     r.result);
 
   // Live ratings acceptance, task 377005885: searchKnowledge had already walked the
@@ -702,10 +715,12 @@ async function main() {
     }
   });
   const published = r.values.dialog;
-  t.check("bookkeeping is kept out of the prompt",
-    !published.attempts && !published.offeredStep && !published.preQuestionsAsked && !published.topicRoute,
-    published);
-  t.check("facts still reach the prompt", published.topicKey === "printer_no_receipt", published);
+  t.check("Composer receives no bookkeeping, facts or article context",
+    Object.keys(published).length === 1 && published.taskId === "11613" &&
+    r.notes.length === 0, { dialog: published, notes: r.notes });
+  t.check("only the authorised response plan survives into the Composer context",
+    r.values.responsePlan && r.values.responsePlan.contentPlan === "Проверьте кабель" &&
+    Object.keys(r.values).sort().join(",") === "dialog,responsePlan", r.values);
 
   // ── Writes touch only the paths this call owns ──
   // The tools of the same turn (matchUnit, searchKnowledge) write into this document

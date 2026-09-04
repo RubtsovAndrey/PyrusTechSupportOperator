@@ -25,7 +25,7 @@ function matchingPosTurns() {
       replies: [{ text: "Проверьте соединение между ККМ и моноблоком. Закройте программу «Тест драйвер ККМ». Получилось решить вопрос?" }],
       internal: [],
       logs: ["searchKnowledge: pos_terminal_troubleshooting"],
-      path: ["Solver Agent", "Outcome - reply", "finalize"],
+      path: ["Solver / Policy Reader", "Response Composer", "Validate composed response", "Outcome - reply", "finalize"],
       calls: ["ID_Actions.applyOutcome({\"outcome\":\"reply\"})"],
       errors: []
     },
@@ -36,7 +36,7 @@ function matchingPosTurns() {
       internal: [{ text: "Бот передаёт обращение оператору. Тематика: pos_terminal_troubleshooting. " +
         "Суть: ККМ не подключена. Ответ из Базы знаний не решил вопрос." }],
       logs: ["nextSolutionStep: article exhausted"],
-      path: ["Confirmation Agent", "Outcome - escalate to operator", "finalize"],
+      path: ["Turn Interpreter", "Validate Turn Interpreter frame", "parseConfirmation", "Outcome - escalate to operator", "finalize"],
       calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],
       errors: []
     }
@@ -57,7 +57,7 @@ function matchingBlockedCloseTurns() {
     internal: [{ text: "Бот не закрыл задачу: перед закрытием не удалось заполнить компонент. " +
       "Тематика: pos_terminal_troubleshooting." }],
     logs: ["applyOutcome: refusing to close task 1: missing компонент; handing over to an operator"],
-    path: ["Confirmation Agent", "Outcome - solved", "finalize"],
+    path: ["Turn Interpreter", "Validate Turn Interpreter frame", "parseConfirmation", "Outcome - solved", "finalize"],
     calls: ["ID_Actions.applyOutcome({\"outcome\":\"solved\"})"],
     errors: []
   };
@@ -89,7 +89,7 @@ function matchingSuccessfulCloseTurns() {
     }],
     internal: [],
     logs: ["applyOutcome: solved task 1"],
-    path: ["Confirmation Agent", "Outcome - solved", "finalize"],
+    path: ["Turn Interpreter", "Validate Turn Interpreter frame", "parseConfirmation", "Outcome - solved", "finalize"],
     calls: ["ID_Actions.applyOutcome({\"outcome\":\"solved\"})"],
     errors: [],
     taskState: {
@@ -125,7 +125,7 @@ function matchingRatingsSubtaskTurns() {
     replies: [{ text: "Подать апелляцию можно в Пайрус. Ссылка. Эта информация помогла решить ваш вопрос?" }],
     internal: [],
     logs: [],
-    path: ["Solver Agent", "Outcome - reply", "finalize"],
+    path: ["Solver / Policy Reader", "Response Composer", "Validate composed response", "Outcome - reply", "finalize"],
     calls: ["ID_Tools.getKnowledgeMcp({})", "ID_Actions.applyOutcome({\"outcome\":\"reply\"})"],
     errors: []
   }, {

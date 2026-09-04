@@ -73,7 +73,7 @@
               "excludes": ["findOperatorKnowledge:"]
             },
             "path": {
-              "includes": ["Solver Agent", "Outcome - reply", "finalize"],
+              "includes": ["Solver / Policy Reader", "Response Composer", "Validate composed response", "Outcome - reply", "finalize"],
               "excludes": ["Find knowledge for operator"]
             },
             "calls": {
@@ -108,7 +108,7 @@
               "excludes": ["findOperatorKnowledge:"]
             },
             "path": {
-              "includes": ["Confirmation Agent", "Outcome - escalate to operator", "finalize"],
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "parseConfirmation", "Outcome - escalate to operator", "finalize"],
               "excludes": ["Find knowledge for operator"]
             },
             "calls": {
@@ -146,7 +146,7 @@
             },
             "internal": { "count": 0 },
             "path": {
-              "includes": ["Solver Agent", "Outcome - reply", "finalize"]
+              "includes": ["Solver / Policy Reader", "Response Composer", "Validate composed response", "Outcome - reply", "finalize"]
             },
             "calls": {
               "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"reply\""]
@@ -176,7 +176,7 @@
               "includes": ["refusing to close", "missing компонент"]
             },
             "path": {
-              "includes": ["Confirmation Agent", "Outcome - solved", "finalize"]
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "parseConfirmation", "Outcome - solved", "finalize"]
             },
             "calls": {
               "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"solved\""]
@@ -213,7 +213,7 @@
             },
             "internal": { "count": 0 },
             "path": {
-              "includes": ["Solver Agent", "Outcome - reply", "finalize"]
+              "includes": ["Solver / Policy Reader", "Response Composer", "Validate composed response", "Outcome - reply", "finalize"]
             },
             "calls": {
               "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"reply\""]
@@ -236,7 +236,7 @@
               "excludes": ["refusing to close", "missing компонент"]
             },
             "path": {
-              "includes": ["Confirmation Agent", "Outcome - solved", "finalize"]
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "parseConfirmation", "Outcome - solved", "finalize"]
             },
             "calls": {
               "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"solved\""]
@@ -286,7 +286,7 @@
             },
             "path": {
               "includes": ["Find knowledge for operator", "Outcome - escalate to operator", "finalize"],
-              "excludes": ["Solver Agent"]
+              "excludes": ["Solver / Policy Reader", "Response Composer"]
             },
             "calls": {
               "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"escalated\""]
@@ -322,7 +322,7 @@
               "count": 0
             },
             "path": {
-              "includes": ["Solver Agent", "Outcome - reply", "finalize"]
+              "includes": ["Solver / Policy Reader", "Response Composer", "Validate composed response", "Outcome - reply", "finalize"]
             },
             "calls": {
               "includes": ["ID_Tools.getKnowledgeMcp", "ID_Actions.applyOutcome", "\"outcome\":\"reply\""]
@@ -407,7 +407,7 @@
         "turnCount": 6,
         "turns": [
           {
-            "outcome": "reply",
+            "outcome": "clarify_answers",
             "replies": {
               "count": 1,
               "includes": ["смена закрыта или всё ещё открыта"],
@@ -418,7 +418,7 @@
           },
           {
             "partner": { "includes": ["Смена в Додо ИС закрыта"] },
-            "outcome": "reply",
+            "outcome": "clarify_answers",
             "replies": {
               "count": 1,
               "includes": ["другие фискальные документы"]
@@ -428,7 +428,7 @@
           },
           {
             "partner": { "includes": ["Не печатала"] },
-            "outcome": "reply",
+            "outcome": "clarify_answers",
             "replies": {
               "count": 1,
               "includes": ["Тест драйвера ККТ"]
@@ -504,7 +504,7 @@
         "turnCount": 2,
         "turns": [
           {
-            "outcome": "reply",
+            "outcome": "clarify_answers",
             "replies": {
               "count": 1,
               "includes": ["смена закрыта или всё ещё открыта"],
@@ -515,7 +515,7 @@
           },
           {
             "partner": { "includes": ["показывает, что закрыта"] },
-            "outcome": "reply",
+            "outcome": "clarify_answers",
             "replies": {
               "count": 1,
               "includes": ["другие фискальные документы"],
@@ -526,9 +526,11 @@
               "includes": [
                 "Turn Interpreter",
                 "Validate Turn Interpreter frame",
-                "Apply interpreted answer to policy"
+                "Apply interpreted answer to policy",
+                "Response Composer",
+                "Validate composed response"
               ],
-              "excludes": ["Solver Agent"]
+              "excludes": ["Solver / Policy Reader"]
             },
             "noErrors": true
           }
@@ -546,7 +548,7 @@
         "turnCount": 2,
         "turns": [
           {
-            "outcome": "reply",
+            "outcome": "clarify_answers",
             "replies": {
               "count": 1,
               "includes": ["смена закрыта или всё ещё открыта"]
@@ -556,7 +558,7 @@
           },
           {
             "partner": { "includes": ["пишет на экране closed"] },
-            "outcome": "reply",
+            "outcome": "clarify_answers",
             "replies": {
               "count": 1,
               "includes": ["другие фискальные документы"],
@@ -567,9 +569,11 @@
               "includes": [
                 "Turn Interpreter",
                 "Validate Turn Interpreter frame",
-                "Apply interpreted answer to policy"
+                "Apply interpreted answer to policy",
+                "Response Composer",
+                "Validate composed response"
               ],
-              "excludes": ["Solver Agent"]
+              "excludes": ["Solver / Policy Reader"]
             },
             "noErrors": true
           }
@@ -587,7 +591,7 @@
         "turnCount": 2,
         "turns": [
           {
-            "outcome": "reply",
+            "outcome": "clarify_answers",
             "replies": {
               "count": 1,
               "includes": ["смена закрыта или всё ещё открыта"],

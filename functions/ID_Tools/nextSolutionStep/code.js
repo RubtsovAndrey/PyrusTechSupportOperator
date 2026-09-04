@@ -76,8 +76,8 @@ function decide(next, reason, extra) {
 
 if (!taskId) return decide("escalate", "no taskId");
 
-// Only a clear "it did not help" earns another variant. When the confirmation agent
-// could not read the answer at all, a human should look at it.
+// Only a clear "it did not help" earns another variant. When the common confirmation
+// interpretation contract could not read the answer at all, a human should look at it.
 if (String(prev.status || "") === "unclear") return decide("escalate", "confirmation status is unclear");
 
 let data = {};
@@ -90,10 +90,9 @@ try {
 
 // ── Партнёр спросил про сам совет ──
 // «А где эту крышку искать?» — это вопрос, а не провал шага. Прежде такая реплика
-// приходила сюда статусом `unclear` и обращение уходило человеку без ответа: статус
-// «прочитать не удалось» — ровно то, что маленькая модель возвращает на совершенно
-// читаемый вопрос. Теперь у неё есть слово для него, и виток возвращается к солверу с тем
-// же шагом, ничего не расходуя: непонятый совет не испробован.
+// приходила сюда статусом `unclear` и обращение уходило человеку без ответа. Теперь общий
+// контракт имеет отдельное значение `question`, и виток возвращается к Policy Reader с
+// тем же шагом, ничего не расходуя: непонятый совет не испробован.
 //
 // Бесконечно разъяснять нельзя — партнёр, переспросивший третий раз, от бота нового не
 // услышит. Общий счётчик уточнений (`MAX_CLARIFY_STREAK`) сюда не годится: он считает

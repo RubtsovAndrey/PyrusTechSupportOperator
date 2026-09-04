@@ -191,6 +191,7 @@ const AGENTS = {
   async agent_turn_interpreter(env, turn) {
     const dialog = env.values.dialog || {};
     const said = String(dialog.incomingText || "");
+    const contract = dialog.interpretationContract || {};
     const partnerLanguage = turn.partnerLanguage ||
       partnerLanguageOf(said, dialog.partnerLanguage);
     if (turn.interpreterInvalid) {
@@ -201,20 +202,36 @@ const AGENTS = {
       });
     }
     if (turn.interpreterProse) return "Смена, вероятно, закрыта.";
-    if (!turn.answerValue) {
+    let value = turn.interpretationValue || null;
+    if (!value && contract.kind === "article_answer") value = turn.answerValue || null;
+    if (!value && contract.kind === "confirmation") {
+      if (turn.status) value = turn.status === "more_questions" ? "failed" : turn.status;
+      else if (/помог|получилось|заработал|спасибо|вс[её] ок|решен/i.test(said) &&
+          !/не помог|не получилось/i.test(said)) value = "resolved";
+      else if (/не помог|не получилось|то же самое|так же|по-прежнему|не заработал/i.test(said)) value = "failed";
+      else if (/\?/.test(said) || /непонятн|не поня(л|ла)|не понимаю/i.test(said) ||
+          /^(а |и )?(где|как|что|куда|какой|какая|зачем|почему)\b/i.test(said.trim())) value = "question";
+    }
+    if (!value && contract.kind === "post_close") {
+      if (turn.postCloseIntent) value = turn.postCloseIntent;
+      else if (/спасиб|благодар|выручил|хорошего\s+дня|всего\s+доброго/i.test(said) &&
+          !/(но|ещ[её]|вопрос|проблем|не\s+помог|оператор|специалист)/i.test(said)) value = "gratitude_only";
+      else value = "other";
+    }
+    if (!value) {
       return json({
         kind: "unclear",
-        activeQuestionId: dialog.activeQuestionId || null,
-        answerValue: null,
+        contractId: contract.id || null,
+        value: null,
         evidenceText: null,
         partnerLanguage: partnerLanguage,
         reason: "образцовый агент не подменяет смысловую модель"
       });
     }
     return json({
-      kind: "answer",
-      activeQuestionId: turn.activeQuestionId || dialog.activeQuestionId || null,
-      answerValue: turn.answerValue,
+      kind: "interpretation",
+      contractId: turn.contractId || contract.id || null,
+      value: value,
       evidenceText: turn.evidenceText !== undefined ? turn.evidenceText : said,
       partnerLanguage: partnerLanguage,
       reason: "однозначно"
@@ -250,7 +267,7 @@ const AGENTS = {
     // parseAgentJson should discard this text and let the graph perform the MCP branch.
     if (turn.ignoreRefinement && r.refinementAvailable === true) {
       return json({
-        replyText: "Проверьте длину всех полей и перезапустите кассу.",
+        contentPlan: "Проверьте длину всех полей и перезапустите кассу.",
         kind: "solution",
         partnerLanguage: partnerLanguage,
         answers: answers
@@ -338,7 +355,7 @@ const AGENTS = {
       }
     }
 
-    if (r.turnKind === "handover") return json({ replyText: "", kind: "handover", partnerLanguage, answers: answers });
+    if (r.turnKind === "handover") return json({ contentPlan: "", kind: "handover", partnerLanguage, answers: answers });
 
     const questions = Array.isArray(r.preQuestions) ? r.preQuestions : [];
     if (r.turnKind === "questions" || r.needsPreQuestions) {
@@ -361,13 +378,13 @@ const AGENTS = {
         questions.length ? "Подскажите: " + joinedQuestions + "?" : null,
         emailQuestion
       ].filter(Boolean).join(" ");
-      return json({ replyText: text, kind: "questions", partnerLanguage, answers: answers });
+      return json({ contentPlan: text, kind: "questions", responseMode: "question", partnerLanguage, answers: answers });
     }
 
     if (r.turnKind === "external-knowledge") {
       const first = Array.isArray(r.articles) && r.articles[0] ? r.articles[0] : {};
       return json({
-        replyText: turn.externalAnswer || first.content || "",
+        contentPlan: turn.externalAnswer || first.content || "",
         kind: "solution",
         partnerLanguage: partnerLanguage,
         answers: answers
@@ -384,11 +401,11 @@ const AGENTS = {
     // так поступает ленивая модель, и такой прогон показывает риск, от которого страхует
     // дерево. Сравнивать стоит все три колонки.
     if (r.prose) {
-      if (turn.proseHandover) return json({ replyText: "", kind: "handover", partnerLanguage, answers: answers });
-      if (turn.proseAsk) return json({ replyText: turn.proseAsk, kind: "questions", partnerLanguage, answers: answers });
+      if (turn.proseHandover) return json({ contentPlan: "", kind: "handover", partnerLanguage, answers: answers });
+      if (turn.proseAsk) return json({ contentPlan: turn.proseAsk, kind: "questions", responseMode: "question", partnerLanguage, answers: answers });
       const said = turn.proseSay || r.solverInstruction;
       return json({
-        replyText: [r.explaining ? "Поясню подробнее." : null, said, r.followUpQuestion || null]
+        contentPlan: [r.explaining ? "Поясню подробнее." : null, said, r.followUpQuestion || null]
           .filter(Boolean).join("\n\n"),
         kind: "solution",
         partnerLanguage: partnerLanguage,
@@ -405,36 +422,33 @@ const AGENTS = {
         r.solverInstruction,
         r.followUpQuestion || null
       ].filter(Boolean).join("\n\n");
-      return json({ replyText: text, kind: "solution", partnerLanguage, answers: answers });
+      return json({ contentPlan: text, kind: "solution", responseMode: r.explaining ? "explanation" : "instruction", partnerLanguage, answers: answers });
     }
 
     // Инструмент не дал решения — промпт запрещает импровизировать.
     return json({
-      replyText: "Понадобится время на изучение вопроса, мы вернёмся с ответом.",
+      contentPlan: "Понадобится время на изучение вопроса, мы вернёмся с ответом.",
       kind: "solution", partnerLanguage, answers: answers
     });
   },
 
-  // Промпт: помогло / не помогло / новый вопрос / неясно.
-  async agent_confirmation(env, turn) {
-    const said = String((env.values.dialog || {}).incomingText || "");
-    const dialog = env.values.dialog || {};
-    const partnerLanguage = turn.partnerLanguage || partnerLanguageOf(said, dialog.partnerLanguage);
-    if (turn.status) return json({ status: turn.status, partnerLanguage, reason: "объявлено сценарием" });
-    if (/помог|получилось|заработал|спасибо|всё ок|все ок|решен/i.test(said) && !/не помог|не получилось/i.test(said)) {
-      return json({ status: "resolved", partnerLanguage, reason: "партнёр подтвердил" });
+  // The reference composer is deliberately boring: preserving the plan byte for byte
+  // proves graph ownership without pretending a deterministic test can measure style.
+  // Dedicated parser tests exercise stale ids, malformed JSON and forbidden URLs.
+  async agent_response_composer(env, turn) {
+    const plan = env.values.responsePlan || {};
+    if (turn.composerInvalid) return "готовый ответ без контракта";
+    if (turn.composerStale) {
+      return json({ planId: "response:stale", replyText: plan.contentPlan || "", partnerLanguage: plan.partnerLanguage || "ru" });
     }
-    if (/не помог|не получилось|то же самое|так же|по-прежнему|не заработал/i.test(said)) {
-      return json({ status: "failed", partnerLanguage, reason: "проблема осталась" });
+    if (turn.composerAddsUrl) {
+      return json({ planId: plan.id, replyText: String(plan.contentPlan || "") + " https://unsafe.example", partnerLanguage: plan.partnerLanguage || "ru" });
     }
-    // Промпт различает «сделал, не помогло» и «а где это найти?» по тому, пробовал ли
-    // партнёр совет. У образцового агента признак грубее — вопросительный знак, — но он
-    // проверяет именно то, что нужно: что у графа для такой реплики есть свой путь.
-    if (/\?/.test(said) || /непонятн|не поня(л|ла)|не понимаю/i.test(said) ||
-        /^(а |и )?(где|как|что|куда|какой|какая|зачем|почему)\b/i.test(said.trim())) {
-      return json({ status: "question", partnerLanguage, reason: "партнёр спрашивает про сам совет" });
-    }
-    return json({ status: "unclear", partnerLanguage, reason: "по тексту не понять" });
+    return json({
+      planId: plan.id || null,
+      replyText: plan.contentPlan || "",
+      partnerLanguage: plan.partnerLanguage || "ru"
+    });
   },
 
   // The production summary agent is deliberately non-decisional. This reference version

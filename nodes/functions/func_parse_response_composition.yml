@@ -1,0 +1,17 @@
+---
+id: func_parse_response_composition
+name: Validate composed response
+position:
+  x: 5305
+  y: -1510
+next-step: cond_solver_questions
+next-error-step: func_escalate_m9k4j
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: parseResponseComposition
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

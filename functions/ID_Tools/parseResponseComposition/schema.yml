@@ -1,0 +1,7 @@
+---
+id: parseResponseComposition
+name: parseResponseComposition
+description: Проверяет привязку ответа Response Composer к авторизованному responsePlan. Не позволяет менять kind или действие; при повреждённом ответе использует безопасный текст плана.
+response-description: "{ source: 'response-composer', responsePlanId, replyText, kind, partnerLanguage, taskId, compositionFallback }"
+parameters: []
+language: JAVASCRIPT

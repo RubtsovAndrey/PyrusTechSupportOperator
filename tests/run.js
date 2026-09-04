@@ -9,7 +9,7 @@ const { ROOT } = require("./harness");
 
 const SUITES = [
   "./receivewebhook.test.js", "./finalize.test.js", "./parseagentjson.test.js",
-  "./turn-interpreter.test.js",
+  "./turn-interpreter.test.js", "./response-composer.test.js",
   "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
   "./pos-terminal-catalog.test.js", "./cash-dialog.test.js", "./ratings-dialog.test.js", "./routing-catalog.test.js", "./routing.test.js",
   "./getknowledgemcp.test.js", "./operator-knowledge.test.js", "./kbarticle.test.js", "./synckb.test.js",
@@ -422,7 +422,9 @@ function checkAgentPromptContracts() {
   const solverRel = "nodes/agents/agent_solver.yml";
   const solver = fs.readFileSync(path.join(ROOT, solverRel), "utf8");
   if (solver.indexOf("subtaskEmailRequired: true") < 0 ||
-      solver.indexOf("для создаваемого обращения email нужен") < 0) {
+      solver.indexOf("для создаваемого обращения email нужен") < 0 ||
+      solver.indexOf("contentPlan") < 0 || solver.indexOf('"replyText"') >= 0 ||
+      solver.indexOf("не пишешь готовую реплику партнёру") < 0) {
     problems.push(solverRel + ": агенту не объяснено требование email для подзадачи");
   }
   const interpreterRel = "nodes/agents/agent_turn_interpreter.yml";
@@ -430,10 +432,24 @@ function checkAgentPromptContracts() {
   if (interpreter.indexOf("temperature: 0.0") < 0 ||
       interpreter.indexOf("tools: []") < 0 ||
       interpreter.indexOf("Никогда не возвращай совет") < 0 ||
-      interpreter.indexOf("activeQuestionId") < 0 ||
-      interpreter.indexOf("answerValue") < 0 ||
+      interpreter.indexOf("contractId") < 0 ||
+      interpreter.indexOf('contextKind: post_close') < 0 ||
+      interpreter.indexOf('contextKind: confirmation') < 0 ||
       interpreter.indexOf("evidenceText") < 0) {
-    problems.push(interpreterRel + ": узкий смысловой контракт или запрет действий ослаблен");
+    problems.push(interpreterRel + ": общий конечный смысловой контракт или запрет действий ослаблен");
+  }
+  const composerRel = "nodes/agents/agent_response_composer.yml";
+  const composer = fs.readFileSync(path.join(ROOT, composerRel), "utf8");
+  if (composer.indexOf("tools: []") < 0 || composer.indexOf("responsePlan") < 0 ||
+      composer.indexOf("не выбираешь действие") < 0 || composer.indexOf("planId") < 0) {
+    problems.push(composerRel + ": Composer снова получил policy-полномочия или потерял привязку к плану");
+  }
+  const parserRel = "functions/ID_Tools/parseAgentJson/code.js";
+  const parser = fs.readFileSync(path.join(ROOT, parserRel), "utf8");
+  if (parser.indexOf("AgentContext.clearContext({});") < 0 ||
+      parser.indexOf('key: "responsePlan"') < 0 ||
+      parser.indexOf('value: { taskId: String(taskId) }') < 0) {
+    problems.push(parserRel + ": перед Composer не изолирован контекст policy и разговора");
   }
   return problems;
 }
@@ -504,7 +520,7 @@ function checkAgentPromptContracts() {
     failed++;
     promptContracts.forEach(p => console.log("  FAIL  " + p));
   } else {
-    console.log("  PASS  summaries use partner facts and subtask questions carry the email requirement");
+    console.log("  PASS  agent roles keep their finite contracts, tools and response ownership boundaries");
   }
 
   console.log("\nknowledge catalog");

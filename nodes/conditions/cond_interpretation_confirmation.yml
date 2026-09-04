@@ -1,0 +1,11 @@
+---
+id: cond_interpretation_confirmation
+name: confirmation interpretation?
+position:
+  x: 2610
+  y: -570
+next-step: func_parsejson_confirmation
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).contractKind === 'confirmation'"
+  false-step: func_searchknowledge_interpreted

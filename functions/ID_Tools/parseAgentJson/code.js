@@ -473,6 +473,13 @@ if (raw && typeof raw === "object" && raw.turnKind) {
   }
   Log.info({ message: "parseAgentJson: converted deterministic knowledge result " +
     raw.turnKind + " into " + parsed.kind });
+} else if (raw && typeof raw === "object" && raw.source === "turn-interpreter" &&
+    String(stage || "") === "confirmation") {
+  // Confirmation now uses the same finite Turn Interpreter as protected article answers
+  // and post-close intent. This adapter deliberately reuses the established persistence,
+  // language-boundary and knowledgeOutcome logic below; the old Confirmation Agent is no
+  // longer needed, but its deterministic policy path stays unchanged.
+  parsed = Object.assign({}, raw);
 } else {
   try {
     parsed = JSON.parse(cleaned);
@@ -518,6 +525,15 @@ if (!parsed || typeof parsed !== "object") {
   } else {
     throw new Error("parseAgentJson(" + stage + "): agent answer is not JSON: " + cleaned.slice(0, 300));
   }
+}
+
+// Solver now produces an internal content plan. It does not write the partner-facing
+// message: after all policy checks below, Response Composer receives the authorised plan
+// and owns the wording. `replyText` remains an input compatibility shim for an invocation
+// that was already running while a deployment replaced the prompt.
+if (String(stage || "") === "solver" && !parsed.replyText &&
+    typeof parsed.contentPlan === "string") {
+  parsed.replyText = parsed.contentPlan;
 }
 
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
@@ -1246,6 +1262,40 @@ if (taskId) {
       Log.warn({ message: "parseAgentJson: notes unreadable, the facts block is appended as before: " + e });
     }
     if (!alreadyThere) AgentContext.addNote({ text: block });
+
+    // ── The Solver's result is an internal plan, never the outgoing message ──
+    // All existing policy guards have already run by this point: current-comment
+    // authorisation, deterministic terminals, protected questions and attempt logging.
+    // Bind the remaining content to this exact turn and hand only that small object to a
+    // tool-less Response Composer. It may improve wording, but cannot change kind, graph
+    // edge or Pyrus action; parseResponseComposition checks the binding again.
+    if (String(stage || "") === "solver" && !parsed.treeEnd &&
+        ["solution", "questions"].indexOf(String(parsed.kind || "")) >= 0 &&
+        String(parsed.replyText || "").trim()) {
+      const planCommentId = state.runtime && state.runtime.incomingCommentId != null
+        ? String(state.runtime.incomingCommentId) : null;
+      const responsePlan = {
+        id: "response:" + taskId + ":" + String(planCommentId || "none") + ":" + String(parsed.kind),
+        taskId: String(taskId),
+        incomingCommentId: planCommentId,
+        kind: String(parsed.kind),
+        contentPlan: String(parsed.replyText).trim(),
+        partnerLanguage: String(parsed.partnerLanguage || data.partnerLanguage || "ru").toLowerCase(),
+        // Critical protected questions remain canonical. The composer is still traversed
+        // so every partner text has one owner, but its parser will use this exact wording.
+        verbatim: String(parsed.kind) === "questions" && articleQuestionIsCurrent,
+        responseMode: String(parsed.responseMode || (String(parsed.kind) === "questions" ? "question" : "instruction"))
+      };
+      // Prompt instructions alone are not an isolation boundary. Remove the conversation,
+      // tool results and policy notes before the Composer runs, then publish only what it
+      // needs. Downstream code reads durable state from Db and needs only taskId here.
+      AgentContext.clearContext({});
+      AgentContext.putValue({ key: "dialog", value: { taskId: String(taskId) } });
+      AgentContext.putValue({ key: "responsePlan", value: responsePlan });
+      parsed.responsePlan = responsePlan;
+      delete parsed.replyText;
+      delete parsed.contentPlan;
+    }
   } catch (e) {
     Log.warn({ message: "parseAgentJson: state write failed: " + e });
   }

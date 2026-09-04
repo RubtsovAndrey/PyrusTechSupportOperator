@@ -404,7 +404,11 @@ async function main() {
 
   r = await run([{ id: 6, author: PARTNER, text: "Получилось!", channel: CHAN }],
     { [KEY]: { stage: "awaiting_confirmation" } });
-  t.check("confirmation stage is entered", r.result.stage === "awaiting_confirmation", r.result);
+  t.check("confirmation enters the common semantic interpreter",
+    r.result.stage === "interpret_confirmation" &&
+    r.values.dialog.interpretationContract.kind === "confirmation" &&
+    r.values.dialog.interpretationContract.values.some(v => v.value === "resolved"),
+    { result: r.result, contract: r.values.dialog.interpretationContract });
 
   // ── An explicit request to close belongs to the state machine, not to the model ──
   // On awaiting_answers there is no confirmation agent in front of the solver. In a live
@@ -435,7 +439,9 @@ async function main() {
 
   r = await run([{ id: 21, author: PARTNER, text: "Ещё вопрос", action: "reopened", channel: CHAN }],
     { [KEY]: { stage: "closed", data: { unitFullName: "Москва 12" } } });
-  t.check("chat closed by the bot goes to the operator silently", r.result.stage === "reopened", r.result);
+  t.check("a textual reopen is first classified by the post-close contract",
+    r.result.stage === "interpret_post_close" &&
+    r.values.dialog.interpretationContract.kind === "post_close", r.result);
 
   // Exact Pyrus shape from a live accepted dialog: the first partner comment after
   // `finished` carries `action: reopened`. The gratitude exception must win over that
@@ -445,11 +451,18 @@ async function main() {
   t.check("pure thanks with Pyrus reopened action closes again without an operator",
     r.result.stage === "gratitude", r.result);
 
+  r = await run([{ id: 221, author: PARTNER,
+    text: "вы очень выручили хорошего вам дня", action: "reopened", channel: CHAN }],
+    { [KEY]: { stage: "closed", data: { unitFullName: "Москва 12" } } });
+  t.check("an unfamiliar polite closing reaches semantic post-close intent",
+    r.result.stage === "interpret_post_close" &&
+    r.values.dialog.interpretationContract.evidenceScope === "full_message", r.result);
+
   r = await run([{ id: 23, author: PARTNER,
     text: "Спасибо, появился ещё один вопрос", action: "reopened", channel: CHAN }],
     { [KEY]: { stage: "closed", data: { unitFullName: "Москва 12" } } });
-  t.check("thanks plus a new request remains a genuine reopen",
-    r.result.stage === "reopened", r.result);
+  t.check("thanks plus a new request also reaches the conservative semantic check",
+    r.result.stage === "interpret_post_close", r.result);
 
   // ── The answer to a question the ARTICLE asked bypasses intake and routing ──
   // Through the gathering stage it cost intake and routing on every answer — two extra model
@@ -483,7 +496,8 @@ async function main() {
     r.values.dialog.activeQuestionId === semanticData.activeQuestionId &&
     r.values.dialog.activeQuestionText === semanticData.activeQuestionText &&
     /shift_closed/.test(r.values.dialog.activeQuestionValuesJson || "") &&
-    r.notes.some(n => /Контракт активного вопроса:/.test(n)),
+    r.values.dialog.interpretationContract.kind === "article_answer" &&
+    r.notes.some(n => /Контракт интерпретации текущей реплики:/.test(n)),
     { dialog: r.values.dialog, notes: r.notes });
 
   r = await run([{ id: 44, author: PARTNER, text: "закрыта", channel: CHAN }],
@@ -528,7 +542,7 @@ async function main() {
     text: "Нет, передайте специалисту ситуацию, наша почта partner@example.ru", channel: CHAN }],
     { [KEY]: { stage: "awaiting_confirmation", data: { topicKey: "ratings_questions" } } });
   t.check("a volunteered ratings email is kept without restarting intake",
-    r.state.data.email === "partner@example.ru" && r.result.stage === "awaiting_confirmation", r.state.data);
+    r.state.data.email === "partner@example.ru" && r.result.stage === "interpret_confirmation", r.state.data);
 
   r = await run([{ id: 33, author: PARTNER,
     text: "Передайте специалисту: ожидаю пересмотра результата", channel: CHAN }],

@@ -1,0 +1,11 @@
+---
+id: cond_interpretation_post_close
+name: post-close interpretation?
+position:
+  x: 2330
+  y: -650
+next-step: cond_interpretation_gratitude
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).contractKind === 'post_close'"
+  false-step: cond_interpretation_confirmation

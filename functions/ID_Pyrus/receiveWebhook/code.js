@@ -490,6 +490,15 @@ if (storedStage === "closed" && isJustThanks(incomingText)) {
   stage = "gratitude";
   Log.info({ message: "receiveWebhook: task " + taskId + " — в закрытый чат пришла только благодарность, отвечаем и закрываем снова, оператора не беспокоим" });
 }
+// The lexical rule above is now only a cheap high-precision fast path. Every other
+// textual message in a bot-closed thread is interpreted by the same finite-contract
+// mechanism as an answer to an article question. Pyrus' `reopened` action is transport
+// metadata, not proof that the partner started another problem. The interpreter may
+// exempt only a pure polite closing; every other/unclear result keeps today's safe
+// behaviour and goes to an operator.
+else if (storedStage === "closed" && incomingText) {
+  stage = "interpret_post_close";
+}
 else if (reopenedForOperator) {
   stage = "reopened";
   Log.info({ message: "receiveWebhook: task " + taskId +
@@ -499,7 +508,7 @@ else if (storedStage === "closed") {
   stage = "reopened";
 }
 else if (storedStage === "escalated") stage = "escalated";      // operator owns the thread now
-else if (storedStage === "awaiting_confirmation") stage = "awaiting_confirmation";
+else if (storedStage === "awaiting_confirmation") stage = "interpret_confirmation";
 else if (storedStage === "awaiting_email") stage = "awaiting_email";
 // The article asked a question of its own and this is the answer to it. Straight back to
 // the narrow interpreter when the successfully delivered question carries a complete
@@ -588,7 +597,7 @@ const asksHumanNow = incomingText && asksForHuman(incomingText);
 // the same business request cannot change meaning merely because the article just asked
 // for the expected result or email.
 const asksRatingSpecialist = /(?:переда|направ)\S*(?:\s+\S+){0,3}\s+специалист\S*/i.test(String(incomingText || ""));
-const ratingCollectionStage = ["awaiting_confirmation", "awaiting_answers", "interpret_answer",
+const ratingCollectionStage = ["interpret_confirmation", "awaiting_answers", "interpret_answer",
   "awaiting_email"].indexOf(stage) >= 0;
 const ratingSpecialistContinuation = asksHumanNow && asksRatingSpecialist && ratingCollectionStage &&
   String(data.topicKey || "") === "ratings_questions";
@@ -765,11 +774,57 @@ if (data.openAnswerPrompts) lines.push("- Ещё не отвечено (ключ
 // The narrow interpreter receives a purpose-built contract, not the whole article and not
 // a list of policy destinations. `meaning` describes language; only searchKnowledge can
 // later turn the accepted `value` into a `go` edge.
-if (stage === "interpret_answer" && semanticValues.length) {
-  lines.push("Контракт активного вопроса:");
-  lines.push("- activeQuestionId: " + data.activeQuestionId);
-  lines.push("- Вопрос: " + (data.activeQuestionText || data.openAnswerPrompts || "не указан"));
-  lines.push("- Допустимые value и meaning: " + JSON.stringify(semanticValues));
+// One non-decisional contract for every place where the model only has to understand
+// the current phrase. The contract intentionally contains meanings, never policy edges,
+// Pyrus actions or response text. A model can therefore be wrong about language, but it
+// cannot directly choose what the system does with that interpretation.
+function interpretationContractFor(currentStage) {
+  const suffix = String(incomingCommentId || now);
+  if (currentStage === "interpret_answer" && semanticValues.length) {
+    return {
+      id: String(data.activeQuestionId),
+      kind: "article_answer",
+      prompt: String(data.activeQuestionText || data.openAnswerPrompts || ""),
+      evidenceScope: "fragment",
+      values: semanticValues
+    };
+  }
+  if (currentStage === "interpret_confirmation") {
+    return {
+      id: "confirmation:" + taskId + ":" + suffix,
+      kind: "confirmation",
+      prompt: "Как партнёр отреагировал на последнюю выданную рекомендацию?",
+      evidenceScope: "fragment",
+      values: [
+        { value: "resolved", meaning: "партнёр однозначно подтвердил, что проблема решена или рекомендация помогла" },
+        { value: "failed", meaning: "партнёр попробовал рекомендацию, но проблема осталась; отверг совет поправкой к той же проблеме или просит специалиста из-за нерешённого результата" },
+        { value: "question", meaning: "партнёр ещё не сообщил результат, а просит объяснить сам совет: где найти, что означает или правильно ли он понял шаг" }
+      ]
+    };
+  }
+  if (currentStage === "interpret_post_close") {
+    return {
+      id: "post_close:" + taskId + ":" + suffix,
+      kind: "post_close",
+      prompt: "Является ли всё сообщение только благодарностью или вежливым завершением уже решённого разговора?",
+      evidenceScope: "full_message",
+      values: [
+        { value: "gratitude_only", meaning: "всё сообщение — только благодарность, похвала, доброжелательное прощание или подтверждение завершённой помощи; в нём нет вопроса, просьбы, новой проблемы, возражения или сообщения, что решение не помогло" },
+        { value: "other", meaning: "в сообщении есть любой содержательный вопрос, просьба, новая или нерешённая проблема, возражение, критика, просьба человека либо благодарность смешана с таким содержанием" }
+      ]
+    };
+  }
+  return null;
+}
+
+const interpretationContract = interpretationContractFor(stage);
+if (interpretationContract) {
+  lines.push("Контракт интерпретации текущей реплики:");
+  lines.push("- contractId: " + interpretationContract.id);
+  lines.push("- contextKind: " + interpretationContract.kind);
+  lines.push("- Контекстный вопрос: " + interpretationContract.prompt);
+  lines.push("- Область доказательства: " + interpretationContract.evidenceScope);
+  lines.push("- Допустимые value и meaning: " + JSON.stringify(interpretationContract.values));
 }
 
 AgentContext.addNote({ text: lines.join("\n") });
@@ -805,7 +860,8 @@ AgentContext.putValue({
     activeQuestionId: stage === "interpret_answer" ? (data.activeQuestionId || null) : null,
     activeQuestionText: stage === "interpret_answer" ? (data.activeQuestionText || null) : null,
     activeQuestionValuesJson: stage === "interpret_answer"
-      ? (data.activeQuestionValuesJson || null) : null
+      ? (data.activeQuestionValuesJson || null) : null,
+    interpretationContract: interpretationContract
   }
 });
 

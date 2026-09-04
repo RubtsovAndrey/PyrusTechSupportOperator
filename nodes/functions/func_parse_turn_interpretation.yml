@@ -4,8 +4,8 @@ name: Validate Turn Interpreter frame
 position:
   x: 2050
   y: -650
-next-step: func_searchknowledge_interpreted
-next-error-step: func_searchknowledge_interpreted
+next-step: cond_interpretation_post_close
+next-error-step: cond_interpretation_post_close
 parameters:
   type: USER
   collection: ID_Tools
