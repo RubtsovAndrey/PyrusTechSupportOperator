@@ -75,7 +75,13 @@ function normalizeNodes(t) {
         .filter(b => b && b.go)
         .map(b => ({
           when: (Array.isArray(b.when) ? b.when : [b.when]).filter(Boolean).map(String),
-          go: String(b.go)
+          go: String(b.go),
+          // A fallback branch may mean only that THIS article cannot explain the latest
+          // wording. Before such a branch hands the chat to an operator, the solver gets
+          // one bounded chance to look for a more specific prepared topic through MCP.
+          // The article marks the semantic boundary; the engine never knows concrete
+          // topic keys, error codes or partner phrases.
+          refineBeforeHandover: b.refineBeforeHandover === true
         })),
       // Which of this node's own questions the branches read. Two questions in one node
       // are two different jobs — «ФИО сотрудника» is data for the subtask, «что именно
@@ -318,6 +324,23 @@ function topicExcludedEvidenceMismatch(topic, saidWords) {
   return hit ? "обнаружен исключающий признак: " + hit : null;
 }
 
+// An exclusion usually stops an already selected article immediately. A broad diagnostic
+// article may instead declare a fallback branch whose purpose is to give routing one last
+// chance: the new symptom can be evidence for a neighbouring prepared topic rather than a
+// reason to stay in the broad one. This remains safe only when no concrete sibling branch
+// in that same diagnostic node matches the partner's words. Thus contradictory wording is
+// handed over, while a genuine paraphrase can reach the article-owned refinement point.
+function hasUncontestedRefinementFallback(topic, saidWords) {
+  const nodes = topic && topic.nodes && typeof topic.nodes === "object" ? topic.nodes : {};
+  return Object.keys(nodes).some(id => {
+    const branches = Array.isArray(nodes[id] && nodes[id].branches) ? nodes[id].branches : [];
+    if (!branches.some(branch => branch && branch.refineBeforeHandover === true)) return false;
+    return !branches.some(branch => branch && branch.refineBeforeHandover !== true &&
+      (Array.isArray(branch.when) ? branch.when : [branch.when]).filter(Boolean)
+        .some(option => evidenceOptionMatches(saidWords, option)));
+  });
+}
+
 function topicEvidenceMismatch(topic, saidWords) {
   return topicRequiredEvidenceMismatch(topic, saidWords) ||
     topicExcludedEvidenceMismatch(topic, saidWords);
@@ -339,6 +362,42 @@ function hasMcpRoutingEvidence(topicKey) {
   if (String(data.topicKey || "") !== String(topicKey || "")) return false;
   return String(evidence.topicKeys || "").split(",").map(x => x.trim())
     .some(key => key === String(topicKey || ""));
+}
+
+function currentCommentId(state) {
+  const runtime = state && state.runtime || {};
+  return runtime.incomingCommentId == null ? null : String(runtime.incomingCommentId);
+}
+
+function mcpRoutingEvidenceIncludes(topicKey) {
+  const state = loadState();
+  const data = state.data || {};
+  const evidence = data.mcpRoutingEvidence || {};
+  const current = currentCommentId(state);
+  if (String(evidence.source || "") !== "published-agent-topic") return false;
+  if (current == null || String(evidence.incomingCommentId || "") !== current) return false;
+  return String(evidence.topicKeys || "").split(",").map(x => x.trim())
+    .some(key => key === String(topicKey || ""));
+}
+
+// A solver normally has no right to replace an established topic. The only exception is
+// an article-owned fallback which offered refinement in this same partner turn, followed
+// by a verified MCP result for another current catalog topic. This is refinement of one
+// still-uncertain intent, not a general-purpose topic switch halfway through a solution.
+function refinementSwitchAllowed(topicKey) {
+  const state = loadState();
+  const data = state.data || {};
+  const active = String(data.topicKey || "");
+  const wanted = String(topicKey || "");
+  const current = currentCommentId(state);
+  const offer = data.routingRefinementOffer || {};
+  const attempt = data.routingRefinementAttempt || {};
+  return !!active && !!wanted && active !== wanted && current != null &&
+    String(offer.topicKey || "") === active &&
+    String(offer.incomingCommentId || "") === current &&
+    String(attempt.topicKey || "") === active &&
+    String(attempt.incomingCommentId || "") === current &&
+    mcpRoutingEvidenceIncludes(wanted);
 }
 
 // ── How a point write addresses its document ──
@@ -408,10 +467,10 @@ function writeState(taskId, paths, who) {
 // which runs in the middle of an agent's turn, undid every fact a concurrent turn had
 // collected since it read the document.
 function patchData(patch) {
-  if (!taskId) return;
+  if (!taskId) return false;
   const paths = { "updatedAt": Date.now() };
   Object.keys(patch).forEach(k => { paths["data." + k] = patch[k]; });
-  writeState(taskId, paths, "searchKnowledge");
+  return writeState(taskId, paths, "searchKnowledge");
 }
 
 // A partner-facing solution is authorised for one concrete incoming comment only.
@@ -440,6 +499,25 @@ function stepDone(attempts, key) {
   mine.forEach(a => { const n = Number(a.step); if (n > max) max = n; });
   // Attempts written before the step number was recorded: fall back to counting them.
   return max || mine.length;
+}
+
+function makeRoutingRefinementOffer(topic, node, branch, data) {
+  if (!topic || !node || !branch || branch.refineBeforeHandover !== true) return null;
+  const facts = data || {};
+  // Refinement is deliberately unavailable after advice: at that point changing the topic
+  // would make one continuous chat contradict itself. It is also bounded once per chat,
+  // independently of how often the model tries to call MCP.
+  if (stepDone(facts.attempts, topic.key) > 0 || Number(facts.routingRefinementCount) >= 1) return null;
+  const state = loadState();
+  const incomingCommentId = currentCommentId(state);
+  if (incomingCommentId == null) return null;
+  return {
+    topicKey: String(topic.key),
+    nodeId: String(node.id),
+    fallbackBranch: branch.when.join(" / "),
+    incomingCommentId: incomingCommentId,
+    at: Date.now()
+  };
 }
 
 function sameLabel(a, b) {
@@ -718,13 +796,75 @@ if (topicKey) {
   const wanted = String(topicKey).toLowerCase();
   const exact = catalogTopics.filter(t => String(t.key || "").toLowerCase() === wanted);
   if (exact.length) {
+    const beforeSwitch = loadData();
+    const activeKey = beforeSwitch.topicKey ? String(beforeSwitch.topicKey) : null;
+    if (activeKey && activeKey.toLowerCase() !== wanted) {
+      if (!refinementSwitchAllowed(exact[0].key)) {
+        const reason = "попытка сменить уже выбранную тему без подтверждённого уточнения интента";
+        patchData({ treeEnd: "escalate", handoverReason: reason });
+        Log.warn({ message: "searchKnowledge: refused an unauthorised topic switch from " +
+          activeKey + " to " + exact[0].key + " on task " + taskId });
+        return {
+          found: false, topics: [], source: "topic-switch-refused", turnKind: "handover",
+          key: activeKey, treeEnd: "escalate", onFail: "escalate", handoverReason: reason
+        };
+      }
+
+      // Keep conversation-wide facts (unit, language, email and the partner's exact answer
+      // evidence), but discard the old article's cursor and permissions. Shared answer keys
+      // such as posLocation remain useful to the new article and are still checked against
+      // its own declared schema when read.
+      const switched = patchData({
+        topicKey: String(exact[0].key),
+        topicRoute: exact[0].nodes && typeof exact[0].nodes === "object"
+          ? "solver" : String(exact[0].route || "solver"),
+        componentName: null,
+        treeNode: null,
+        treeEnd: null,
+        treeNext: null,
+        treePreparedQuestionNode: null,
+        treePreparedQuestionCommentId: null,
+        treeDeliveredQuestionNode: null,
+        treeDeliveredQuestionCommentId: null,
+        treeNoAnswerPending: null,
+        treeHandoverAsked: null,
+        treeSilent: 0,
+        handoverReason: null,
+        offeredStep: null,
+        solutionAuthorization: null,
+        requiredKnowledgeNotice: null,
+        requiredFollowUpQuestion: null,
+        operatorAdvice: null,
+        routingRefinementOffer: null
+      });
+      if (!switched) {
+        const reason = "не удалось сохранить подтверждённое уточнение тематики";
+        Log.error({ message: "searchKnowledge: " + reason + " on task " + taskId });
+        return {
+          found: false, topics: [], source: "topic-switch-write-failed", turnKind: "handover",
+          key: activeKey, treeEnd: "escalate", onFail: "escalate", handoverReason: reason
+        };
+      }
+      // This function caches the task document. Reload it so the exact-topic guard below
+      // sees the new key and the same-turn MCP attestation that authorised the switch.
+      TASK_STATE = null;
+      Log.info({ message: "searchKnowledge: refined topic " + activeKey + " -> " +
+        exact[0].key + " on task " + taskId + " using verified MCP evidence" });
+    }
+
     const scopeMismatch = topicScopeMismatch(exact[0]);
     const excludedMismatch = topicExcludedEvidenceMismatch(exact[0], PARTNER_WORDS);
     const requiredMismatch = topicRequiredEvidenceMismatch(exact[0], PARTNER_WORDS);
+    const recoverableExcluded = !!excludedMismatch && activeKey &&
+      activeKey.toLowerCase() === wanted &&
+      stepDone(beforeSwitch.attempts, exact[0].key) === 0 &&
+      Number(beforeSwitch.routingRefinementCount || 0) < 1 &&
+      hasUncontestedRefinementFallback(exact[0], PARTNER_WORDS);
     const retrievalBacked = !!requiredMismatch &&
       topicRequiredEvidenceMatchCount(exact[0], PARTNER_WORDS) > 0 &&
       hasMcpRoutingEvidence(exact[0].key);
-    const guardMismatch = scopeMismatch || excludedMismatch || (retrievalBacked ? null : requiredMismatch);
+    const guardMismatch = scopeMismatch || (recoverableExcluded ? null : excludedMismatch) ||
+      (retrievalBacked ? null : requiredMismatch);
     if (guardMismatch) {
       patchData({ treeEnd: "escalate", handoverReason: guardMismatch });
       Log.warn({ message: "searchKnowledge: topic " + exact[0].key + " refused by guard: " + guardMismatch });
@@ -737,6 +877,10 @@ if (topicKey) {
     if (retrievalBacked) {
       Log.info({ message: "searchKnowledge: topic " + exact[0].key +
         " accepted by verified MCP routing evidence despite missing literal requiredEvidence" });
+    }
+    if (recoverableExcluded) {
+      Log.info({ message: "searchKnowledge: exclusion in broad topic " + exact[0].key +
+        " is held for its uncontested article-owned routing refinement" });
     }
     const topic = normalizeTopic(exact[0]);
 
@@ -784,6 +928,8 @@ if (topicKey) {
 
       let target = null;
       let how = "";
+      let refinementBranch = null;
+      let refinementNode = null;
       // ── Партнёр спросил про сам совет, а не сообщил, помог ли он ──
       // «А где эту крышку искать?» — вопрос, а не провал шага. Раньше такой виток доходил
       // до nextSolutionStep со статусом `unclear` и обращение уходило человеку без ответа.
@@ -842,6 +988,10 @@ if (topicKey) {
                 " of " + topic.key + (!deliveredBefore ? " was chosen before the question was delivered" :
                   " is not supported by the partner's current words") + "; asking for the fact again" });
             } else {
+              if (hit.refineBeforeHandover) {
+                refinementBranch = hit;
+                refinementNode = at;
+              }
               target = resolveNode(topic.nodes, hit.go);
               how = "branch \"" + chosen + "\"";
             }
@@ -937,6 +1087,10 @@ if (topicKey) {
         if (target.ask.some(q => !known[q.key])) break;
         const own = branchFromAnswers(target, known);
         if (!own) break;
+        if (own.refineBeforeHandover) {
+          refinementBranch = own;
+          refinementNode = target;
+        }
         const next = resolveNode(topic.nodes, own.go);
         if (!next) break;
         Log.info({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " read its branch out of the answer itself -> " + own.go + " (" + own.when.join(" / ") + ")" });
@@ -961,7 +1115,8 @@ if (topicKey) {
         treeNoAnswerPending: null,
         handoverReason: null,
         treeExplain: null,
-        operatorAdvice: null
+        operatorAdvice: null,
+        routingRefinementOffer: null
       };
       if (component) patch.componentName = component;
 
@@ -1087,6 +1242,11 @@ if (topicKey) {
       // choice asked for at the top, this one is about a node the dialog has only just
       // reached, and the call that brings the choice back must resolve from here.
       if (target.branches.length) {
+        const refinable = target.branches.filter(b => b.refineBeforeHandover);
+        const offer = refinable.length
+          ? makeRoutingRefinementOffer(topic, target, refinable[0], data)
+          : null;
+        if (offer) patch.routingRefinementOffer = offer;
         patchData(patch);
         Log.info({ message: "searchKnowledge: node " + target.id + " of " + topic.key + " (" + how + ") is answered already and awaits a branch choice" });
         return {
@@ -1097,6 +1257,8 @@ if (topicKey) {
           awaitingBranch: true,
           treeNode: target.id,
           branchOptions: target.branches.map(b => b.when.join(" / ")),
+          refinementAvailable: !!offer,
+          refinementBranches: offer ? refinable.map(b => b.when.join(" / ")) : [],
           answerKeys: target.ask.map(q => q.key),
           onFail: topic.onFail,
           solverInstruction: null,
@@ -1171,6 +1333,30 @@ if (topicKey) {
       }
 
       if (target.end) {
+        const offer = target.end === "escalate"
+          ? makeRoutingRefinementOffer(topic, refinementNode, refinementBranch, data)
+          : null;
+        if (offer) {
+          patch.treeNode = refinementNode.id;
+          patch.routingRefinementOffer = offer;
+          patchData(patch);
+          Log.info({ message: "searchKnowledge: fallback branch of " + topic.key +
+            " offers one prepared-topic refinement before handover" });
+          return {
+            found: true,
+            source: "tree-refinement",
+            turnKind: "refine-routing",
+            key: topic.key,
+            description: topic.description,
+            componentName: component,
+            treeNode: refinementNode.id,
+            refinementAvailable: true,
+            refinementBranches: [offer.fallbackBranch],
+            fallbackBranch: offer.fallbackBranch,
+            solverInstruction: null,
+            followUpQuestion: null
+          };
+        }
         patch.treeEnd = target.end;
         if (target.advice) patch.solutionAuthorization = solutionAuthorization(topic.key, target.id);
         patchData(patch);

@@ -744,6 +744,11 @@ if (taskId) {
           if (raw) {
             evidence[k] = raw;
             patch["data.treeAnswerEvidence." + k] = raw;
+            // The terminal summariser is advisory and can occasionally return no JSON.
+            // Keep the newest complete partner message as a deterministic fallback; it is
+            // safer and more useful than an old intake paraphrase or an isolated answer.
+            data.latestPartnerEvidence = raw.slice(0, 900);
+            patch["data.latestPartnerEvidence"] = data.latestPartnerEvidence;
           }
         }
         stored[k] = answer;

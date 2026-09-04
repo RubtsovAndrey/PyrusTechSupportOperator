@@ -188,7 +188,7 @@ const AGENTS = {
   async agent_solver(env, turn) {
     const dialog = env.values.dialog || {};
     const said = String(dialog.incomingText || "");
-    const topicKey = dialog.topicKey || null;
+    let activeTopicKey = dialog.topicKey || null;
     const partnerLanguage = turn.partnerLanguage || partnerLanguageOf(said, dialog.partnerLanguage);
 
     // Что партнёр уже сказал. Сценарий объявляет это явно; если статья ждёт ровно один
@@ -204,24 +204,54 @@ const AGENTS = {
     const toolAnswers = turn.toolAnswers !== undefined ? turn.toolAnswers : answers;
 
     let r = await callTool(env, "searchKnowledge", {
-      query: said, topicKey: topicKey, answers: JSON.stringify(toolAnswers)
+      query: said, topicKey: activeTopicKey, answers: JSON.stringify(toolAnswers)
     }) || {};
+
+    async function refineOrUseFallback(result) {
+      const fallback = result.fallbackBranch ||
+        (Array.isArray(result.refinementBranches) ? result.refinementBranches[0] : null);
+      const found = await callTool(env, "getKnowledgeMcp", {
+        query: said,
+        purpose: "routing",
+        topicKey: null,
+        spaceIds: null,
+        limit: null
+      }) || {};
+      const candidates = Array.isArray(found.topics) ? found.topics : [];
+      const picked = turn.refinementTopicKey
+        ? candidates.find(t => t.key === turn.refinementTopicKey)
+        : candidates[0];
+      if (picked) {
+        activeTopicKey = picked.key;
+        return await callTool(env, "searchKnowledge", {
+          query: said, topicKey: activeTopicKey, answers: JSON.stringify(toolAnswers)
+        }) || {};
+      }
+      return await callTool(env, "searchKnowledge", {
+        query: said, topicKey: activeTopicKey, branch: fallback, answers: JSON.stringify(toolAnswers)
+      }) || {};
+    }
 
     if (r.turnKind === "choose-branch") {
       const options = Array.isArray(r.branchOptions) ? r.branchOptions : [];
-      const chosen = turn.branch
-        || options.filter(o => saysAll(said, o))[0]
-        || options[0]
-        || null;
-      r = await callTool(env, "searchKnowledge", {
-        query: said, topicKey: topicKey, branch: chosen, answers: JSON.stringify(toolAnswers)
-      }) || {};
+      const refinementBranches = Array.isArray(r.refinementBranches) ? r.refinementBranches : [];
+      const exact = turn.branch || options.filter(o => saysAll(said, o))[0] || null;
+      if (r.refinementAvailable && (!exact || refinementBranches.indexOf(exact) >= 0)) {
+        r = await refineOrUseFallback(r);
+      } else {
+        const chosen = exact || options[0] || null;
+        r = await callTool(env, "searchKnowledge", {
+          query: said, topicKey: activeTopicKey, branch: chosen, answers: JSON.stringify(toolAnswers)
+        }) || {};
+      }
     }
+
+    if (r.turnKind === "refine-routing") r = await refineOrUseFallback(r);
 
     if (r.turnKind === "external-knowledge-request") {
       r = await callTool(env, "getKnowledgeMcp", {
         query: said,
-        topicKey: r.key || topicKey,
+        topicKey: r.key || activeTopicKey,
         spaceIds: null,
         limit: null
       }) || {};

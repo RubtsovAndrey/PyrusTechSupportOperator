@@ -6,7 +6,58 @@ const { conversation } = require("./dialog");
 
 const RESTAURANT = "Касса → Касса ресторана → Печать чека";
 const DELIVERY = "Касса → Касса доставки → Печать чека";
+const OWN_KB_SPACE = "6d8f5fa3-7fd4-44c8-978d-68743b232533";
+const KB_CREDENTIAL = "1000299722-kbmcptoken-vod";
 let taskId = 780000;
+
+function sse(payload) {
+  return "event: message\ndata: " + JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    result: { content: [{ type: "text", text: JSON.stringify(payload) }] }
+  }) + "\n\n";
+}
+
+// A routing article in the controlled KB is an exact copy of a current catalog topic.
+// This is enough to exercise the real MCP transport, article verification and the
+// same-turn permission that lets the solver replace one broad, still-uncertain route.
+function routingMcp(topic, calls) {
+  const articleId = "routing-policy-" + topic.key;
+  const content = [
+    "# Prepared routing policy",
+    "",
+    "```json",
+    JSON.stringify(Object.assign({ schema: "agent-topic/1" }, topic)),
+    "```"
+  ].join("\n");
+  return request => {
+    const name = request.body.params.name;
+    calls.push(name);
+    if (name === "search_content") {
+      return { status: 200, body: sse({ results: [{
+        articleId: articleId,
+        articleTitle: "TEST: " + topic.key,
+        excerpt: topic.description,
+        spaceId: OWN_KB_SPACE,
+        spaceTitle: "ИИ Техподдержка - Конфигурация",
+        canReadFully: true,
+        isWatermarksEnabled: false,
+        status: "published",
+        updatedAt: "2026-09-04T10:00:00.000000"
+      }] }) };
+    }
+    if (name === "get_content") {
+      return { status: 200, body: sse({
+        id: articleId,
+        title: "TEST: " + topic.key,
+        content: content,
+        updatedAt: "2026-09-04T10:00:00.000000",
+        space: { id: OWN_KB_SPACE, title: "ИИ Техподдержка - Конфигурация" }
+      }) };
+    }
+    throw new Error("unexpected MCP call " + name);
+  };
+}
 
 function chat(options) {
   const supplied = options || {};
@@ -54,6 +105,58 @@ async function main() {
     /не помогла партнёру/.test(r.internal[0]), r.internal);
   t.check("failed delivery cash keeps the delivery component",
     bot.data.componentName === DELIVERY, bot.data.componentName);
+
+  // A vague opening may legitimately enter the broad cash article. Once the partner gives
+  // a concrete but differently worded symptom, its generic fallback gets exactly one MCP
+  // refinement attempt and may enter another prepared topic. No error number is hard-coded
+  // in the dialog engine: the controlled article supplies the semantic bridge.
+  const catalog = require("../docs/knowledge_catalog.json");
+  const receiptTopic = catalog.topics.find(topic => topic.key === "cash_receipt_error_148");
+  let mcpCalls = [];
+  bot = chat({
+    catalog: catalog,
+    credentials: { [KB_CREDENTIAL]: "token-under-test" },
+    onMcp: routingMcp(receiptTopic, mcpCalls)
+  });
+  r = await bot.turn("Тамбов-1, на кассе какая-то странная проблема", { unit: "Тамбов-1" });
+  t.check("a genuinely vague cash problem first remains in broad diagnosis",
+    r.stage === "awaiting_answers" && /ресторана или на кассе доставки/.test(r.replies.join(" ")),
+    r);
+  r = await bot.turn("На кассе ресторана пишет, что у реквизита неверная длина", {
+    answers: {
+      posLocation: "касса ресторана",
+      problemDetails: "у реквизита неверная длина"
+    }
+  });
+  t.check("a concrete paraphrase is refined into the prepared receipt scenario",
+    r.stage === "awaiting_confirmation" && /ИНН/.test(r.replies.join(" ")) &&
+    bot.data.topicKey === "cash_receipt_error_148", r);
+  t.check("the refinement reads one controlled policy and keeps the component coherent",
+    mcpCalls.join(",") === "search_content,get_content" &&
+    bot.data.routingRefinementCount === 1 && bot.data.componentName === RESTAURANT,
+    { calls: mcpCalls, data: bot.data });
+
+  // The same recovery path must not stretch an unknown symptom toward a familiar topic.
+  // A miss consumes the one attempt, follows the broad article's fallback and hands over.
+  mcpCalls = [];
+  bot = chat({
+    catalog: catalog,
+    credentials: { [KB_CREDENTIAL]: "token-under-test" },
+    onMcp: request => {
+      mcpCalls.push(request.body.params.name);
+      return { status: 200, body: sse({ results: [] }) };
+    }
+  });
+  await bot.turn("Тамбов-1, на кассе какая-то странная проблема", { unit: "Тамбов-1" });
+  r = await bot.turn("На кассе ресторана появляется неизвестная ошибка E777", {
+    answers: { posLocation: "касса ресторана", problemDetails: "ошибка E777" }
+  });
+  t.check("an unprepared symptom is handed over after the bounded refinement miss",
+    r.stage === "escalated" && bot.data.topicKey === "pos_terminal_troubleshooting" &&
+    !/ИНН/.test(r.replies.join(" ")), r);
+  t.check("an unknown case cannot trigger repeated KB crawls in the same chat",
+    mcpCalls.join(",") === "search_content" && bot.data.routingRefinementCount === 1,
+    { calls: mcpCalls, data: bot.data });
 
   // Shift: questions stay external and silent internally; only a usable setup gets advice.
   bot = chat();

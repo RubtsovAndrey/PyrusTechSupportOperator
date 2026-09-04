@@ -249,6 +249,72 @@ async function main() {
   t.check("MCP evidence never waives an explicit exclusion",
     direct.found === false && /исключающий признак/.test(direct.handoverReason || ""), direct);
 
+  // ── One bounded refinement from a broad article to a specific prepared topic ──
+  const broadKey = "broad_diagnostics";
+  const refinementCatalog = { topics: [{
+    key: broadKey,
+    description: "Широкая диагностика оборудования",
+    phrasings: ["непонятная ошибка оборудования"],
+    roles: ["chat"],
+    start: "diagnose",
+    nodes: {
+      diagnose: {
+        ask: [{ key: "problemDetails", question: "Какой текст ошибки?" }],
+        branches: [{ when: ["другая ошибка", "неизвестная ошибка"], go: "operator",
+          refineBeforeHandover: true }]
+      },
+      operator: { end: "escalate" }
+    }
+  }, preparedCatalog.topics[0]] };
+  const refinementState = {
+    taskId: 1,
+    runtime: { role: "chat", incomingCommentId: "refinement-turn" },
+    data: {
+      topicKey: broadKey,
+      treeNode: "diagnose",
+      treeAnswers: { problemDetails: "ошибка реквизита" }
+    }
+  };
+  guardEnv = envFor("ошибка реквизита", { catalog: refinementCatalog, state: refinementState });
+  direct = await searchKnowledge(guardEnv, ["ошибка реквизита", broadKey, null,
+    JSON.stringify({ problemDetails: "ошибка реквизита" })]);
+  t.check("a generic fallback branch offers refinement without knowing any neighbouring topic key",
+    direct.turnKind === "choose-branch" && direct.refinementAvailable === true &&
+    direct.refinementBranches[0] === "другая ошибка / неизвестная ошибка",
+    direct);
+
+  const liveRefinement = guardEnv.db["state:1"].data;
+  liveRefinement.routingRefinementAttempt = {
+    topicKey: broadKey, nodeId: "diagnose", incomingCommentId: "refinement-turn"
+  };
+  liveRefinement.routingRefinementCount = 1;
+  liveRefinement.mcpRoutingEvidence = {
+    topicKeys: preparedKey,
+    articleIds: "article-148",
+    queries: "ошибка реквизита",
+    incomingCommentId: "refinement-turn",
+    source: "published-agent-topic"
+  };
+  direct = await searchKnowledge(guardEnv, ["ошибка реквизита", preparedKey, null, "{}"]);
+  t.check("verified same-turn MCP evidence may refine the broad topic into the specific one",
+    direct.found === true && direct.key === preparedKey &&
+    direct.solverInstruction === "Выберите другого кассира." &&
+    guardEnv.db["state:1"].data.topicKey === preparedKey,
+    { result: direct, data: guardEnv.db["state:1"].data });
+  t.check("refinement clears the old article cursor and stale execution permissions",
+    guardEnv.db["state:1"].data.treeNode === null &&
+    guardEnv.db["state:1"].data.componentName === null &&
+    guardEnv.db["state:1"].data.routingRefinementOffer === null,
+    guardEnv.db["state:1"].data);
+
+  const unauthorizedState = JSON.parse(JSON.stringify(refinementState));
+  guardEnv = envFor("ошибка реквизита", { catalog: refinementCatalog, state: unauthorizedState });
+  direct = await searchKnowledge(guardEnv, ["ошибка реквизита", preparedKey, null, "{}"]);
+  t.check("a solver cannot switch an established topic without an article offer and MCP proof",
+    direct.found === false && direct.source === "topic-switch-refused" &&
+    guardEnv.db["state:1"].data.topicKey === broadKey,
+    { result: direct, data: guardEnv.db["state:1"].data });
+
   // ── Настройки читаются только там, где нужны ──
   // Солвер вызывает searchKnowledge с готовым `topicKey` и работает в разы чаще
   // маршрутизатора, а настройки подбора темы ему не нужны вовсе. Безусловное чтение `config`

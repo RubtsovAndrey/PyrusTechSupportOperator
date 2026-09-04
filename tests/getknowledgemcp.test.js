@@ -253,11 +253,24 @@ function runRouting(options) {
     status: o.status === undefined ? "published" : o.status,
     updatedAt: "2026-09-04T08:00:00"
   };
+  const routingData = o.existingEvidence ? { mcpRoutingEvidence: o.existingEvidence } : {};
+  if (o.activeTopic) {
+    routingData.topicKey = String(o.activeTopic);
+    routingData.routingRefinementCount = Number(o.refinementCount) || 0;
+    if (o.withRefinementOffer) {
+      routingData.routingRefinementOffer = {
+        topicKey: String(o.activeTopic),
+        nodeId: "diagnose",
+        fallbackBranch: "другая ошибка",
+        incomingCommentId: "routing-comment"
+      };
+    }
+  }
   const db = {
     [stateKey]: {
       taskId: taskId,
       runtime: { incomingCommentId: "routing-comment" },
-      data: o.existingEvidence ? { mcpRoutingEvidence: o.existingEvidence } : {}
+      data: routingData
     },
     knowledge_catalog: { topics: [catalogTopic] }
   };
@@ -567,6 +580,31 @@ async function main() {
     !r.state.data.mcpRoutingEvidence &&
     r.env.infos.some(line => /matched none of its requiredEvidence/.test(line || "")),
     { result: r.result, logs: r.env.infos });
+
+  r = await runRouting({ activeTopic: "broad_diagnostics" });
+  t.check("an active topic cannot turn ordinary MCP routing into an unbounded second router",
+    r.result.found === false && /не разрешено/.test(String(r.result.error || "")) &&
+    r.env.posts.length === 0,
+    { result: r.result, posts: r.env.posts });
+
+  r = await runRouting({ activeTopic: "broad_diagnostics", withRefinementOffer: true });
+  t.check("a current article offer authorises one refinement search for another prepared topic",
+    r.result.found === true && r.result.refinement === true &&
+    r.result.previousTopicKey === "broad_diagnostics" &&
+    r.result.topics[0].key === ROUTING_TOPIC.key,
+    r.result);
+  t.check("the refinement attempt is recorded before execution and bound to the same comment",
+    r.state.data.routingRefinementCount === 1 &&
+    r.state.data.routingRefinementAttempt.topicKey === "broad_diagnostics" &&
+    r.state.data.routingRefinementAttempt.incomingCommentId === "routing-comment",
+    r.state.data);
+  const postCountAfterRefinement = r.env.posts.length;
+  const repeatedRefinement = await getKnowledge(r.env,
+    ["Неверная длина реквизита", null, null, null, "routing"]);
+  t.check("a second refinement call in the same chat is refused without another MCP request",
+    repeatedRefinement.found === false &&
+    r.env.posts.length === postCountAfterRefinement,
+    { result: repeatedRefinement, posts: r.env.posts.length });
 
   return t.report();
 }

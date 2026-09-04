@@ -133,7 +133,8 @@
             "неизвестная ошибка",
             "ничего из перечисленного"
           ],
-          "go": "operatorRestaurant"
+          "go": "operatorRestaurant",
+          "refineBeforeHandover": true
         }
       ]
     },
@@ -189,7 +190,8 @@
             "неизвестная ошибка",
             "ничего из перечисленного"
           ],
-          "go": "operatorDelivery"
+          "go": "operatorDelivery",
+          "refineBeforeHandover": true
         }
       ]
     },

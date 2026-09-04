@@ -127,6 +127,15 @@ function lintTopics(topics) {
         if (!(Array.isArray(b.when) ? b.when : [b.when]).filter(Boolean).length) {
           say(id + ".branches[" + i + "] declares no `when`, so nothing can ever choose it");
         }
+        if (b.refineBeforeHandover !== undefined && b.refineBeforeHandover !== true) {
+          say(id + ".branches[" + i + "].refineBeforeHandover must be true when set");
+        }
+        if (b.refineBeforeHandover === true) {
+          const destination = nodes[String(b.go)];
+          if (!destination || String(destination.end || "") !== "escalate") {
+            say(id + ".branches[" + i + "] asks for intent refinement but does not point directly to an escalate terminal");
+          }
+        }
       });
       ask.forEach((q, i) => {
         if (!q || !q.question) return say(id + ".ask[" + i + "] has no question text");

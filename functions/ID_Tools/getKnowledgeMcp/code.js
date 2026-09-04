@@ -47,6 +47,10 @@ const MAX_SEARCH_LIMIT = 50;
 // wording. Reading two candidates per call is enough for the model to resolve a genuine
 // ambiguity without turning one chat message into an unbounded crawl of the KB.
 const ROUTING_RESULT_LIMIT = 2;
+// A refinement search must ignore the broad topic already in progress. Read one extra
+// published policy so that this ignored hit cannot hide the more specific neighbour, while
+// keeping the one-off recovery path strictly bounded.
+const ROUTING_REFINEMENT_READ_LIMIT = ROUTING_RESULT_LIMIT + 1;
 // In policy mode a semantic search can return one broad allowed article and omit a more
 // exact allowed one altogether. Probe only a small bounded number of missing reviewed
 // sources by their exact titles. This is deterministic, stays inside the allowlist and
@@ -494,6 +498,49 @@ if (!text) {
   return fallbackResult("пустой запрос");
 }
 
+// Routing normally starts before a topic exists. An active topic means the solver is asking
+// for the one article-owned refinement allowed before a fallback handover. The permission is
+// bound to the current topic, tree node and incoming comment, and the counter is written
+// before any network call so a timeout cannot accidentally grant a second expensive crawl.
+let routingRefinement = null;
+if (routingMode) {
+  const state = loadState();
+  const data = state.data || {};
+  const activeTopicKey = data.topicKey ? String(data.topicKey) : null;
+  if (activeTopicKey) {
+    const offer = data.routingRefinementOffer || {};
+    const currentCommentId = state.runtime && state.runtime.incomingCommentId != null
+      ? String(state.runtime.incomingCommentId) : null;
+    const allowed = currentCommentId != null &&
+      String(offer.topicKey || "") === activeTopicKey &&
+      String(offer.incomingCommentId || "") === currentCommentId &&
+      Number(data.routingRefinementCount || 0) < 1;
+    if (!allowed) {
+      Log.warn({ message: "getKnowledgeMcp: refused a routing refinement without a current article offer" });
+      return fallbackResult("уточнение тематики не разрешено текущей веткой статьи");
+    }
+    routingRefinement = {
+      topicKey: activeTopicKey,
+      nodeId: String(offer.nodeId || ""),
+      incomingCommentId: currentCommentId
+    };
+    const recorded = writePaths({
+      "data.routingRefinementCount": Number(data.routingRefinementCount || 0) + 1,
+      "data.routingRefinementAttempt": {
+        topicKey: activeTopicKey,
+        nodeId: routingRefinement.nodeId,
+        incomingCommentId: currentCommentId,
+        query: text.slice(0, 500),
+        at: Date.now()
+      },
+      "updatedAt": Date.now()
+    });
+    if (!recorded) return fallbackResult("не удалось зафиксировать попытку уточнения тематики");
+    Log.info({ message: "getKnowledgeMcp: one-time routing refinement from " + activeTopicKey +
+      " on node " + routingRefinement.nodeId });
+  }
+}
+
 const auth = await readToken();
 if (!auth.token) {
   Log.error({ message: "getKnowledgeMcp: " + auth.reason });
@@ -526,7 +573,7 @@ if (routingMode) {
   ours = ours.filter(hit => String(hit.status || hit.Status || "").toLowerCase() === "published");
   // Do not trust a server that returns more than requested: response time must remain
   // bounded even if the MCP implementation changes its interpretation of `limit`.
-  ours = ours.slice(0, ROUTING_RESULT_LIMIT);
+  ours = ours.slice(0, routingRefinement ? ROUTING_REFINEMENT_READ_LIMIT : ROUTING_RESULT_LIMIT);
 }
 
 if (externalPolicy && ours.length < candidateLimit) {
@@ -658,6 +705,11 @@ for (let i = 0; i < ours.length && articles.length < resultLimit; i++) {
       " is not an exact copy of a current catalog topic, skipped" });
     continue;
   }
+  if (routingRefinement && String(prepared.key || "") === routingRefinement.topicKey) {
+    Log.info({ message: "getKnowledgeMcp: routing refinement ignored the current broad topic " +
+      routingRefinement.topicKey });
+    continue;
+  }
   const excludedBy = routingMode ? routingExclusion(prepared, text) : null;
   if (excludedBy) {
     Log.info({ message: "getKnowledgeMcp: routing candidate " + hit.articleId +
@@ -710,7 +762,13 @@ if (routingMode) {
     articleTitle: match.article.title,
     searchExcerpt: match.article.excerpt
   }));
-  return { found: topics.length > 0, source: "prepared-mcp", topics: topics };
+  return {
+    found: topics.length > 0,
+    source: "prepared-mcp",
+    refinement: !!routingRefinement,
+    previousTopicKey: routingRefinement ? routingRefinement.topicKey : null,
+    topics: topics
+  };
 }
 if (!externalPolicy) return { found: articles.length > 0, articles: articles };
 if (!articles.length) return fallbackResult(null);

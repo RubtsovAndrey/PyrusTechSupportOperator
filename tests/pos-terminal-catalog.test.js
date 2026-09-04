@@ -301,8 +301,21 @@ async function main() {
 
   c = conversation("pos_terminal_troubleshooting", "касса ресторана: неизвестная ошибка E-777");
   r = await c.step();
-  t.check("an unknown cash error is handed over without a guessed component",
-    r.turnKind === "handover" && !r.componentName && !c.data.componentName, r);
+  t.check("an unknown cash error offers one generic intent refinement before handover",
+    r.turnKind === "refine-routing" && r.refinementAvailable === true &&
+    r.refinementBranches.length === 1 && !r.componentName && !c.data.componentName, r);
+  // The MCP attempt is owned by getKnowledgeMcp; simulate its recorded miss and return to
+  // the article's declared fallback in the same solver invocation.
+  c.data.routingRefinementCount = 1;
+  r = await c.step({
+    incoming: "касса ресторана: неизвестная ошибка E-777",
+    commentId: "catalog-turn-1",
+    branch: r.fallbackBranch,
+    answers: { posLocation: "касса ресторана", problemDetails: "неизвестная ошибка E-777" }
+  });
+  t.check("after the bounded refinement misses, the same unknown error is handed over safely",
+    r.turnKind === "handover" && r.treeEnd === "escalate" &&
+    !r.componentName && !c.data.componentName, r);
 
   return t.report();
 }

@@ -14,7 +14,9 @@ response-description: "В ответе всегда есть turnKind — он �
   \ запросить email для подзадачи техподдержки. На query: { found,\
   \ source, topics: [{ score, key, description, route, componentName }] }. На topicKey\
   \ ветвящаяся статья возвращает один узел: { turnKind, treeNode, preQuestions, questionSpecs,\
-  \ answerKeys, branchOptions, solverInstruction, treeEnd }. Линейная статья возвр\
+  \ answerKeys, branchOptions, refinementAvailable, refinementBranches, solverInstruction, treeEnd }.\
+  \ turnKind=refine-routing или refinementAvailable=true разрешает один MCP-поиск более конкретной\
+  \ подготовленной темы перед резервной передачей оператору. Линейная статья возвр\
   ащает либо свои вопросы — { needsPreQuestions: true, preQuestions, answerKeys },\
   \ и если answerKeys непусты, ответы на эти вопросы верни в поле answers следующи\
   м витком, как и для ветвящейся статьи; либо один шаг, который надо выдать сейчас\

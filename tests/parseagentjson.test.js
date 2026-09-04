@@ -621,7 +621,8 @@ async function main() {
     r.result.treeEnd === "subtask" && r.result.replyText === "", r.result);
   t.check("the semantic answer and exact partner evidence are stored separately",
     r.state.data.treeAnswers.details === "сняли баллы" &&
-    r.state.data.treeAnswerEvidence.details === "За проверку первого сентября сняли баллы",
+    r.state.data.treeAnswerEvidence.details === "За проверку первого сентября сняли баллы" &&
+    r.state.data.latestPartnerEvidence === "За проверку первого сентября сняли баллы",
     r.state.data);
 
   r = await run("summary", json({

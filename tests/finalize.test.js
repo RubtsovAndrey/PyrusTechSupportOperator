@@ -679,6 +679,24 @@ async function main() {
     !/Распечатайте копию/.test(enriched.db[KEY].pendingOutcome.replyText || ""),
     enriched.db[KEY].pendingOutcome);
 
+  const fallbackSummary = makeEnv({
+    prev: { taskId: "11613", reason: "неизвестная ветка" },
+    db: { [KEY]: state({
+      stage: "awaiting_answers",
+      pendingOutcome: null,
+      data: {
+        problemSummary: "странная проблема на кассе",
+        latestPartnerEvidence: "Это касса ресторана, там пишет что-то про ошибку реквизита"
+      }
+    }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(fallbackSummary, ["escalated", null]);
+  const fallbackNote = fallbackSummary.db[KEY].pendingOutcome.internalNote;
+  t.check("a failed summary still gives the operator the latest complete partner clarification",
+    /Суть: странная проблема на кассе\. Партнёр уточнил: Это касса ресторана, там пишет что-то про ошибку реквизита/.test(fallbackNote),
+    fallbackNote);
+
   r = await run({ db: decided.db });
   t.check("the partner is asked what the bot decided to ask",
     /о какой точке/i.test(r.posts[0].body.text), r.posts[0].body);

@@ -189,9 +189,29 @@ const SUMMARY = {
 // нет связи в кофейне, не открывается Додо ИС, пропал интернет, не грузятся сайты».
 const TOPIC_DESCRIPTION_LIMIT = 70;
 
+function fallbackProblem(data) {
+  const d = data || {};
+  const clean = value => String(value || "").replace(/\s+/g, " ").trim();
+  const base = clean(d.problemSummary);
+  const evidence = d.treeAnswerEvidence && typeof d.treeAnswerEvidence === "object"
+    ? d.treeAnswerEvidence : {};
+  const values = Object.keys(evidence).map(key => clean(evidence[key])).filter(Boolean);
+  const latest = clean(d.latestPartnerEvidence) || (values.length ? values[values.length - 1] : "");
+  if (!latest) return base;
+  const normalized = value => clean(value).toLowerCase().replace(/ё/g, "е")
+    .replace(/[^0-9a-zа-я]+/g, " ").trim();
+  const a = normalized(base);
+  const b = normalized(latest);
+  if (!base) return latest;
+  if (!b || a.indexOf(b) >= 0) return base;
+  if (b.indexOf(a) >= 0) return latest;
+  return (base.replace(/[.!?]+$/, "") + ". Партнёр уточнил: " + latest).slice(0, 900);
+}
+
 function summaryFields(o) {
   const data = o.data || {};
-  const problemKnown = !!String(data.caseSummary || data.problemSummary || "").trim();
+  const fallback = fallbackProblem(data);
+  const problemKnown = !!String(data.caseSummary || fallback || "").trim();
   const short = s => {
     const one = String(s || "").replace(/\s+/g, " ").trim();
     return one.length > TOPIC_DESCRIPTION_LIMIT ? one.slice(0, TOPIC_DESCRIPTION_LIMIT) + "…" : one;
@@ -211,7 +231,7 @@ function summaryFields(o) {
         : "не определена — проблема ещё не описана"),
     // caseSummary is written by the terminal summariser. It may fail without blocking the
     // business action, in which case the short intake summary remains a safe fallback.
-    problem: data.caseSummary || data.problemSummary || "не описана",
+    problem: data.caseSummary || fallback || "не описана",
     // Older config.summary templates may still contain these placeholders. They now
     // render empty deliberately: a model-generated case summary is more stable than
     // stitching isolated chat fragments into a second, competing account of the case.
