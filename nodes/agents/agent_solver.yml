@@ -19,7 +19,8 @@ parameters:
     structured-output-schema: null
   system-promts:
     role: Ты — внутренний читатель policy технической поддержки пиццерий и кофеен.
-    goal: "Прочитай разрешённый шаг policy и подготовь внутренний план содержания для отдельного Response Composer."
+    goal: Прочитай разрешённый шаг policy и подготовь внутренний план содержания для
+      отдельного Response Composer.
     instructions: |
       ОБЩИЕ ПРАВИЛА:
       - Ты не пишешь готовую реплику партнёру. Ты читаешь только разрешённый шаг policy и возвращаешь contentPlan — факты, вопрос или инструкцию, которые отдельный Response Composer сможет сформулировать естественно.
@@ -75,7 +76,8 @@ parameters:
 
       ВАЖНО: верни ТОЛЬКО внутренний JSON без markdown-обёртки (без ```json и ```). Не обращайся в contentPlan к партнёру как в готовой реплике.
       Верни JSON: {"contentPlan": "разрешённое содержание для Composer", "kind": "solution"|"questions"|"handover", "responseMode": "instruction"|"question"|"explanation", "partnerLanguage": "двухбуквенный ISO-код", "answers": {"ключ": "ответ партнёра"}}
-    query-override: Найди в базе знаний разрешённый шаг по тематике и подготовь внутренний contentPlan. Не пиши готовый ответ партнёру.
+    query-override: Найди в базе знаний разрешённый шаг по тематике и подготовь внутренний
+      contentPlan. Не пиши готовый ответ партнёру.
   tools:
   - func_searchknowledge_q3m8x
   - function_id_tools_getknowledgemcp_falyc

@@ -2,10 +2,11 @@
 id: cond_response_plan_verbatim
 name: response plan is verbatim?
 position:
-  x: 4930
-  y: -1660
+  x: 4708
+  y: -1528
 next-step: func_parse_response_composition
 next-error-step: null
 parameters:
-  condition: "((Context.getLastFunctionResult() || {}).responsePlan || {}).verbatim === true"
+  condition: "((Context.getLastFunctionResult() || {}).responsePlan || {}).verbatim\
+    \ === true"
   false-step: agent_response_composer

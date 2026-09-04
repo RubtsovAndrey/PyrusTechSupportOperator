@@ -1,7 +1,11 @@
 ---
 id: parseTurnInterpretation
 name: parseTurnInterpretation
-description: "Проверяет общий конечный контракт Turn Interpreter для ответа статье, реакции на совет или сообщения после закрытия. Не является tool агента и не выполняет бизнес-действий."
-response-description: "{ source: 'turn-interpreter', contractKind, interpretation, interpretationValue?, status?, postCloseIntent?, topicKey?, evidenceText?, reason }"
+description: "Проверяет общий конечный контракт Turn Interpreter для ответа статье\
+  , реакции на совет или сообщения после закрытия. Не является tool агента и не вы\
+  полняет бизнес-действий."
+response-description: "{ source: 'turn-interpreter', contractKind, interpretation,\
+  \ interpretationValue?, status?, postCloseIntent?, topicKey?, evidenceText?, reason\
+  \ }"
 parameters: []
 language: JAVASCRIPT

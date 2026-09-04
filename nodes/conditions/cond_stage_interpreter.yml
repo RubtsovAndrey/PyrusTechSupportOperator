@@ -7,5 +7,6 @@ position:
 next-step: agent_turn_interpreter
 next-error-step: null
 parameters:
-  condition: "['interpret_answer','interpret_confirmation','interpret_post_close'].indexOf((Context.getLastFunctionResult() || {}).stage) >= 0"
+  condition: "['interpret_answer','interpret_confirmation','interpret_post_close'].indexOf((Context.getLastFunctionResult()\
+    \ || {}).stage) >= 0"
   false-step: cond_stage_answers
