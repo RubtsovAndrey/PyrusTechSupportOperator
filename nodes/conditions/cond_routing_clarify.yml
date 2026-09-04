@@ -2,8 +2,8 @@
 id: cond_routing_clarify
 name: routing needs one clarification?
 position:
-  x: 4100
-  y: -950
+  x: 4254
+  y: -758
 next-step: func_clarify
 next-error-step: null
 parameters:

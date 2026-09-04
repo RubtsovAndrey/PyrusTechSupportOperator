@@ -7,5 +7,6 @@ position:
 next-step: agent_intake
 next-error-step: null
 parameters:
-  condition: "(Context.getLastFunctionResult() || {}).status === 'more_questions' && (Context.getLastFunctionResult() || {}).languageBoundary === true"
+  condition: "(Context.getLastFunctionResult() || {}).status === 'more_questions'\
+    \ && (Context.getLastFunctionResult() || {}).languageBoundary === true"
   false-step: func_nextstep_h4t8q
