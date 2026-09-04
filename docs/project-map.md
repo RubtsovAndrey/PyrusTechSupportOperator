@@ -49,6 +49,14 @@
   полями. Признак считается кодом — добавил ли виток статье хоть один ответ, — и потому
   одинаково ловит возражение, вопрос обратно, постороннюю реплику и «сейчас узнаю у управляющей».
   Ответ на ЧАСТЬ вопросов по-прежнему двигает статью дальше: поля необязательные по решению.
+- **Свободные ответы статьи больше не извлекает Solver.** `Open Answer Interpreter` без
+  tools видит только контракт объявленных ключей и обязан дать дословную цитату из текущей
+  реплики. Код отвергает чужой ключ, выдуманное evidence и короткий ответ, приписанный
+  будущему вопросу. Материальное противоречие останавливает подзадачу до явной поправки.
+- **Неизвестная тема даёт человеку рабочую стартовую точку.** После фильтра общей БЗ
+  `Operator Assist Composer` готовит один черновик первого ответа. Статьи и черновик
+  находятся только во внутреннем комментарии, явно помечены как непроверенные и никогда
+  не отправляются партнёру автоматически.
 - **Просьбу человека слышно на любой стадии.** Проверка жила в промпте intake, а стадии
   `awaiting_answers`, `awaiting_email` и `awaiting_confirmation` уходят в Interpreter/Solver,
   createSubtask и confirmation напрямую, минуя intake — то есть бот не слышал просьбу ровно
@@ -151,8 +159,10 @@
   пишется вовсе. Если тематика определена, компонент берётся из статьи, а не из
   догадки модели — тот же аргумент, что и для юнита: неверное значение в поле Pyrus
   хуже пустого.
-- **Тема закреплена на непрерывный чат.** Routing может задавать различающий вопрос, пока
-  уверенности недостаточно, но после выбора `topicKey` поздняя гипотеза модели не может
+- **Тема закреплена на непрерывный чат.** Routing может задать один различающий вопрос,
+  только если инструменты вернули минимум две реальные policy-темы. При нуле или одном
+  кандидате произвольное уточнение не делает решение безопаснее, поэтому выполняется
+  handover. После выбора `topicKey` поздняя гипотеза модели не может
   его заменить. Единственное контролируемое исключение — резервная ветка
   `refineBeforeHandover` широкой статьи: до первого совета она один раз разрешает MCP
   подтвердить другую подготовленную тему в том же сообщении партнёра. Этот вызов выполняет
@@ -563,7 +573,8 @@
    а не JSON: маленькая модель следует подписанной строке заметно лучше.
 3. **Стадия** из документа задачи выбирает ветку графа (см. карту ниже).
 4. **Агент** отвечает JSON. Обычные роли разбирает **`parseAgentJson`**; смысл текущей
-   реплики по конечному контракту — **`parseTurnInterpretation`**. Solver возвращает
+   реплики по конечному контракту — **`parseTurnInterpretation`**, свободные поля статьи —
+   **`parseOpenAnswers`**, внутренний операторский черновик — **`parseOperatorAssist`**. Solver возвращает
    внутренний `responsePlan`, а внешний текст отдельного Composer проверяет
    **`parseResponseComposition`**. Parser-слой связывает каждый результат с текущими
    задачей, комментарием и policy-контрактом.
@@ -691,7 +702,10 @@ trigger_webhook_pyrus → receiveWebhook → skip?
   waiting for email?  awaiting_email → createSubtask
   answering a protected finite question? interpret_answer → agent_turn_interpreter
       → parseTurnInterpretation → searchKnowledge → parse deterministic result
-  answering a legacy article question? awaiting_answers → agent_solver
+  answering an open article question? interpret_open_answers → agent_open_answer_interpreter
+      → parseOpenAnswers → material conflict?
+          yes → Outcome - clarify (article questions) → finalize
+          no  → agent_solver
   confirmation? interpret_confirmation → agent_turn_interpreter → parseTurnInterpretation → parseConfirmation
     │                                     resolved      → Outcome - solved → finalize
     │                                     language boundary → agent_intake
@@ -719,7 +733,8 @@ trigger_webhook_pyrus → receiveWebhook → skip?
                              success → Outcome - subtask created
                              параллельный дубль → finalize без действий
                              иначе   → subtask needs email? → Outcome - clarify email | escalate
-          иначе         → Outcome - escalate
+          иначе         → findOperatorKnowledge → agent_operator_assist
+                         → parseOperatorAssist → Outcome - escalate
 ```
 
 Все узлы `Outcome - *` — это одна функция `applyOutcome` с разным параметром `outcome`.
@@ -736,8 +751,11 @@ trigger_webhook_pyrus → receiveWebhook → skip?
 | `matchUnit` | ID_Tools | tool: поиск юнита в каталоге, режимы unit и network |
 | `searchKnowledge` | ID_Tools | tool: подбор тематики, один узел дерева или один шаг линейной статьи |
 | `getKnowledgeMcp` | ID_Tools | управляемый MCP-поиск: внешние источники policy и проверенные кандидаты подготовленных тем |
+| `findOperatorKnowledge` | ID_Tools | общий MCP-поиск для неизвестной темы; релевантные ссылки публикуются только во внутренний контекст |
 | `parseAgentJson` | ID_Tools | разбор ответа агента или детерминированного результата знания, запись фактов и попыток |
 | `parseTurnInterpretation` | ID_Tools | общий конечный контракт смысла: актуальные id/value и дословное доказательство |
+| `parseOpenAnswers` | ID_Tools | разрешённые открытые поля, дословное evidence, текущий comment id и материальный конфликт |
+| `parseOperatorAssist` | ID_Tools | безопасный внутренний черновик для оператора; удаление URL и fallback без остановки handover |
 | `parseResponseComposition` | ID_Tools | проверка привязки Composer к responsePlan; запрет нового URL и изменения канонического вопроса; безопасный fallback |
 | `nextSolutionStep` | ID_Tools | решение после «не помогло»: следующий шаг, разъяснение того же или onFail |
 
@@ -753,15 +771,19 @@ trigger_webhook_pyrus → receiveWebhook → skip?
 | `node tools/build-knowledge.js` | собрать каталог БД, RAG-документы и манифест из файлов тем |
 | `node tools/build-knowledge.js --check` | ничего не менять, проверить синхронность всех производных файлов |
 | `node tools/read-trace.js <папка-или-json> [--prompt]` | восстановить разговор из выгрузки трасс платформы |
-| `node tools/read-trace.js <путь> --scenario <id> --out result_report.txt` | проверить живой разговор по ожиданиям из `tests/live/scenarios.json` |
+| `node tools/read-trace.js <путь> --scenario <id> --out result_report.txt` | проверить один живой разговор по ожиданиям из `tests/live/scenarios.json`; несколько чатов требуют отдельных команд |
 
 `tools/read-trace.js` существует потому, что выгрузка — дерево спанов на несколько
 мегабайт: реплика партнёра лежит в теле вебхука, ответ бота — в POST в Pyrus, решение
-витка — в аргументах `applyOutcome`, а целые строки логов — в `userLog` (в `label`
+витка — в результате `applyOutcome` (его guard может заменить входной запрос), а целые
+строки логов — в `userLog` (в `label`
 платформа их обрезает на полусотне символов, ровно там, где начинается диагностика).
 **Ответа модели в выгрузке нет вовсе:** логируется только запрос к LLM, поэтому реплику
 агента видно лишь на следующем запросе того же блока, а последний его ответ — никак.
 Судить о нём приходится по действиям, которые он вызвал.
+Папка может содержать несколько JSON-фрагментов одного разговора, но проверка сценария
+принимает только один входной путь. Несколько разных чатов проверяются отдельными
+командами: их объединение создавало правдоподобный, но несуществующий общий диалог.
 
 Порядок ручного прогона и автоматической проверки описан в `docs/live-testing.md`.
 
@@ -809,6 +831,15 @@ data.handoverReason  почему обращение уходит человек
 data.openAnswerPrompts  что статья ещё спросит, строкой «ключ — вопрос; …».
                  Считает parseAgentJson, печатает в промпт receiveWebhook для совместимых
                  вопросов; защищённому Interpreter передаётся отдельный активный контракт
+data.openAnswerKeys, openAnswerDefinitions  все ещё не заполненные свободные поля статьи
+                 и их вопросы для узкого Open Answer Interpreter; конечные enum-вопросы
+                 сюда не входят
+data.openAnswerDirectKeys  поля вопроса, который действительно доставлен партнёру;
+                 короткое «да/нет» не может заполнить другие ключи
+data.openAnswersAcceptedCommentId, openAnswersAcceptedKeys  какие поля приняты именно из
+                 текущего комментария; не дают частичному ответу считаться молчанием
+data.openAnswerConflict, openAnswerConflictQuestion  проверенное материальное противоречие
+                 и единственный вопрос, который должен его разрешить до подзадачи
 runtime          role (`chat` в MVP; значение `ticket` оставлено защитным наследием, но
                  receiveWebhook такую задачу не пропускает),
                  apiUrl, outboundChannel, incomingCommentId, formId,

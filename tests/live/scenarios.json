@@ -451,6 +451,64 @@
       }
     },
     {
+      "id": "ratings-rko-contradiction-then-correction",
+      "title": "Противоречивый статус апелляции уточняется до создания рейтинговой подзадачи",
+      "messages": [
+        "вечер добрый Тамбов 1 как подать апелляцию на почту контроллингу? рко",
+        "нет, апелляцию уже подавали неделю назад, но ответа нет; передайте специалистам, a@b.ru",
+        "проверка была первого сентября; апелляцию ещё не подавали, ожидаем пересмотр и возврат баллов",
+        "предыдущее сообщение было ошибочным: апелляцию ещё не подавали; ожидаем пересмотр и возврат баллов"
+      ],
+      "expect": {
+        "turnCount": 4,
+        "turns": [
+          {
+            "outcome": "reply",
+            "replies": { "count": 1, "includes": ["Ссылка", "помогла решить ваш вопрос"] },
+            "internal": { "count": 0 },
+            "path": { "includes": ["Solver / Policy Reader", "Outcome - reply", "finalize"] },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["уже подавали", "a@b.ru"] },
+            "outcome": "clarify_answers",
+            "replies": { "count": 1, "includes": ["результат"] },
+            "internal": { "count": 0 },
+            "path": { "includes": ["Turn Interpreter", "Solver / Policy Reader", "Outcome - clarify (article questions)"] },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["ещё не подавали", "возврат баллов"] },
+            "outcome": "clarify_answers",
+            "replies": { "count": 1, "includes": ["апелляцию", "уже", "ещё"] },
+            "internal": { "count": 0 },
+            "path": {
+              "includes": ["Open Answer Interpreter", "Validate open answers", "open answer has a material conflict?", "Outcome - clarify (article questions)", "finalize"],
+              "excludes": ["Solver / Policy Reader", "createSubtask"]
+            },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["сообщение было ошибочным", "ещё не подавали"] },
+            "outcome": "subtask_created",
+            "replies": {
+              "count": 1,
+              "includes": ["Обращение создано", "ответом на ваш email"],
+              "action": "finished",
+              "approval": null,
+              "fields": 2
+            },
+            "internal": { "count": 0 },
+            "path": {
+              "includes": ["Open Answer Interpreter", "Validate open answers", "Solver / Policy Reader", "Handover Summary Agent (subtask)", "createSubtask", "Outcome - subtask created", "finalize"]
+            },
+            "task": { "isClosed": true, "reopenedAfterReply": false },
+            "noErrors": true
+          }
+        ]
+      }
+    },
+    {
       "id": "z-report-success-close-and-thanks",
       "title": "Z-отчёт проходит через Interpreter и управляемую композицию, а естественная благодарность не будит оператора",
       "messages": [

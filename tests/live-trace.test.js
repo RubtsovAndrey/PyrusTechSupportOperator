@@ -205,6 +205,40 @@ function matchingRatingsSubtaskTurns() {
   }];
 }
 
+function matchingRatingsContradictionTurns() {
+  const turns = matchingRatingsSubtaskTurns();
+  turns[1] = {
+    partner: { text: "нет, апелляцию уже подавали неделю назад, но ответа нет; передайте специалистам, a@b.ru" },
+    outcome: "clarify_answers",
+    replies: [{ text: "Какой результат вы ожидаете?" }],
+    internal: [], logs: [],
+    path: ["Turn Interpreter", "Solver / Policy Reader", "Outcome - clarify (article questions)", "finalize"],
+    calls: [], errors: []
+  };
+  turns[2] = {
+    partner: { text: "проверка была первого сентября; апелляцию ещё не подавали, ожидаем пересмотр и возврат баллов" },
+    outcome: "clarify_answers",
+    replies: [{ text: "Уточните, пожалуйста: апелляцию уже подавали или ещё нет?" }],
+    internal: [], logs: [],
+    path: ["Open Answer Interpreter", "Validate open answers",
+      "open answer has a material conflict?", "Outcome - clarify (article questions)", "finalize"],
+    calls: [], errors: []
+  };
+  turns[3] = {
+    partner: { text: "предыдущее сообщение было ошибочным: апелляцию ещё не подавали; ожидаем пересмотр и возврат баллов" },
+    outcome: "subtask_created",
+    replies: [{ text: "Обращение создано. Мы вернёмся с ответом на ваш email.",
+      action: "finished", approval: null, fields: 2 }],
+    internal: [], logs: [],
+    path: ["Open Answer Interpreter", "Validate open answers", "Solver / Policy Reader",
+      "Handover Summary Agent (subtask)", "createSubtask", "Outcome - subtask created", "finalize"],
+    calls: [], errors: [],
+    taskState: { isClosed: true, currentStep: 1, postedCommentId: 30,
+      lastAction: "finished", reopenedAfterReply: false, laterComments: [] }
+  };
+  return turns;
+}
+
 async function main() {
   const t = suite("live trace scenarios");
   const scenariosFile = path.join(__dirname, "live", "scenarios.json");
@@ -337,6 +371,12 @@ async function main() {
   checks = validateScenario(ratingsWithHiddenSpanError, ratingsScenario);
   t.check("the ratings outcome is not technically clean while its summary span has an error",
     checks.some(c => !c.ok && /нет ошибок платформы/.test(c.label)), checks);
+
+  const ratingsConflictScenario = loadScenario(scenariosFile,
+    "ratings-rko-contradiction-then-correction");
+  checks = validateScenario(matchingRatingsContradictionTurns(), ratingsConflictScenario);
+  t.check("a material ratings contradiction blocks the subtask until an explicit correction",
+    checks.length > 0 && checks.every(c => c.ok), checks.filter(c => !c.ok));
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pyrus-live-trace-"));
   const json = path.join(tmp, "one.json");
