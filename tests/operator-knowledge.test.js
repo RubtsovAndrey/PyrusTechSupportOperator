@@ -68,6 +68,11 @@ async function main() {
     r.result.reason === "подходящей тематики нет" && r.result.taskId === "17", r.result);
   t.check("two articles are prepared for the operator",
     r.result.operatorKnowledge.articles.length === 2, r.result.operatorKnowledge);
+  t.check("the same advisory result is published for the internal drafting agent",
+    r.env.values.operatorSupport &&
+    r.env.values.operatorSupport.operatorKnowledge.articles.length === 2 &&
+    /не отправлялись/.test(r.env.notes.join("\n")),
+    { value: r.env.values.operatorSupport, notes: r.env.notes });
   t.check("search covers every readable space by omitting the spaces filter",
     !("spaces" in r.env.posts[0].body.params.arguments.request),
     r.env.posts[0].body.params.arguments.request);

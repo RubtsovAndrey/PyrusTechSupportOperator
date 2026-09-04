@@ -24,7 +24,9 @@
               "count": 1,
               "includes": [
                 "Бот передаёт обращение оператору",
-                "Тематика: не определена"
+                "Тематика: не определена",
+                "Черновик возможного первого ответа партнёру",
+                "Сформирован автоматически и не отправлен"
               ],
               "excludes": ["Возможные материалы из Базы Знаний"]
             },
@@ -32,7 +34,62 @@
               "includes": ["findOperatorKnowledge:", "фильтр релевантности не пропустил ни одного"]
             },
             "path": {
-              "includes": ["Find knowledge for operator", "Outcome - escalate to operator", "finalize"]
+              "includes": ["Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"]
+            },
+            "calls": {
+              "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"escalated\""]
+            },
+            "noErrors": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "unknown-courier-avatar-unit-later",
+      "title": "Неизвестный вопрос сначала уточняет юнит, затем передаётся без произвольного вопроса о системе",
+      "messages": [
+        "как поменять аватарку у курьера?",
+        "Тамбов-1"
+      ],
+      "expect": {
+        "turnCount": 2,
+        "turns": [
+          {
+            "partner": { "includes": ["аватарку у курьера"] },
+            "outcome": "clarify",
+            "replies": {
+              "count": 1,
+              "includes": ["о какой точке идёт речь", "город и номер"]
+            },
+            "internal": { "count": 0 },
+            "path": {
+              "includes": ["Intake Agent", "Outcome - clarify", "finalize"],
+              "excludes": ["Routing Agent", "Find knowledge for operator"]
+            },
+            "calls": {
+              "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"clarify\""]
+            },
+            "noErrors": true
+          },
+          {
+            "partner": { "includes": ["Тамбов-1"] },
+            "outcome": "escalated",
+            "replies": {
+              "count": 1,
+              "includes": ["Понадобится время на изучение вопроса"],
+              "excludes": ["Возможные материалы из Базы Знаний", "Черновик возможного"]
+            },
+            "internal": {
+              "count": 1,
+              "includes": [
+                "Бот передаёт обращение оператору",
+                "Черновик возможного первого ответа партнёру",
+                "Сформирован автоматически и не отправлен"
+              ]
+            },
+            "path": {
+              "includes": ["Routing Agent", "Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"],
+              "excludes": ["Solver / Policy Reader", "Response Composer"]
             },
             "calls": {
               "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"escalated\""]
@@ -278,14 +335,16 @@
                 "Бот передаёт обращение оператору",
                 "Тематика: не определена",
                 "Возможные материалы из Базы Знаний",
-                "Принтер этикеток"
+                "Принтер этикеток",
+                "Черновик возможного первого ответа партнёру",
+                "Сформирован автоматически и не отправлен"
               ]
             },
             "logs": {
               "includes": ["findOperatorKnowledge:", "релевантных"]
             },
             "path": {
-              "includes": ["Find knowledge for operator", "Outcome - escalate to operator", "finalize"],
+              "includes": ["Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"],
               "excludes": ["Solver / Policy Reader", "Response Composer"]
             },
             "calls": {
@@ -336,7 +395,7 @@
             "outcome": "clarify_answers",
             "replies": {
               "count": 1,
-              "includes": ["Какой результат", "email"]
+              "includes": ["результат", "email"]
             },
             "internal": { "count": 0 },
             "path": {

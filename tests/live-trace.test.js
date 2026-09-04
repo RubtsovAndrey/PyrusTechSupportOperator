@@ -1,7 +1,8 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { filesOf, turnsOf, validateScenario, loadScenario, parseArgs } = require("../tools/read-trace");
+const { filesOf, turnsOf, validateScenario, loadScenario, parseArgs,
+  main: runReadTrace } = require("../tools/read-trace");
 const { suite } = require("./harness");
 
 function matchingTurn() {
@@ -9,9 +10,12 @@ function matchingTurn() {
     partner: { text: "Тамбов-1, нужно поменять аватарку у курьера" },
     outcome: "escalated",
     replies: [{ text: "Добрый день! Понадобится время на изучение вопроса." }],
-    internal: [{ text: "Бот передаёт обращение оператору. Тематика: не определена." }],
+    internal: [{ text: "Бот передаёт обращение оператору. Тематика: не определена. " +
+      "Черновик возможного первого ответа партнёру: Правильно ли я понимаю вопрос? " +
+      "Сформирован автоматически и не отправлен." }],
     logs: ["findOperatorKnowledge: MCP 9 результатов, фильтр релевантности не пропустил ни одного"],
-    path: ["Find knowledge for operator", "Outcome - escalate to operator", "finalize"],
+    path: ["Find knowledge for operator", "Operator Assist Composer", "Validate operator draft",
+      "Outcome - escalate to operator", "finalize"],
     calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],
     errors: []
   };
@@ -41,6 +45,31 @@ function matchingPosTurns() {
       errors: []
     }
   ];
+}
+
+function matchingUnknownUnitLaterTurns() {
+  return [{
+    partner: { text: "как поменять аватарку у курьера?" },
+    outcome: "clarify",
+    replies: [{ text: "Добрый день! Подскажите, о какой точке идёт речь — город и номер?" }],
+    internal: [],
+    logs: [],
+    path: ["Intake Agent", "Outcome - clarify", "finalize"],
+    calls: ["ID_Actions.applyOutcome({\"outcome\":\"clarify\"})"],
+    errors: []
+  }, {
+    partner: { text: "Тамбов-1" },
+    outcome: "escalated",
+    replies: [{ text: "Понадобится время на изучение вопроса." }],
+    internal: [{ text: "Бот передаёт обращение оператору. Тематика: не определена. " +
+      "Черновик возможного первого ответа партнёру: Уточните, пожалуйста, что нужно изменить. " +
+      "Сформирован автоматически и не отправлен." }],
+    logs: [],
+    path: ["Routing Agent", "Find knowledge for operator", "Operator Assist Composer",
+      "Validate operator draft", "Outcome - escalate to operator", "finalize"],
+    calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],
+    errors: []
+  }];
 }
 
 function matchingBlockedCloseTurns() {
@@ -110,9 +139,12 @@ function matchingLabelPrinterTurn() {
     outcome: "escalated",
     replies: [{ text: "Добрый день! Понадобится время на изучение вопроса." }],
     internal: [{ text: "Бот передаёт обращение оператору. Тематика: не определена. " +
-      "Возможные материалы из Базы Знаний: Принтер этикеток — Пространство техподдержки." }],
+      "Возможные материалы из Базы Знаний: Принтер этикеток — Пространство техподдержки. " +
+      "Черновик возможного первого ответа партнёру: Уточните, пожалуйста, модель принтера. " +
+      "Сформирован автоматически и не отправлен." }],
     logs: ["findOperatorKnowledge: MCP 9 результатов, релевантных 3, после приоритета и дедупликации 3"],
-    path: ["Find knowledge for operator", "Outcome - escalate to operator", "finalize"],
+    path: ["Find knowledge for operator", "Operator Assist Composer", "Validate operator draft",
+      "Outcome - escalate to operator", "finalize"],
     calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],
     errors: []
   };
@@ -199,6 +231,12 @@ async function main() {
   checks = validateScenario([broken], scenario);
   t.check("a platform error fails the scenario even when the handover completed",
     checks.some(c => !c.ok && /нет ошибок платформы/.test(c.label)), checks);
+
+  const unknownUnitLaterScenario = loadScenario(scenariosFile,
+    "unknown-courier-avatar-unit-later");
+  checks = validateScenario(matchingUnknownUnitLaterTurns(), unknownUnitLaterScenario);
+  t.check("an unknown topic asks only for the missing unit before a complete handover",
+    checks.length > 0 && checks.every(c => c.ok), checks.filter(c => !c.ok));
 
   const posScenario = loadScenario(scenariosFile, "known-pos-connection-then-handover");
   checks = validateScenario(matchingPosTurns(), posScenario);
@@ -391,10 +429,35 @@ async function main() {
     parsedFormatted.errors.length === 1 && /not JSON/.test(parsedFormatted.errors[0]),
     parsedFormatted.errors);
 
+  const guardedOutcomeJson = path.join(tmp, "guarded-outcome.json");
+  fs.writeFileSync(guardedOutcomeJson, JSON.stringify([{
+    type: "trace",
+    startTime: "2026-09-04T10:00:00.000Z",
+    children: [{
+      type: "span",
+      label: "Пользовательская функция: ID_Actions.applyOutcome",
+      relatedEvent: { data: { args: { outcome: "clarify", replyText: "Уточните приложение" } } },
+      outputData: { success: true, kind: "escalated", nextStage: "escalated" },
+      children: []
+    }]
+  }]), "utf8");
+  const guardedOutcome = turnsOf(guardedOutcomeJson).turns[0];
+  t.check("the trace reports the outcome actually enforced by applyOutcome",
+    guardedOutcome.outcome === "escalated", guardedOutcome);
+
   const args = parseArgs([tmp, "--scenario", "unknown-courier-avatar", "--out", "report.txt"]);
   t.check("scenario and output flags do not become input paths",
     args.sources.length === 1 && args.scenarioId === "unknown-courier-avatar" &&
     path.basename(args.outFile) === "report.txt", args);
+
+  const multiReport = path.join(tmp, "multi-report.txt");
+  const multiStatus = runReadTrace([
+    json, guardedOutcomeJson, "--scenario", "unknown-courier-avatar", "--out", multiReport
+  ]);
+  const multiText = fs.readFileSync(multiReport, "utf8");
+  t.check("one scenario cannot silently validate several concatenated chats",
+    multiStatus === 2 && /только по одному источнику/.test(multiText),
+    { status: multiStatus, report: multiText });
 
   let missingValue = null;
   try { parseArgs([tmp, "--scenario"]); } catch (e) { missingValue = e.message; }

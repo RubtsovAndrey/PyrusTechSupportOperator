@@ -518,7 +518,8 @@ else if (storedStage === "awaiting_email") stage = "awaiting_email";
 // is always the safe fallback.
 else if (storedStage === "awaiting_answers") {
   stage = data.topicKey
-    ? (semanticValues.length ? "interpret_answer" : "awaiting_answers")
+    ? (semanticValues.length ? "interpret_answer"
+      : (data.openAnswerKeys ? "interpret_open_answers" : "awaiting_answers"))
     : "intake";
 }
 
@@ -825,6 +826,27 @@ if (interpretationContract) {
   lines.push("- Допустимые value и meaning: " + JSON.stringify(interpretationContract.values));
 }
 
+const openAnswerKeys = String(data.openAnswerKeys || "").split(",")
+  .map(key => key.trim()).filter(Boolean);
+const openAnswerContract = stage === "interpret_open_answers" && openAnswerKeys.length
+  ? {
+      id: "open_answers:" + taskId + ":" + String(incomingCommentId || now),
+      kind: "open_answers",
+      keys: openAnswerKeys,
+      directKeys: String(data.openAnswerDirectKeys || "").split(",")
+        .map(key => key.trim()).filter(key => openAnswerKeys.indexOf(key) >= 0),
+      prompts: String(data.openAnswerDefinitions || data.openAnswerPrompts || "")
+    }
+  : null;
+if (openAnswerContract) {
+  lines.push("Контракт извлечения открытых ответов:");
+  lines.push("- contractId: " + openAnswerContract.id);
+  lines.push("- Разрешённые ключи: " + openAnswerContract.keys.join(", "));
+  lines.push("- Ключи вопроса, фактически заданного партнёру: " +
+    (openAnswerContract.directKeys.join(", ") || "нет"));
+  lines.push("- Какие факты запрошены: " + openAnswerContract.prompts);
+}
+
 AgentContext.addNote({ text: lines.join("\n") });
 
 if (incomingText) {
@@ -859,7 +881,8 @@ AgentContext.putValue({
     activeQuestionText: stage === "interpret_answer" ? (data.activeQuestionText || null) : null,
     activeQuestionValuesJson: stage === "interpret_answer"
       ? (data.activeQuestionValuesJson || null) : null,
-    interpretationContract: interpretationContract
+    interpretationContract: interpretationContract,
+    openAnswerContract: openAnswerContract
   }
 });
 

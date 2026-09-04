@@ -530,6 +530,29 @@ async function main() {
   t.check("and so does what has already been collected",
     /Уже собрано по тематике: whatToChange: фамилию/.test(factsNote), factsNote);
 
+  r = await run([{ id: 421, author: PARTNER,
+    text: "ожидаем пересмотр и возврат баллов", channel: CHAN }], {
+    [KEY]: {
+      stage: "awaiting_answers",
+      data: {
+        topicKey: "ratings_questions",
+        openAnswerKeys: "expectedResult",
+        openAnswerDirectKeys: "expectedResult",
+        openAnswerDefinitions: "expectedResult — Какой результат вы ожидаете?",
+        openAnswerPrompts: "expectedResult — Какой результат вы ожидаете?"
+      }
+    }
+  });
+  t.check("free-form article fields enter the narrow open-answer interpreter",
+    r.result.stage === "interpret_open_answers" &&
+    r.values.dialog.openAnswerContract.kind === "open_answers" &&
+    r.values.dialog.openAnswerContract.keys.length === 1 &&
+    r.values.dialog.openAnswerContract.keys[0] === "expectedResult",
+    { result: r.result, contract: r.values.dialog.openAnswerContract });
+  t.check("the open-answer contract is explicit in the model context",
+    r.notes.some(n => /Контракт извлечения открытых ответов:/.test(n) &&
+      /expectedResult/.test(n)), r.notes);
+
   // ── Email is only harvested where it is expected ──
   r = await run([{ id: 30, author: PARTNER, text: "письмо от noreply@pyrus.com не пришло", channel: CHAN }], {});
   t.check("quoted address is ignored outside awaiting_email", !r.state.data.email, r.state.data);

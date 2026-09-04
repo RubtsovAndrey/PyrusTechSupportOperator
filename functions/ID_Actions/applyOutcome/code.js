@@ -288,6 +288,17 @@ function operatorKnowledgeBlock(knowledge) {
   return lines.join("\n");
 }
 
+function operatorDraftBlock(draft) {
+  const text = String(draft || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return [
+    "Черновик возможного первого ответа партнёру:",
+    "Сформирован автоматически и не отправлен. Оператору нужно проверить факты и формулировку.",
+    "",
+    text
+  ].join("\n");
+}
+
 // An approved scenario may run in shadow mode: it selects the exact instruction and
 // sources, but only the human operator may decide how to use them. Unlike broad search,
 // this is not a list of possible articles — it is the branch the controlled article chose.
@@ -719,6 +730,8 @@ if (spec.nextStage === "escalated") {
   if (approvedAdvice) internalNote += "\n\n" + approvedAdvice;
   const knowledge = operatorKnowledgeBlock(prev.operatorKnowledge);
   if (knowledge) internalNote += "\n\n" + knowledge;
+  const draft = operatorDraftBlock(prev.operatorDraft);
+  if (draft) internalNote += "\n\n" + draft;
 }
 
 // ── Why the Pyrus field updates are NOT built here ──

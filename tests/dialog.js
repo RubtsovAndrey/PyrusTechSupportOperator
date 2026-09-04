@@ -167,6 +167,8 @@ const AGENTS = {
     if (turn.routingClarify) {
       return json({
         topicKey: null, route: "clarify", componentName: null, partnerLanguage,
+        candidateTopicKeys: Array.isArray(turn.routingCandidateKeys)
+          ? turn.routingCandidateKeys : topics.slice(0, 2).map(topic => topic.key),
         clarifyingQuestion: turn.routingClarify, reason: "нужно различить возможные темы"
       });
     }
@@ -181,6 +183,44 @@ const AGENTS = {
       componentName: picked.componentName || null,
       partnerLanguage: partnerLanguage,
       reason: "счёт " + picked.score
+    });
+  },
+
+  // Advisory-only drafting for an unknown topic. The text is deliberately generic in the
+  // simulator: product tests assert the isolation boundary, not model prose.
+  async agent_operator_assist(env) {
+    const dialog = env.values.dialog || {};
+    return json({
+      operatorDraft: "Правильно ли я понимаю, что вопрос относится к ситуации: " +
+        String(dialog.problemSummary || "описанная проблема") + "?"
+    });
+  },
+
+  // Open article fields are extracted by a role that cannot read policy or choose an
+  // outcome. The simulator accepts only keys from the current contract and cites the
+  // complete current message as evidence, which is necessarily a verbatim fragment.
+  async agent_open_answer_interpreter(env, turn) {
+    const dialog = env.values.dialog || {};
+    const contract = dialog.openAnswerContract || {};
+    const said = String(dialog.incomingText || "");
+    const declared = Array.isArray(contract.keys) ? contract.keys : [];
+    const supplied = turn.answers || {};
+    const evidenceByKey = turn.openAnswerEvidence || {};
+    const answers = {};
+    Object.keys(supplied).forEach(key => {
+      if (declared.indexOf(key) < 0) return;
+      answers[key] = {
+        value: String(supplied[key]),
+        evidenceText: evidenceByKey[key] !== undefined ? String(evidenceByKey[key]) : said
+      };
+    });
+    return json({
+      kind: "open_answers",
+      contractId: contract.id || null,
+      answers: answers,
+      conflicts: Array.isArray(turn.openAnswerConflicts) ? turn.openAnswerConflicts : [],
+      partnerLanguage: turn.partnerLanguage ||
+        partnerLanguageOf(said, dialog.partnerLanguage)
     });
   },
 
@@ -247,7 +287,9 @@ const AGENTS = {
 
     // Что партнёр уже сказал. Сценарий объявляет это явно; если статья ждёт ровно один
     // ответ, всё сообщение и есть он — так же поступила бы и модель.
-    let answers = turn.answers || null;
+    const openAnswersWereVerified = env.notes.some(note =>
+      /Проверенные открытые ответы текущей реплики:/.test(String(note || "")));
+    let answers = openAnswersWereVerified ? {} : (turn.answers || null);
     if (!answers) {
       const open = openKeys(env);
       answers = open.length === 1 && describesProblem(said) ? { [open[0]]: said } : {};
@@ -255,7 +297,8 @@ const AGENTS = {
     // A live small-model failure discovered the answer while composing its final JSON but
     // omitted it from the earlier tool call. Tests can reproduce that sequencing without
     // making the reference agent generally disobedient.
-    const toolAnswers = turn.toolAnswers !== undefined ? turn.toolAnswers : answers;
+    const toolAnswers = openAnswersWereVerified ? {}
+      : (turn.toolAnswers !== undefined ? turn.toolAnswers : answers);
 
     let r = await callTool(env, "searchKnowledge", {
       query: said, topicKey: activeTopicKey, answers: JSON.stringify(toolAnswers)

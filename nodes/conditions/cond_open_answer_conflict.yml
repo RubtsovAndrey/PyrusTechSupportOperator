@@ -1,0 +1,11 @@
+---
+id: cond_open_answer_conflict
+name: open answer has a material conflict?
+position:
+  x: 2320
+  y: -390
+next-step: func_clarify_answers
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).needsClarification === true"
+  false-step: agent_solver

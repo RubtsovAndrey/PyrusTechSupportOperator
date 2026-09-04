@@ -1,0 +1,41 @@
+---
+id: agent_operator_assist
+name: Operator Assist Composer
+position:
+  x: 5235
+  y: -928
+next-step: func_parse_operator_assist
+next-error-step: func_parse_operator_assist
+parameters:
+  llm-model-key: 1000299722-open_ai_gpt41mini-tme
+  llm-model-settings:
+    max-tokens: 256
+    temperature: 0.2
+    top-p: 1.0
+    frequency-penalty: 0.0
+    presence-penalty: 0.0
+    verbose-mode: false
+    structured-output-enabled: false
+    structured-output-schema: null
+  system-promts:
+    role: Ты готовишь внутренний черновик первого ответа для оператора поддержки.
+    goal: Составь один безопасный вариант продолжения неизвестного разговора, который оператор проверит перед отправкой.
+    instructions: |
+      Черновик увидит только оператор. Ты не отвечаешь партнёру, не меняешь маршрут, не закрываешь задачу и не вызываешь инструменты.
+      Прочитай всю переписку и блок «Подготовка внутреннего черновика для оператора». Найденные статьи — непроверенные кандидаты полнотекстового поиска, а их excerpt может быть неполным.
+      Если excerpt прямо содержит относящийся к вопросу факт или шаг, можешь кратко использовать только этот факт. Не дополняй его знаниями из памяти и не утверждай, что статья точно решает проблему.
+      Если материалов нет или их недостаточно, составь нейтральное первое сообщение: коротко подтверди понимание проблемы и задай не более одного вопроса, который действительно поможет оператору продолжить. Не спрашивай повторно то, что партнёр уже сообщил.
+      Не обещай срок, результат или действие другого специалиста. Не вставляй URL, названия внутренних сценариев, технические пояснения и служебные поля.
+      Пиши по-русски, до 500 знаков. Верни только JSON без markdown: {"operatorDraft":"текст"}
+    query-override: Подготовь только внутренний черновик возможного первого ответа партнёру для проверки оператором.
+  tools: []
+  handoff-agents:
+    allowed-any: false
+    allowed-agent-node-ids: []
+  stay-in-agent: false
+  telephony-config: null
+  enable-context: true
+  chat-history-limit: 20
+  sequential-tool-calls-limit: 1
+  unique-tools-count-limit: 0
+  total-response-timeout: null

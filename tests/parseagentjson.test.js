@@ -201,6 +201,50 @@ async function main() {
     r.state.data.topicSupportsSubtask === false,
     { result: r.result, data: r.state.data });
 
+  // Live task 377242982: no policy matched the avatar request, but routing invented an
+  // external-system distinction and repeated it even after the partner answered. A
+  // clarification without two real policy candidates cannot make routing progress.
+  r = await run("routing", json({
+    topicKey: null, route: "clarify", candidateTopicKeys: [], partnerLanguage: "ru",
+    clarifyingQuestion: "Это приложение курьеров или система управления персоналом?"
+  }), {
+    runtime: { role: "chat" },
+    data: {
+      unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)",
+      problemSummary: "как поменять аватарку у курьера"
+    }
+  });
+  t.check("a routing question without two prepared candidates becomes a handover",
+    r.result.route === "escalate" && !r.result.clarifyingQuestion &&
+    /нет двух подтверждённых/.test(r.state.data.handoverReason || ""),
+    { result: r.result, data: r.state.data });
+
+  r = await run("routing", json({
+    topicKey: null, route: "clarify",
+    candidateTopicKeys: ["printer_no_receipt", "payment_dispute"], partnerLanguage: "ru",
+    clarifyingQuestion: "Ошибка относится к печати чека или к оплате?"
+  }), {
+    runtime: { role: "chat" },
+    data: {
+      unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)",
+      problemSummary: "непонятная ошибка на кассе"
+    }
+  });
+  t.check("one discriminating question between two real policies remains allowed",
+    r.result.route === "clarify" && r.result.candidateTopicKeys.length === 2 &&
+    r.state.data.routingClarificationTopics === "printer_no_receipt,payment_dispute",
+    { result: r.result, data: r.state.data });
+
+  r = await run("routing", json({
+    topicKey: null, route: "clarify",
+    candidateTopicKeys: ["printer_no_receipt", "payment_dispute"], partnerLanguage: "ru",
+    clarifyingQuestion: "Это всё-таки печать или оплата?"
+  }), r.state, { incomingText: "это связано с оплатой" });
+  t.check("routing cannot ask a second discriminating question in the same problem",
+    r.result.route === "escalate" && !r.result.clarifyingQuestion &&
+    /уже ответил/.test(r.state.data.handoverReason || ""),
+    { result: r.result, data: r.state.data });
+
   // Live ratings acceptance, task 377005885: searchKnowledge had already walked the
   // approved article to `end: subtask`. The model nevertheless wrote that specialists
   // had received the request. The generic grounding guard used to turn the correct

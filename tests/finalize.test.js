@@ -644,7 +644,8 @@ async function main() {
           excerpt: "Порядок действий при ошибке закрытия смены.",
           url: "https://kb.example/article/space-tech/article-1"
         }]
-      }
+      },
+      operatorDraft: "Подскажите, фотографию нужно изменить только для отображения на кассе?"
     },
     db: { [KEY]: state({
       stage: "routing",
@@ -672,6 +673,11 @@ async function main() {
   t.check("operator hints never become the partner reply",
     !/Закрытие кассовой смены/.test(enriched.db[KEY].pendingOutcome.replyText || ""),
     enriched.db[KEY].pendingOutcome);
+  t.check("the possible reply is labelled as an unreviewed internal draft",
+    /Черновик возможного первого ответа партнёру/.test(enrichedNote) &&
+    /не отправлен/.test(enrichedNote) && /фотографию нужно изменить/.test(enrichedNote) &&
+    !/фотографию нужно изменить/.test(enriched.db[KEY].pendingOutcome.replyText || ""),
+    enrichedNote);
   t.check("an approved shadow instruction is appended only to the operator summary",
     /Рекомендация из внутренней статьи/.test(enrichedNote) &&
     /Распечатайте копию последнего документа/.test(enrichedNote) &&

@@ -193,17 +193,45 @@ const taskId = prev.taskId || dialog.taskId || null;
 const query = String(dialog.problemSummary || dialog.incomingText || "").trim();
 const reason = prev.reason || "подходящей утверждённой тематики нет";
 
+// The following agent writes an INTERNAL draft for the operator. Give it only the
+// advisory search result and the already available dialog context. The same object is
+// returned to applyOutcome later by parseOperatorAssist, so adding a drafting agent can
+// never make the links disappear from the deterministic handover path.
+function finish(articles, usedQuery) {
+  const result = {
+    taskId: taskId,
+    reason: reason,
+    operatorKnowledge: { query: usedQuery || null, articles: articles || [] }
+  };
+  try {
+    AgentContext.putValue({ key: "operatorSupport", value: result });
+    const compactArticles = (articles || []).slice(0, LIMIT).map(a => ({
+      title: a.title || "Статья без заголовка",
+      excerpt: a.excerpt || ""
+    }));
+    AgentContext.addNote({ text: [
+      "Подготовка внутреннего черновика для оператора:",
+      "- Неизвестный вопрос: " + (usedQuery || "не описан"),
+      "- Найденные материалы — только кандидаты, партнёру не отправлялись:",
+      JSON.stringify(compactArticles)
+    ].join("\n") });
+  } catch (e) {
+    Log.warn({ message: "findOperatorKnowledge: не удалось опубликовать контекст черновика: " + e });
+  }
+  return result;
+}
+
 // Поиск — необязательное обогащение handover. Любая его проблема должна оставить саму
 // передачу рабочей, поэтому наружу возвращается исходная причина и пустой список.
 if (!query) {
   Log.info({ message: "findOperatorKnowledge: нет описания проблемы, поиск пропущен" });
-  return { taskId: taskId, reason: reason, operatorKnowledge: { query: null, articles: [] } };
+  return finish([], null);
 }
 
 const token = await readToken();
 if (!token) {
   Log.warn({ message: "findOperatorKnowledge: read-only токен БЗ недоступен, передача продолжится без подсказок" });
-  return { taskId: taskId, reason: reason, operatorKnowledge: { query: query, articles: [] } };
+  return finish([], query);
 }
 
 let search;
@@ -214,7 +242,7 @@ try {
   search = await rpc(token, "search_content", { request: { query: query, limit: LIMIT * 3 } });
 } catch (e) {
   Log.warn({ message: "findOperatorKnowledge: поиск не удался, передача продолжится без подсказок: " + e });
-  return { taskId: taskId, reason: reason, operatorKnowledge: { query: query, articles: [] } };
+  return finish([], query);
 }
 
 const hits = search && Array.isArray(search.results) ? search.results : [];
@@ -256,7 +284,7 @@ for (let i = 0; i < candidates.length && accepted.length < LIMIT; i++) {
 if (!accepted.length) {
   Log.info({ message: "findOperatorKnowledge: «" + query.slice(0, 120) + "» → MCP " + hits.length +
     " результатов, опубликованных кандидатов " + eligible + ", фильтр релевантности не пропустил ни одного" });
-  return { taskId: taskId, reason: reason, operatorKnowledge: { query: query, articles: [] } };
+  return finish([], query);
 }
 
 let template = null;
@@ -287,4 +315,4 @@ for (let i = 0; i < accepted.length; i++) {
 Log.info({ message: "findOperatorKnowledge: «" + query.slice(0, 120) + "» → MCP " + hits.length +
   " результатов, опубликованных кандидатов " + eligible + ", релевантных " + candidates.length +
   ", подсказок оператору после приоритета и дедупликации " + articles.length });
-return { taskId: taskId, reason: reason, operatorKnowledge: { query: query, articles: articles } };
+return finish(articles, query);

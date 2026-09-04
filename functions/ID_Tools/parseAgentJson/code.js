@@ -340,7 +340,7 @@ function answerKeysOfTopic(key) {
 // surname, a length of service — and the model, shown only the word, matched nothing and
 // asked the partner what he had already written. Every meaning is listed, because which
 // branch the dialog will take is not known until the answer is in.
-function answerPromptsOfTopic(key, collected, dialogData) {
+function answerPromptsOfTopic(key, collected, dialogData, allOpenFields) {
   const topic = topicByKey(key);
   if (!topic) return [];
   const nodes = topic.nodes && typeof topic.nodes === "object" ? topic.nodes : null;
@@ -356,10 +356,23 @@ function answerPromptsOfTopic(key, collected, dialogData) {
   });
   const activeId = dialogData && dialogData.treeNode ? String(dialogData.treeNode) : null;
   const active = activeId && nodes && nodes[activeId] ? nodes[activeId] : null;
+  // The narrow Open Answer Interpreter may safely see every unresolved free-text field:
+  // its parser separately prevents a short contextual «да/нет» from filling a future
+  // field. Finite valued branches stay with Turn Interpreter and are never advertised
+  // through this broader contract.
+  if (allOpenFields && nodes) {
+    Object.keys(nodes).forEach(id => {
+      const node = nodes[id] || {};
+      const branches = Array.isArray(node.branches) ? node.branches : [];
+      const finite = branches.length > 0 && branches.every(branch => branch &&
+        branch.value && branch.meaning);
+      if (!finite) add(node.ask);
+    });
   // Before the article starts, advertise every field so the Solver can recover facts from
   // the opening message. Once a concrete node is active, advertise only that node: showing
-  // future binary questions is what made a bare «нет» answer the wrong question live.
-  if (active) add(active.ask);
+  // future binary questions to the Solver is what made a bare «нет» answer the wrong
+  // question live.
+  } else if (active) add(active.ask);
   else if (nodes) Object.keys(nodes).forEach(id => add(nodes[id] && nodes[id].ask));
   if (!nodes || !active || dialogData && dialogData.treeHandoverAsked === true) {
     add(topic.askBeforeHandover);
@@ -831,6 +844,48 @@ if (taskId) {
       delete parsed.topicKey;
       delete parsed.componentName;
     }
+
+    // A routing clarification is useful only when it separates real prepared policies.
+    // The live avatar dialog had no catalog candidate at all, yet the model invented a
+    // choice between two external systems and repeated it after the partner had answered
+    // verbatim. That did not make routing safer: neither answer could lead to a policy.
+    // The model may propose a discriminating question, but code authorises it only for at
+    // least two catalog-backed candidates and only once in one continuous problem.
+    if (String(stage || "") === "routing" && !restrictedNow) {
+      const candidateKeys = [];
+      const proposed = Array.isArray(parsed.candidateTopicKeys) ? parsed.candidateTopicKeys : [];
+      proposed.forEach(candidate => {
+        const valid = validateTopicKey(candidate, data.unitFullName,
+          storedDoc && storedDoc.value && storedDoc.value.runtime && storedDoc.value.runtime.role);
+        if (valid && candidateKeys.indexOf(valid) < 0) candidateKeys.push(valid);
+      });
+      parsed.candidateTopicKeys = candidateKeys;
+
+      if (String(parsed.route || "") === "clarify") {
+        const question = String(parsed.clarifyingQuestion || "").replace(/\s+/g, " ").trim();
+        const alreadyAsked = !!String(data.routingClarificationQuestion || "").trim();
+        if (candidateKeys.length < 2 || !question || alreadyAsked) {
+          parsed.route = "escalate";
+          delete parsed.clarifyingQuestion;
+          data.handoverReason = alreadyAsked
+            ? "партнёр уже ответил на уточнение маршрута, но подготовленная тематика не определилась"
+            : "нет двух подтверждённых подготовленных тематик, которые мог бы различить дополнительный вопрос";
+          patch["data.handoverReason"] = data.handoverReason;
+          Log.warn({ message: "parseAgentJson: routing clarification on task " + taskId +
+            " was not backed by two new catalog candidates; escalating instead" });
+        } else {
+          data.routingClarificationQuestion = question.slice(0, 500);
+          data.routingClarificationTopics = candidateKeys.join(",");
+          patch["data.routingClarificationQuestion"] = data.routingClarificationQuestion;
+          patch["data.routingClarificationTopics"] = data.routingClarificationTopics;
+        }
+      } else if (data.routingClarificationQuestion || data.routingClarificationTopics) {
+        data.routingClarificationQuestion = null;
+        data.routingClarificationTopics = null;
+        patch["data.routingClarificationQuestion"] = null;
+        patch["data.routingClarificationTopics"] = null;
+      }
+    }
     if (restrictedNow && String(stage || "") === "solver") {
       parsed.replyText = "";
       parsed.kind = "handover";
@@ -1214,6 +1269,21 @@ if (taskId) {
     const open = answerPromptsOfTopic(data.topicKey, data.treeAnswers, data);
     const openLine = open.length ? open.join("; ") : null;
     if ((known.openAnswerPrompts || null) !== openLine) patch["data.openAnswerPrompts"] = openLine;
+    const interpretationOpen = answerPromptsOfTopic(data.topicKey, data.treeAnswers, data, true);
+    const interpretationLine = interpretationOpen.length ? interpretationOpen.join("; ") : null;
+    if ((known.openAnswerDefinitions || null) !== interpretationLine) {
+      patch["data.openAnswerDefinitions"] = interpretationLine;
+    }
+    const openKeysLine = interpretationOpen.length
+      ? interpretationOpen.map(item => String(item).split(" — ")[0].trim()).filter(Boolean).join(",")
+      : null;
+    if ((known.openAnswerKeys || null) !== openKeysLine) patch["data.openAnswerKeys"] = openKeysLine;
+    const directKeysLine = open.length
+      ? open.map(item => String(item).split(" — ")[0].trim()).filter(Boolean).join(",")
+      : null;
+    if ((known.openAnswerDirectKeys || null) !== directKeysLine) {
+      patch["data.openAnswerDirectKeys"] = directKeysLine;
+    }
 
     if (!documentExists) patch["data"] = data;
     // A terminal article that already supplied a reason and a problem summary contains
@@ -1245,7 +1315,7 @@ if (taskId) {
      "operatorAdvice",
      // Printed as a labelled line in the note below; as a second copy inside the serialised
      // `dialog` value it would only say the same thing in a worse format.
-     "openAnswerPrompts",
+     "openAnswerPrompts", "openAnswerKeys", "openAnswerDefinitions", "openAnswerDirectKeys",
      "treeAnswers"].forEach(k => { delete published[k]; });
     AgentContext.putValue({ key: "dialog", value: published });
     // The answers already collected are named explicitly: without them the model asked

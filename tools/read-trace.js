@@ -177,7 +177,13 @@ function turnsOf(file) {
       if (/Пользовательская функция/.test(label) && d) {
         const name = String(label).split(": ")[1] || label;
         const args = d.args || (d.file ? null : d);
-        if (/applyOutcome/.test(name) && d.args) turn.outcome = d.args.outcome || null;
+        if (/applyOutcome/.test(name) && d.args) {
+          const output = span.outputData || {};
+          // A safety guard may replace a requested clarify/close with a handover. The
+          // trace report must show what actually happened, not merely the input request.
+          turn.outcome = output.kind || (output.result && output.result.kind) ||
+            d.args.outcome || null;
+        }
         if (args && Object.keys(args).length) turn.calls.push(name + "(" + cut(JSON.stringify(args), 200) + ")");
       }
 
@@ -445,6 +451,10 @@ function main(argv) {
   let failed = documents.some(document => document.errors.length > 0);
   if (options.scenarioId) {
     try {
+      if (options.sources.length !== 1) {
+        throw new Error("сценарий можно проверять только по одному источнику; " +
+          "запустите отдельную команду для каждого чата");
+      }
       const scenario = loadScenario(options.scenariosFile, options.scenarioId);
       const turns = documents.reduce((all, document) => all.concat(document.turns), [])
         .sort((a, b) => String(a.at).localeCompare(String(b.at)));

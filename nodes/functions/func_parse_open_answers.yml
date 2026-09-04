@@ -1,0 +1,17 @@
+---
+id: func_parse_open_answers
+name: Validate open answers
+position:
+  x: 2040
+  y: -390
+next-step: cond_open_answer_conflict
+next-error-step: cond_open_answer_conflict
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: parseOpenAnswers
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

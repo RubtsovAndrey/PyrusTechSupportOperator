@@ -1,0 +1,11 @@
+---
+id: cond_stage_open_answers
+name: open answer interpretation required?
+position:
+  x: 1512
+  y: -350
+next-step: agent_open_answer_interpreter
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).stage === 'interpret_open_answers'"
+  false-step: cond_stage_interpreter

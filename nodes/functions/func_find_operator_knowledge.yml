@@ -4,8 +4,8 @@ name: Find knowledge for operator
 position:
   x: 5014
   y: -928
-next-step: func_escalate_m9k4j
-next-error-step: func_escalate_m9k4j
+next-step: agent_operator_assist
+next-error-step: agent_operator_assist
 parameters:
   type: USER
   collection: ID_Tools

@@ -130,6 +130,39 @@ async function main() {
     c.data.knowledgeOutcome.partnerText === "Нет, нам бы передать специалисту ситуацию, наша почта a@b.ru",
     c.data);
 
+  // A material contradiction in the details must stop the deterministic subtask. The
+  // narrow interpreter asks once; an explicit correction then lets the same article
+  // continue without handing policy or prose generation back to the Solver.
+  c = bot("rko", "answer");
+  await c.turn("Тамбов-1, как подать апелляцию по РКО?", {
+    unit: "Тамбов-1",
+    externalAnswer: "Подайте апелляцию в Pyrus и приложите подтверждения."
+  });
+  await c.turn("Нет, апелляцию уже подавали, но ответа нет. Передайте специалистам, a@b.ru", {
+    status: "failed",
+    answers: {}
+  });
+  r = await c.turn("Проверка была 1 сентября, апелляцию ещё не подавали, хотим возврат баллов", {
+    answers: { expectedResult: "Хотим возврат баллов по проверке 1 сентября" },
+    openAnswerConflicts: [{
+      key: "expectedResult",
+      evidence: ["апелляцию уже подавали", "апелляцию ещё не подавали"],
+      clarifyingQuestion: "Уточните, пожалуйста: апелляцию уже подавали или ещё нет?"
+    }]
+  });
+  t.check("противоречивые детали не попадают в подзадачу без уточнения",
+    r.stage === "awaiting_answers" && r.kind === "clarify_answers" && !r.subtaskId &&
+    /уже подавали или ещё нет/.test(r.replies.join(" ")),
+    { result: r, data: c.data });
+  r = await c.turn("Предыдущее сообщение было ошибочным: апелляцию ещё не подавали, хотим возврат баллов", {
+    answers: { expectedResult: "Апелляцию ещё не подавали, хотим возврат баллов" }
+  });
+  t.check("явная поправка разрешает конфликт и создаёт одну подзадачу",
+    r.kind === "subtask_created" && r.stage === "closed" && !!r.subtaskId &&
+    !c.data.openAnswerConflict &&
+    c.env.posts.filter(p => /\/tasks$/.test(p.url)).length === 1,
+    { result: r, data: c.data });
+
   // A process question is not a question about the KB advice. The support subtask has its
   // own email requirement, and the last answer must still be extracted when the model
   // omitted it from the preceding tool call at the no-answer boundary.

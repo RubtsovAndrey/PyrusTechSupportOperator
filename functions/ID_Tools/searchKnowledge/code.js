@@ -1179,6 +1179,11 @@ if (effectiveTopicKey) {
       const activeWasDelivered = !!at &&
         String(data.treeDeliveredQuestionNode || "") === String(at.id);
       const currentRaw = String(dialogValue.incomingText || "").trim();
+      const currentIncomingCommentId = currentCommentId(loadState());
+      const verifiedOpenAnswerKeys = String(data.openAnswersAcceptedKeys || "")
+        .split(",").map(key => key.trim()).filter(Boolean);
+      const verifiedOpenAnswerThisTurn = currentIncomingCommentId != null &&
+        String(data.openAnswersAcceptedCommentId || "") === String(currentIncomingCommentId);
       const heardActive = activeBranchKey && activeWasDelivered
         ? branchFromWords(at, words(currentRaw), true) : null;
       if (heardActive) given[activeBranchKey] = heardActive.when[0];
@@ -1496,7 +1501,9 @@ if (effectiveTopicKey) {
       const askedBefore = String(data.treeDeliveredQuestionNode || "") === target.id;
       // Anything this turn contributed to this node: the model's `answers`, and the branch
       // the article read out of the partner's own words a few lines above.
-      const engaged = target.ask.some(q => stored[q.key] === undefined && known[q.key] !== undefined);
+      const engaged = target.ask.some(q => stored[q.key] === undefined && known[q.key] !== undefined) ||
+        (verifiedOpenAnswerThisTurn &&
+          target.ask.some(q => verifiedOpenAnswerKeys.indexOf(String(q.key || "")) >= 0));
       const ignoredTurns = (askedBefore && !engaged) ? (Number(data.treeSilent) || 0) + 1 : 0;
       patch.treeSilent = ignoredTurns;
 

@@ -48,7 +48,8 @@ async function main() {
   bot = chat();
   r = await bot.turn("Тамбов-1, касса работает неправильно", {
     unit: "Тамбов-1",
-    routingClarify: "Что именно происходит на кассе?"
+    routingClarify: "Что именно происходит на кассе?",
+    routingCandidateKeys: ["pos_down", "no_internet"]
   });
   t.check("неуверенный маршрутизатор задаёт один различающий вопрос",
     r.stage === "gathering" && /Что именно происходит/.test(r.replies.join(" ")) &&

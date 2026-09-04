@@ -1,0 +1,7 @@
+---
+id: parseOperatorAssist
+name: parseOperatorAssist
+description: Validates an internal draft for the operator and restores the advisory knowledge-search result.
+response-description: "{ taskId, reason, operatorKnowledge, operatorDraft }"
+parameters: []
+language: JAVASCRIPT
