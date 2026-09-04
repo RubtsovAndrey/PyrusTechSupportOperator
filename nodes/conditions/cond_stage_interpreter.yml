@@ -1,0 +1,11 @@
+---
+id: cond_stage_interpreter
+name: semantic answer to an active question?
+position:
+  x: 1512
+  y: -430
+next-step: agent_turn_interpreter
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).stage === 'interpret_answer'"
+  false-step: cond_stage_answers

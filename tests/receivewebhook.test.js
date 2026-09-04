@@ -451,7 +451,7 @@ async function main() {
   t.check("thanks plus a new request remains a genuine reopen",
     r.result.stage === "reopened", r.result);
 
-  // ── The answer to a question the ARTICLE asked goes straight back to the solver ──
+  // ── The answer to a question the ARTICLE asked bypasses intake and routing ──
   // Through the gathering stage it cost intake and routing on every answer — two extra model
   // calls on an article that legitimately asks up to a dozen questions — and routing was
   // free to rewrite topicKey in the middle of the walk.
@@ -459,6 +459,39 @@ async function main() {
     { [KEY]: { stage: "awaiting_answers", data: { topicKey: "employee_change", unitFullName: "Москва 12" } } });
   t.check("an answer to the article returns to the solver, not to intake",
     r.result.stage === "awaiting_answers" && r.result.skip === false, r.result);
+
+  const semanticData = {
+    topicKey: "cash_shift_closed_z_report_missing",
+    unitFullName: "Тамбов-1",
+    activeQuestionId:
+      "cash_shift_closed_z_report_missing:closedRestaurant:shiftClosedInDodo",
+    activeQuestionKey: "shiftClosedInDodo",
+    activeQuestionNode: "closedRestaurant",
+    activeQuestionCommentId: "39",
+    activeQuestionText: "Что сейчас показывает Додо ИС: смена закрыта или всё ещё открыта?",
+    activeQuestionValuesJson: JSON.stringify([
+      { value: "shift_closed", meaning: "Додо ИС показывает, что смена закрыта" },
+      { value: "shift_not_closed", meaning: "Додо ИС показывает, что смена не закрыта" }
+    ])
+  };
+  r = await run([{ id: 43, author: PARTNER,
+    text: "показывает, что закрыта", channel: CHAN }],
+  { [KEY]: { stage: "awaiting_answers", data: semanticData } });
+  t.check("a finite protected question routes to the narrow turn interpreter",
+    r.result.stage === "interpret_answer" && r.result.skip === false, r.result);
+  t.check("only the active question contract is exposed for semantic classification",
+    r.values.dialog.activeQuestionId === semanticData.activeQuestionId &&
+    r.values.dialog.activeQuestionText === semanticData.activeQuestionText &&
+    /shift_closed/.test(r.values.dialog.activeQuestionValuesJson || "") &&
+    r.notes.some(n => /Контракт активного вопроса:/.test(n)),
+    { dialog: r.values.dialog, notes: r.notes });
+
+  r = await run([{ id: 44, author: PARTNER, text: "закрыта", channel: CHAN }],
+    { [KEY]: { stage: "awaiting_answers", data: Object.assign({}, semanticData, {
+      activeQuestionNode: null
+    }) } });
+  t.check("an incomplete semantic contract stays on the legacy safe path",
+    r.result.stage === "awaiting_answers" && !r.values.dialog.activeQuestionId, r.result);
 
   // No topic means no article to return to, and intake is always the safe fallback.
   r = await run([{ id: 41, author: PARTNER, text: "фамилию", channel: CHAN }],

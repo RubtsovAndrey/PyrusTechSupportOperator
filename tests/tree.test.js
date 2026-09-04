@@ -209,6 +209,8 @@ function dialog(seed) {
           db[KEY].data.activeQuestionKey = db[KEY].data.preparedQuestionKey;
           db[KEY].data.activeQuestionNode = db[KEY].data.preparedQuestionNode;
           db[KEY].data.activeQuestionCommentId = "previous-turn";
+          db[KEY].data.activeQuestionValuesJson = db[KEY].data.preparedQuestionValuesJson;
+          db[KEY].data.activeQuestionText = db[KEY].data.preparedQuestionText;
         }
       }
       const e = makeEnv({ db: db, prev: JSON.stringify(answer), contextValues: { dialog: { taskId: String(TASK) } } });

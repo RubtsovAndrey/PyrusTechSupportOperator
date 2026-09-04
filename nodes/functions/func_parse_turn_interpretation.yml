@@ -1,0 +1,17 @@
+---
+id: func_parse_turn_interpretation
+name: Validate Turn Interpreter frame
+position:
+  x: 2050
+  y: -650
+next-step: func_searchknowledge_interpreted
+next-error-step: func_searchknowledge_interpreted
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: parseTurnInterpretation
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

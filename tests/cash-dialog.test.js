@@ -220,8 +220,9 @@ async function main() {
 
   // The primary language-understanding path no longer needs an ever-growing phrase list.
   // The reference agent cannot perform semantic classification, so `answerValue` declares
-  // the finite interpretation a real Solver is expected to produce. Everything around it
-  // is production code: active-question delivery, evidence binding and policy transition.
+  // the finite interpretation a real Turn Interpreter is expected to produce. Everything
+  // around it is production code: active-question delivery, frame validation, evidence
+  // binding and the deterministic policy transition.
   bot = chat();
   await bot.turn(
     "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
@@ -238,6 +239,8 @@ async function main() {
     r.stage === "awaiting_answers" && /другие фискальные документы/.test(r.replies.join(" ")) &&
     !/смена закрыта или всё ещё открыта/.test(r.replies.join(" ")),
     r);
+  t.check("the protected answer turn uses only the narrow interpreter agent",
+    r.agents.join(",") === "agent_turn_interpreter", r.agents);
   t.check("semantic answer keeps the enum and the partner's exact evidence separately",
     bot.data.treeAnswerValues.shiftClosedInDodo === "shift_closed" &&
     bot.data.treeAnswerEvidence.shiftClosedInDodo === "закрыта" &&
@@ -253,6 +256,32 @@ async function main() {
   r = await bot.turn("показывает, что закрыта", { answerValue: "shift_closed" });
   t.check("a natural semantic paraphrase advances the same protected branch",
     r.stage === "awaiting_answers" && /другие фискальные документы/.test(r.replies.join(" ")),
+    r);
+  t.check("the paraphrase never returns to the overloaded solver",
+    r.agents.join(",") === "agent_turn_interpreter", r.agents);
+
+  // Exact live failure from task 377178226: Solver understood the phrase in its prose but
+  // failed to perform a second tool call and invented advice. A malformed Interpreter
+  // frame must now cost at most one canonical re-ask; the following natural answer remains
+  // usable and no model-written advice can cross the parser boundary.
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана закончилась лента при закрытии смены, Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  r = await bot.turn("показывает, что закрыта", { interpreterInvalid: true });
+  t.check("an invalid interpreter frame is replaced by the article's canonical question",
+    r.stage === "awaiting_answers" && r.internal.length === 0 &&
+    r.replies.length === 1 &&
+    r.replies[0] === "Что сейчас показывает Додо ИС: смена закрыта или всё ещё открыта?" &&
+    !/перезапустите кассу/i.test(r.replies.join(" ")),
+    r);
+  t.check("an invalid frame still invokes no general solver",
+    r.agents.join(",") === "agent_turn_interpreter", r.agents);
+  r = await bot.turn("пишет на экране closed", { answerValue: "shift_closed" });
+  t.check("the next natural answer survives the previous protocol miss and advances",
+    r.stage === "awaiting_answers" && /другие фискальные документы/.test(r.replies.join(" ")) &&
+    r.agents.join(",") === "agent_turn_interpreter",
     r);
 
   bot = chat();

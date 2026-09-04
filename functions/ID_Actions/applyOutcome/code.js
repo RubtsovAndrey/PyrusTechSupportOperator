@@ -752,7 +752,13 @@ const pendingOutcome = {
     ? (data.preparedQuestionId || null) : null,
   askedQuestionKey: spec.nextStage === "awaiting_answers" && text && treeNode &&
     String(data.preparedQuestionNode || "") === String(treeNode)
-    ? (data.preparedQuestionKey || null) : null
+    ? (data.preparedQuestionKey || null) : null,
+  askedQuestionValuesJson: spec.nextStage === "awaiting_answers" && text && treeNode &&
+    String(data.preparedQuestionNode || "") === String(treeNode)
+    ? (data.preparedQuestionValuesJson || null) : null,
+  askedQuestionText: spec.nextStage === "awaiting_answers" && text && treeNode &&
+    String(data.preparedQuestionNode || "") === String(treeNode)
+    ? (data.preparedQuestionText || null) : null
 };
 
 // Only the two paths this function owns. Writing the whole document put back the facts

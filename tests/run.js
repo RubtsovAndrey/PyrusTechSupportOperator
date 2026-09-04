@@ -9,6 +9,7 @@ const { ROOT } = require("./harness");
 
 const SUITES = [
   "./receivewebhook.test.js", "./finalize.test.js", "./parseagentjson.test.js",
+  "./turn-interpreter.test.js",
   "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
   "./pos-terminal-catalog.test.js", "./cash-dialog.test.js", "./ratings-dialog.test.js", "./routing-catalog.test.js", "./routing.test.js",
   "./getknowledgemcp.test.js", "./operator-knowledge.test.js", "./kbarticle.test.js", "./synckb.test.js",
@@ -423,6 +424,16 @@ function checkAgentPromptContracts() {
   if (solver.indexOf("subtaskEmailRequired: true") < 0 ||
       solver.indexOf("для создаваемого обращения email нужен") < 0) {
     problems.push(solverRel + ": агенту не объяснено требование email для подзадачи");
+  }
+  const interpreterRel = "nodes/agents/agent_turn_interpreter.yml";
+  const interpreter = fs.readFileSync(path.join(ROOT, interpreterRel), "utf8");
+  if (interpreter.indexOf("temperature: 0.0") < 0 ||
+      interpreter.indexOf("tools: []") < 0 ||
+      interpreter.indexOf("Никогда не возвращай совет") < 0 ||
+      interpreter.indexOf("activeQuestionId") < 0 ||
+      interpreter.indexOf("answerValue") < 0 ||
+      interpreter.indexOf("evidenceText") < 0) {
+    problems.push(interpreterRel + ": узкий смысловой контракт или запрет действий ослаблен");
   }
   return problems;
 }

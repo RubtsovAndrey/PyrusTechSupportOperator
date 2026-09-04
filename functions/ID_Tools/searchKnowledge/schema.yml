@@ -3,12 +3,11 @@ id: searchKnowledge
 name: searchKnowledge
 description: "Ищет в базе знаний тематику, подходящую под описание проблемы. Если\
   \ ничего не подходит, возвращает found=false без кандидатов и никогда не угадыва\
-  ет. Когда тематика уже известна, передавай topicKey. Для choose-branch с activeQuestionId\
-  \ интерпретируй текущую реплику в одно из answerValues и повторно вызови tool с\
-  \ activeQuestionId, answerValue и дословным evidenceText."
+  ет. Когда тематика уже известна, передавай topicKey. Защищённый activeQuestionId\
+  \ обрабатывает отдельный Turn Interpreter; Solver не должен угадывать его значение."
 response-description: "В ответе всегда есть turnKind — он говорит, чем сейчас этот\
-  \ виток: choose-branch (при activeQuestionId выбери по смыслу одно answerValue и\
-  \ повтори вызов с дословным evidenceText; иначе передай branch), questions (с\
+  \ виток: choose-branch (при activeQuestionId задай вопрос — следующий ответ обработает\
+  \ отдельный Interpreter; иначе передай branch), questions (с\
   формулируй вопросы по questionSpecs, а без него используй preQuestions), solution\
   \ (выдай solverInstruction), handover (не говори ничего, передачей занимается сц\
   енарий). При questions может прийти reasked: true — эти вопросы уже задавались,\
@@ -68,19 +67,19 @@ parameters:
 - name: activeQuestionId
   type: STRING
   required: false
-  description: "Идентификатор активного вопроса из ответа turnKind=choose-branch. Передавай только при смысловой классификации текущей реплики и только символ в символ."
+  description: "Идентификатор активного вопроса. Заполняется проверенным результатом отдельного Turn Interpreter; обычный Solver его не создаёт."
   properties: null
   items: null
 - name: answerValue
   type: STRING
   required: false
-  description: "Одно конечное смысловое значение из answerValues активного вопроса. Это интерпретация слов партнёра, а не имя ветки или следующего узла. Не передавай при сомнении или противоречивом ответе."
+  description: "Одно конечное смысловое значение активного вопроса из проверенного Turn Interpreter. Это не имя ветки или следующего узла."
   properties: null
   items: null
 - name: evidenceText
   type: STRING
   required: false
-  description: "Дословный непрерывный фрагмент ТЕКУЩЕГО сообщения партнёра, который подтверждает answerValue. Не пересказывай и не дополняй цитату."
+  description: "Дословный непрерывный фрагмент ТЕКУЩЕГО сообщения партнёра из проверенного Turn Interpreter."
   properties: null
   items: null
 language: JAVASCRIPT

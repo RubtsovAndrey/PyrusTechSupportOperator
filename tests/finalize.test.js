@@ -797,7 +797,9 @@ async function main() {
       topicKey: "employee_change", treeNode: "phone", unitFullName: "Москва 12",
       preparedQuestionId: "employee_change:phone:newValue",
       preparedQuestionKey: "newValue",
-      preparedQuestionNode: "phone"
+      preparedQuestionNode: "phone",
+      preparedQuestionValuesJson: '[{"value":"phone_supplied","meaning":"Партнёр назвал новый телефон"}]',
+      preparedQuestionText: "На какое значение поменять?"
     } }) },
     contextValues: { dialog: { taskId: "11613" } }
   });
@@ -808,6 +810,8 @@ async function main() {
   t.check("preparing a semantic article question carries its typed identity",
     round.db[KEY].pendingOutcome.askedQuestionId === "employee_change:phone:newValue" &&
     round.db[KEY].pendingOutcome.askedQuestionKey === "newValue" &&
+    /phone_supplied/.test(round.db[KEY].pendingOutcome.askedQuestionValuesJson || "") &&
+    round.db[KEY].pendingOutcome.askedQuestionText === "На какое значение поменять?" &&
     !round.db[KEY].data.activeQuestionId, round.db[KEY]);
 
   const delivering = makeEnv({ prev: { taskId: "11613" }, onGet: UNCHANGED, payload: ownPayload(42), db: round.db });
@@ -823,7 +827,10 @@ async function main() {
     delivering.db[KEY].data.activeQuestionId === "employee_change:phone:newValue" &&
     delivering.db[KEY].data.activeQuestionKey === "newValue" &&
     delivering.db[KEY].data.activeQuestionNode === "phone" &&
-    delivering.db[KEY].data.activeQuestionCommentId === "42", delivering.db[KEY].data);
+    delivering.db[KEY].data.activeQuestionCommentId === "42" &&
+    /phone_supplied/.test(delivering.db[KEY].data.activeQuestionValuesJson || "") &&
+    delivering.db[KEY].data.activeQuestionText === "На какое значение поменять?",
+    delivering.db[KEY].data);
 
   // The partner answers. A fresh webhook, the same task document.
   const answering = makeEnv({
@@ -834,8 +841,13 @@ async function main() {
     db: delivering.db
   });
   const back = await receiveWebhook(answering);
-  t.check("the answer goes back to the solver, not through intake",
-    back.stage === "awaiting_answers" && back.skip === false, back);
+  t.check("a protected answer goes to the narrow interpreter, not through intake",
+    back.stage === "interpret_answer" && back.skip === false, back);
+  t.check("the interpreter receives only the delivered finite question contract",
+    answering.values.dialog.activeQuestionId === "employee_change:phone:newValue" &&
+    /phone_supplied/.test(answering.values.dialog.activeQuestionValuesJson || "") &&
+    answering.values.dialog.activeQuestionText === "На какое значение поменять?",
+    answering.values.dialog);
   t.check("and the decision of the previous turn is not lying in wait",
     answering.db[KEY].pendingOutcome === null, answering.db[KEY].pendingOutcome);
 

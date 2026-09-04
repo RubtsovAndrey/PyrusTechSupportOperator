@@ -184,6 +184,43 @@ const AGENTS = {
     });
   },
 
+  // This role performs the only free-text judgement on a protected article answer. It
+  // cannot call tools or choose a graph edge: tests declare the finite meaning explicitly,
+  // while the production parser and searchKnowledge independently verify id, enum and
+  // verbatim evidence before the article may move.
+  async agent_turn_interpreter(env, turn) {
+    const dialog = env.values.dialog || {};
+    const said = String(dialog.incomingText || "");
+    const partnerLanguage = turn.partnerLanguage ||
+      partnerLanguageOf(said, dialog.partnerLanguage);
+    if (turn.interpreterInvalid) {
+      return json({
+        kind: "solution",
+        replyText: "Перезапустите кассу и повторите закрытие смены.",
+        partnerLanguage: partnerLanguage
+      });
+    }
+    if (turn.interpreterProse) return "Смена, вероятно, закрыта.";
+    if (!turn.answerValue) {
+      return json({
+        kind: "unclear",
+        activeQuestionId: dialog.activeQuestionId || null,
+        answerValue: null,
+        evidenceText: null,
+        partnerLanguage: partnerLanguage,
+        reason: "образцовый агент не подменяет смысловую модель"
+      });
+    }
+    return json({
+      kind: "answer",
+      activeQuestionId: turn.activeQuestionId || dialog.activeQuestionId || null,
+      answerValue: turn.answerValue,
+      evidenceText: turn.evidenceText !== undefined ? turn.evidenceText : said,
+      partnerLanguage: partnerLanguage,
+      reason: "однозначно"
+    });
+  },
+
   // Промпт: чем является виток — решает инструмент по полю turnKind.
   async agent_solver(env, turn) {
     const dialog = env.values.dialog || {};

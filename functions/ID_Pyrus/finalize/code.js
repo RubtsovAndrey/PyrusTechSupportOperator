@@ -471,6 +471,10 @@ if (outcome.nextStage === "awaiting_answers" && outcome.replyText && outcome.ask
     done["data.activeQuestionId"] = String(outcome.askedQuestionId);
     done["data.activeQuestionKey"] = String(outcome.askedQuestionKey);
     done["data.activeQuestionNode"] = String(outcome.askedTreeNode);
+    done["data.activeQuestionValuesJson"] = outcome.askedQuestionValuesJson
+      ? String(outcome.askedQuestionValuesJson) : null;
+    done["data.activeQuestionText"] = outcome.askedQuestionText
+      ? String(outcome.askedQuestionText) : null;
     // Pyrus' comment POST does not expose a dependable outgoing comment id in every
     // channel. This id names the inbound turn whose successfully posted reply activated
     // the question. A later webhook must carry a different id before it may answer it.
@@ -480,6 +484,8 @@ if (outcome.nextStage === "awaiting_answers" && outcome.replyText && outcome.ask
     done["data.activeQuestionKey"] = null;
     done["data.activeQuestionNode"] = null;
     done["data.activeQuestionCommentId"] = null;
+    done["data.activeQuestionValuesJson"] = null;
+    done["data.activeQuestionText"] = null;
   }
 }
 // createSubtask keeps ownership through the Pyrus write above. Clearing it together with

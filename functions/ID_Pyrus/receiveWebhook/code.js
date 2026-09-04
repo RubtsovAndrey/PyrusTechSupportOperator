@@ -461,6 +461,26 @@ function isJustThanks(text) {
   return parts.every(p => THANKS_PART.some(re => re.test(p)));
 }
 
+// Semantic questions carry their finite contract from the article through successful
+// delivery. Only those answers go to the dedicated interpreter; legacy article questions
+// continue to Solver unchanged. The values are stored as JSON text because the database
+// adapter cannot write arrays through a point update.
+function activeSemanticValues(data) {
+  if (!data || !data.activeQuestionId || !data.activeQuestionKey ||
+      !data.activeQuestionNode || !data.activeQuestionValuesJson) return [];
+  try {
+    const values = JSON.parse(String(data.activeQuestionValuesJson));
+    if (!Array.isArray(values) || !values.length) return [];
+    return values.filter(item => item && String(item.value || "").trim() &&
+      String(item.meaning || "").trim());
+  } catch (e) {
+    Log.warn({ message: "receiveWebhook: active semantic values are invalid for task " + taskId });
+    return [];
+  }
+}
+
+const semanticValues = activeSemanticValues(data);
+
 let stage = "intake";
 // Pyrus marks the first partner comment after `finished` as `reopened`. That transport
 // fact must not outrank the deliberately narrow gratitude classifier: otherwise the
@@ -482,11 +502,16 @@ else if (storedStage === "escalated") stage = "escalated";      // operator owns
 else if (storedStage === "awaiting_confirmation") stage = "awaiting_confirmation";
 else if (storedStage === "awaiting_email") stage = "awaiting_email";
 // The article asked a question of its own and this is the answer to it. Straight back to
-// the solver, the way `awaiting_email` goes straight back to createSubtask: routed through
-// intake it cost two extra model calls per answer and let routing rewrite `topicKey` in the
-// middle of a tree walk. Needs a topic to return to — without one there is no article to
-// continue, and intake is always the safe fallback.
-else if (storedStage === "awaiting_answers") stage = data.topicKey ? "awaiting_answers" : "intake";
+// the narrow interpreter when the successfully delivered question carries a complete
+// finite contract. Legacy article questions still return to Solver. Routed through intake,
+// either path would cost two extra model calls per answer and let routing rewrite `topicKey`
+// in the middle of a tree walk. Without a topic there is no article to continue, and intake
+// is always the safe fallback.
+else if (storedStage === "awaiting_answers") {
+  stage = data.topicKey
+    ? (semanticValues.length ? "interpret_answer" : "awaiting_answers")
+    : "intake";
+}
 
 // ── «Закройте чат» — это завершение, а не передача человеку ──
 // На `awaiting_answers` сообщение идёт прямо в solver, минуя confirmation. Живой прогон
@@ -563,7 +588,8 @@ const asksHumanNow = incomingText && asksForHuman(incomingText);
 // the same business request cannot change meaning merely because the article just asked
 // for the expected result or email.
 const asksRatingSpecialist = /(?:переда|направ)\S*(?:\s+\S+){0,3}\s+специалист\S*/i.test(String(incomingText || ""));
-const ratingCollectionStage = ["awaiting_confirmation", "awaiting_answers", "awaiting_email"].indexOf(stage) >= 0;
+const ratingCollectionStage = ["awaiting_confirmation", "awaiting_answers", "interpret_answer",
+  "awaiting_email"].indexOf(stage) >= 0;
 const ratingSpecialistContinuation = asksHumanNow && asksRatingSpecialist && ratingCollectionStage &&
   String(data.topicKey || "") === "ratings_questions";
 if (asksHumanNow && !ratingSpecialistContinuation && stage !== "escalated" && stage !== "reopened") {
@@ -736,6 +762,16 @@ const collectedLine = Object.keys(collected).map(k => k + ": " + collected[k]).j
 if (collectedLine) lines.push("- Уже собрано по тематике: " + collectedLine);
 if (data.openAnswerPrompts) lines.push("- Ещё не отвечено (ключ — вопрос): " + data.openAnswerPrompts);
 
+// The narrow interpreter receives a purpose-built contract, not the whole article and not
+// a list of policy destinations. `meaning` describes language; only searchKnowledge can
+// later turn the accepted `value` into a `go` edge.
+if (stage === "interpret_answer" && semanticValues.length) {
+  lines.push("Контракт активного вопроса:");
+  lines.push("- activeQuestionId: " + data.activeQuestionId);
+  lines.push("- Вопрос: " + (data.activeQuestionText || data.openAnswerPrompts || "не указан"));
+  lines.push("- Допустимые value и meaning: " + JSON.stringify(semanticValues));
+}
+
 AgentContext.addNote({ text: lines.join("\n") });
 
 if (incomingText) {
@@ -765,7 +801,11 @@ AgentContext.putValue({
     problemSummary: data.problemSummary || null,
     email: data.email || null,
     topicKey: data.topicKey || null,
-    partnerLanguage: data.partnerLanguage || null
+    partnerLanguage: data.partnerLanguage || null,
+    activeQuestionId: stage === "interpret_answer" ? (data.activeQuestionId || null) : null,
+    activeQuestionText: stage === "interpret_answer" ? (data.activeQuestionText || null) : null,
+    activeQuestionValuesJson: stage === "interpret_answer"
+      ? (data.activeQuestionValuesJson || null) : null
   }
 });
 

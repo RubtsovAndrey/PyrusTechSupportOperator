@@ -708,10 +708,12 @@ function activeQuestionContract(topic, node) {
   if (!key) return null;
   const valued = node.branches.filter(b => b.value && b.meaning);
   if (!valued.length || valued.length !== node.branches.length) return null;
+  const question = (node.ask || []).find(q => String(q.key || "") === String(key));
   return {
     id: String(topic.key) + ":" + String(node.id) + ":" + String(key),
     key: String(key),
     node: String(node.id),
+    question: question ? String(question.question || "") : "",
     values: valued.map(b => ({ value: String(b.value), meaning: String(b.meaning) }))
   };
 }
@@ -977,6 +979,9 @@ function refuseUnsupportedBranchAnswers(given, topic) {
 const upstream = Context.getLastFunctionResult() || {};
 const upstreamTopics = Array.isArray(upstream.topics) ? upstream.topics : [];
 let effectiveTopicKey = topicKey ? String(topicKey) : null;
+let effectiveActiveQuestionId = activeQuestionId ? String(activeQuestionId) : null;
+let effectiveAnswerValue = answerValue ? String(answerValue) : null;
+let effectiveEvidenceText = evidenceText ? String(evidenceText) : null;
 if (!effectiveTopicKey && upstream.source === "prepared-mcp" && upstream.refinement === true &&
     upstreamTopics.length === 1 && upstreamTopics[0] && upstreamTopics[0].key) {
   // Function parameters are immutable bindings in Agent Platform. Keep the candidate in
@@ -985,6 +990,31 @@ if (!effectiveTopicKey && upstream.source === "prepared-mcp" && upstream.refinem
   effectiveTopicKey = String(upstreamTopics[0].key);
   Log.info({ message: "searchKnowledge: executing the single deterministic MCP refinement candidate " +
     effectiveTopicKey + " without a model-selected key" });
+}
+// A dedicated Turn Interpreter returns one small frame to a normal function node. It has
+// no searchKnowledge tool of its own, so no second model-controlled tool call is required:
+// this deterministic invocation consumes the immediately preceding parser result. The
+// semantic frame is still checked again below against the delivered question, catalog and
+// current partner evidence before any article edge can move.
+if (upstream.source === "turn-interpreter") {
+  effectiveTopicKey = upstream.topicKey ? String(upstream.topicKey) : null;
+  if (upstream.interpretation === "answer") {
+    effectiveActiveQuestionId = upstream.activeQuestionId
+      ? String(upstream.activeQuestionId) : null;
+    effectiveAnswerValue = upstream.answerValue ? String(upstream.answerValue) : null;
+    effectiveEvidenceText = upstream.evidenceText ? String(upstream.evidenceText) : null;
+  } else {
+    effectiveActiveQuestionId = null;
+    effectiveAnswerValue = null;
+    effectiveEvidenceText = null;
+  }
+  if (!effectiveTopicKey) {
+    Log.warn({ message: "searchKnowledge: Turn Interpreter returned no active topic; handing over" });
+    return {
+      found: false, topics: [], source: "interpreter-context-missing",
+      turnKind: "handover", treeEnd: "escalate", onFail: "escalate"
+    };
+  }
 }
 
 // Exact lookup: the solver already knows which topic it must follow, and gets one
@@ -1042,6 +1072,10 @@ if (effectiveTopicKey) {
         activeQuestionKey: null,
         activeQuestionNode: null,
         activeQuestionCommentId: null,
+        activeQuestionValuesJson: null,
+        activeQuestionText: null,
+        preparedQuestionValuesJson: null,
+        preparedQuestionText: null,
         treeAnswerValues: null,
         lastSemanticAnswerQuestionId: null,
         lastSemanticAnswerCommentId: null,
@@ -1150,8 +1184,9 @@ if (effectiveTopicKey) {
       if (heardActive) given[activeBranchKey] = heardActive.when[0];
 
       const semanticAnswer = at
-        ? semanticBranchFromInput(topic, at, data, activeQuestionId, answerValue, evidenceText)
-        : { attempted: [activeQuestionId, answerValue, evidenceText]
+        ? semanticBranchFromInput(topic, at, data, effectiveActiveQuestionId,
+          effectiveAnswerValue, effectiveEvidenceText)
+        : { attempted: [effectiveActiveQuestionId, effectiveAnswerValue, effectiveEvidenceText]
           .some(value => String(value || "").trim()), branch: null, contract: null,
           reason: "there is no active article node" };
       if (semanticAnswer.attempted && !semanticAnswer.branch) {
@@ -1425,9 +1460,13 @@ if (effectiveTopicKey) {
         patch.activeQuestionKey = null;
         patch.activeQuestionNode = null;
         patch.activeQuestionCommentId = null;
+        patch.activeQuestionValuesJson = null;
+        patch.activeQuestionText = null;
         patch.preparedQuestionId = null;
         patch.preparedQuestionKey = null;
         patch.preparedQuestionNode = null;
+        patch.preparedQuestionValuesJson = null;
+        patch.preparedQuestionText = null;
       }
       if (component) patch.componentName = component;
 
@@ -1488,6 +1527,9 @@ if (effectiveTopicKey) {
         patch.preparedQuestionId = semanticQuestion ? semanticQuestion.id : null;
         patch.preparedQuestionKey = semanticQuestion ? semanticQuestion.key : null;
         patch.preparedQuestionNode = semanticQuestion ? semanticQuestion.node : null;
+        patch.preparedQuestionValuesJson = semanticQuestion
+          ? JSON.stringify(semanticQuestion.values) : null;
+        patch.preparedQuestionText = semanticQuestion ? semanticQuestion.question : null;
         if (target.requireBranchEvidence === true) {
           patch.requiredArticleQuestion = articleQuestionRequirement(topic.key, target.id, unanswered);
         }
@@ -1616,6 +1658,9 @@ if (effectiveTopicKey) {
           patch.preparedQuestionId = semanticQuestion ? semanticQuestion.id : null;
           patch.preparedQuestionKey = semanticQuestion ? semanticQuestion.key : null;
           patch.preparedQuestionNode = semanticQuestion ? semanticQuestion.node : null;
+          patch.preparedQuestionValuesJson = semanticQuestion
+            ? JSON.stringify(semanticQuestion.values) : null;
+          patch.preparedQuestionText = semanticQuestion ? semanticQuestion.question : null;
           patch.requiredArticleQuestion = articleQuestionRequirement(topic.key, target.id, target.ask);
         }
         patchData(patch);

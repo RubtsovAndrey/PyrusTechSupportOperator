@@ -58,6 +58,9 @@ function conversation(key, problem, options) {
         db[stateKey].data.activeQuestionKey = db[stateKey].data.preparedQuestionKey;
         db[stateKey].data.activeQuestionNode = db[stateKey].data.preparedQuestionNode;
         db[stateKey].data.activeQuestionCommentId = preparedOnComment;
+        db[stateKey].data.activeQuestionValuesJson =
+          db[stateKey].data.preparedQuestionValuesJson;
+        db[stateKey].data.activeQuestionText = db[stateKey].data.preparedQuestionText;
       }
     }
     db[stateKey].runtime.incomingCommentId = commentId;

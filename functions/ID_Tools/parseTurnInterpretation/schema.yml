@@ -1,0 +1,7 @@
+---
+id: parseTurnInterpretation
+name: parseTurnInterpretation
+description: "Проверяет узкий JSON-контракт Turn Interpreter и передаёт смысловой ответ детерминированному движку статьи. Не является tool агента и не выполняет бизнес-действий."
+response-description: "{ source: 'turn-interpreter', interpretation: 'answer'|'unclear', topicKey, activeQuestionId?, answerValue?, evidenceText?, reason }"
+parameters: []
+language: JAVASCRIPT

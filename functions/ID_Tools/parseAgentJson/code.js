@@ -454,7 +454,8 @@ if (raw && typeof raw === "object" && raw.turnKind) {
       replyText: [raw.solverInstruction, raw.followUpQuestion].filter(Boolean).join("\n\n"),
       kind: "solution"
     };
-  } else if (raw.turnKind === "questions" || raw.needsPreQuestions) {
+  } else if (raw.turnKind === "questions" || raw.turnKind === "choose-branch" ||
+      raw.needsPreQuestions) {
     const questions = (Array.isArray(raw.preQuestions) ? raw.preQuestions : [])
       .map(value => String(value || "").trim()).filter(Boolean);
     if (raw.subtaskEmailRequired && raw.subtaskEmailMissing) {
@@ -1195,7 +1196,9 @@ if (taskId) {
      "treeNode", "treeEnd", "treeHandoverAsked", "treeNext", "treeAskedNode",
      "treeDeliveredQuestionNode", "treeDeliveredQuestionCommentId", "treeNoAnswerPending",
      "preparedQuestionId", "preparedQuestionKey", "preparedQuestionNode",
+     "preparedQuestionValuesJson", "preparedQuestionText",
      "activeQuestionId", "activeQuestionKey", "activeQuestionNode", "activeQuestionCommentId",
+     "activeQuestionValuesJson", "activeQuestionText",
      "treeAnswerValues", "lastSemanticAnswerQuestionId", "lastSemanticAnswerCommentId",
      "operatorAdvice",
      // Printed as a labelled line in the note below; as a second copy inside the serialised

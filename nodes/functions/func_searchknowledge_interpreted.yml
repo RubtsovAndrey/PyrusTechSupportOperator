@@ -1,0 +1,45 @@
+---
+id: func_searchknowledge_interpreted
+name: Apply interpreted answer to policy
+position:
+  x: 2330
+  y: -650
+next-step: func_parsejson_solver
+next-error-step: func_escalate_m9k4j
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: searchKnowledge
+  is-tool: false
+  parameters:
+    query:
+      type: STRING
+      value: ""
+      filled-ai: false
+    topicKey:
+      type: STRING
+      value: null
+      filled-ai: false
+    branch:
+      type: STRING
+      value: null
+      filled-ai: false
+    answers:
+      type: STRING
+      value: "{}"
+      filled-ai: false
+    activeQuestionId:
+      type: STRING
+      value: null
+      filled-ai: false
+    answerValue:
+      type: STRING
+      value: null
+      filled-ai: false
+    evidenceText:
+      type: STRING
+      value: null
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null
