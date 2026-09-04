@@ -130,20 +130,22 @@ function matchingRatingsSubtaskTurns() {
     errors: []
   }, {
     partner: { text: "нет нам именно отправить запрос напрямую их специалистам ответственным" },
-    outcome: "clarify_email",
-    replies: [],
+    outcome: "clarify_answers",
+    replies: [{ text: "Какой результат вы ожидаете? Укажите также email для обращения." }],
     internal: [],
-    logs: ["finalize: superseded on task 1, newer message wins"],
-    path: ["Handover Summary Agent (subtask)", "Outcome - clarify email", "finalize"],
+    logs: [],
+    path: ["Turn Interpreter", "Validate Turn Interpreter frame", "parseConfirmation",
+      "Solver / Policy Reader", "Validate composed response",
+      "Outcome - clarify (article questions)", "finalize"],
     calls: [],
     errors: []
   }, {
-    partner: { text: "почта нужна будет да?" },
+    partner: { text: "проверка была первого сентября, сняли баллы за маркировку, хотя она была; апелляцию ещё не подавали, ожидаем пересмотр и возврат баллов" },
     outcome: "clarify_email",
     replies: [{ text: "Укажите email — на него придёт ответ." }],
     internal: [],
     logs: [],
-    path: ["Handover Summary Agent (subtask)", "Outcome - clarify email", "finalize"],
+    path: ["Handover Summary Agent (subtask)", "createSubtask", "Outcome - clarify email", "finalize"],
     calls: [],
     errors: []
   }, {

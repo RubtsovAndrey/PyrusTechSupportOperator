@@ -298,11 +298,11 @@
     },
     {
       "id": "ratings-rko-direct-contact-subtask",
-      "title": "Вопрос по РКО получает статью, переживает конкурентную реплику и создаёт одну подзадачу после email",
+      "title": "Вопрос по РКО получает статью, собирает ожидаемый результат и создаёт одну подзадачу после email",
       "messages": [
         "вечер добрый Тамбов 1 как подать апелляцию на почту контроллингу? рко",
         "нет нам именно отправить запрос напрямую их специалистам ответственным",
-        "почта нужна будет да?",
+        "проверка была первого сентября, сняли баллы за маркировку, хотя она была; апелляцию ещё не подавали, ожидаем пересмотр и возврат баллов",
         "a@b.ru"
       ],
       "expect": {
@@ -333,21 +333,20 @@
             "partner": {
               "includes": ["напрямую", "специалистам"]
             },
-            "outcome": "clarify_email",
+            "outcome": "clarify_answers",
             "replies": {
-              "count": 0
+              "count": 1,
+              "includes": ["Какой результат", "email"]
             },
-            "logs": {
-              "includes": ["finalize: superseded"]
-            },
+            "internal": { "count": 0 },
             "path": {
-              "includes": ["Handover Summary Agent (subtask)", "Outcome - clarify email", "finalize"]
+              "includes": ["Turn Interpreter", "Validate Turn Interpreter frame", "parseConfirmation", "Solver / Policy Reader", "Validate composed response", "Outcome - clarify (article questions)", "finalize"]
             },
             "noErrors": true
           },
           {
             "partner": {
-              "includes": ["почта нужна"]
+              "includes": ["первого сентября", "ожидаем пересмотр", "возврат баллов"]
             },
             "outcome": "clarify_email",
             "replies": {
@@ -358,7 +357,7 @@
               "count": 0
             },
             "path": {
-              "includes": ["Handover Summary Agent (subtask)", "Outcome - clarify email", "finalize"]
+              "includes": ["Handover Summary Agent (subtask)", "createSubtask", "Outcome - clarify email", "finalize"]
             },
             "noErrors": true
           },
