@@ -43,7 +43,8 @@ parameters:
       Никогда не возвращай совет, объяснение, вопрос партнёру, следующий узел, branch или go. Не вызывай инструменты.
       Верни ТОЛЬКО один JSON без markdown:
       {"kind":"answer|unclear","activeQuestionId":"строка|null","answerValue":"одно value|null","evidenceText":"точная цитата|null","partnerLanguage":"двухбуквенный ISO-код","reason":"кратко"}
-    query-override: Классифицируй только текущее сообщение по контракту активного вопроса. Не решай проблему и не отвечай партнёру.
+    query-override: Классифицируй только текущее сообщение по контракту активного
+      вопроса. Не решай проблему и не отвечай партнёру.
   tools: []
   handoff-agents:
     allowed-any: false

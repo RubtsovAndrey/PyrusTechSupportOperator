@@ -229,3 +229,6 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Tools/getKnowledgeMcp/
 - `ID_Tools.findOperatorKnowledge` — Ищет по всей доступной Базе Знаний возможные материалы для оператора, когда утверждённый сценарий бота не найден. Ничего не отправляет партнёру.
   Directory: functions/ID_Tools/findOperatorKnowledge/
+- `ID_Tools.parseTurnInterpretation` — Проверяет узкий JSON-контракт Turn Interpreter и передаёт смысловой ответ детерминированному движку статьи. Не является tool агента и не выполняет бизнес-действий.
+  Directory: functions/ID_Tools/parseTurnInterpretation/
+
