@@ -9,6 +9,7 @@ const KEY = "state:11613";
 
 const CATALOGS = {
   unitCatalog: [
+    "[dodopizza.ru] Не нужно ()",
     "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)",
     "[dodopizza.ru] Москва-12 (Ленинский проспект, 5)",
     "[drinkit.ru] Москва-12 (Тверская, 1)",
@@ -66,6 +67,27 @@ async function main() {
   // still wraps JSON in markdown or drops it entirely.
   let r = await run("intake", "```json\n{\"action\":\"clarify\",\"clarifyingQuestion\":\"Какая точка?\"}\n```");
   t.check("markdown fences are stripped", r.result.action === "clarify", r.result);
+
+  r = await run("intake", json({
+    action: "clarify", clarifyKind: "need_unit_and_problem",
+    unit: "[dodopizza.ru] Не нужно ()", unitFullName: "[dodopizza.ru] Не нужно ()"
+  }), null, { incomingText: "ой простите не то прислал" });
+  t.check("the technical 'Не нужно' choice cannot pass unit validation",
+    !r.state.data.unitFullName, r.state.data);
+
+  r = await run("intake", json({
+    action: "route", unitFullName: "[dodopizza.ru] Не нужно ()",
+    problemSummary: "проблема на кассе"
+  }), {
+    stage: "gathering",
+    data: {
+      unitFullName: "[dodopizza.ru] Не нужно ()",
+      problemSummary: "проблема на кассе"
+    }
+  }, { incomingText: "проблема на кассе" });
+  t.check("a task poisoned by an older service-unit match heals itself",
+    r.state.data.unitFullName === null && r.result.action === "clarify" &&
+    r.result.clarifyKind === "need_unit", { result: r.result, data: r.state.data });
 
   r = await run("intake", "Подскажите, о какой точке идёт речь?");
   t.check("intake prose is used as a question instead of failing",
@@ -347,6 +369,24 @@ async function main() {
     RESOLVED, { incomingText: "а ещё по Тамбов-1" });
   t.check("another point is resolved on its own merits",
     r.result.unitFullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", r.result);
+
+  // Exact continuation of live task 377095753: a bad earlier match had stored one unit,
+  // then the partner named a different point shared by two businesses. The ambiguity must
+  // replace the stale fact instead of letting the "everything is known" guard route.
+  r = await run("intake", json({
+    action: "route", unit: "Москва-12", unitFullName: null,
+    problemSummary: "проблема на кассе"
+  }), {
+    stage: "gathering",
+    data: {
+      unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)",
+      problemSummary: "проблема на кассе"
+    }
+  }, { incomingText: "это Москва-12, у нас проблема на кассе" });
+  t.check("a different ambiguous point clears the stale resolved unit",
+    r.state.data.unitFullName === null, r.state.data);
+  t.check("and intake asks for its business instead of routing on the stale unit",
+    r.result.action === "clarify" && r.result.clarifyKind === "need_business", r.result);
 
   // Nothing to route to: the problem is still missing, so the question is legitimate.
   r = await run("intake", json({ action: "clarify", clarifyKind: "need_problem", unit: "Москва-12" }),

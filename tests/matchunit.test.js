@@ -10,18 +10,23 @@ const matchUnit = loadFunction("functions/ID_Tools/matchUnit/code.js", ["query",
 const TASK = 11613;
 
 const CATALOG = [
+  // Technical Pyrus choice, not a physical unit.
+  "[dodopizza.ru] Не нужно ()",
   "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)",
   "[dodopizza.ru] Тамбов-2 (улица Мира, 5)",
+  "[dodopizza.ru] Мирный-1 (улица Ленина, 1)",
   // One name, two businesses — the case the partner ran into.
   "[dodopizza.ru] Москва 0-22 (Цветной бульвар, 2)",
   "[drinkit.ru] Москва 0-22 (Дмитровское шоссе, 163А)"
 ];
 
-function run(query, scope, said) {
+function run(query, scope, said, storedUnit) {
   // makeEnv clones the seed, so the document to inspect afterwards is the environment's own.
   // `said` is the partner's message this turn — the only place a business may come from.
   const env = makeEnv({
-    db: { unitCatalog: CATALOG, ["state:" + TASK]: { taskId: TASK, data: {} } },
+    db: { unitCatalog: CATALOG, ["state:" + TASK]: {
+      taskId: TASK, data: storedUnit ? { unitFullName: storedUnit } : {}
+    } },
     contextValues: { dialog: { taskId: String(TASK), incomingText: said || "" } }
   });
   return matchUnit(env, [query, scope]).then(r => ({ result: r, state: env.db["state:" + TASK] }));
@@ -38,6 +43,25 @@ async function main() {
   t.check("a resolved search may show the full name it resolved",
     r.result.matches[0].fullName === "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)", r.result.matches);
 
+  // Exact live regression, task 377095753: the apology shared one word with the Pyrus
+  // service choice «Не нужно», and that choice was written as a Dodo Pizza unit.
+  r = await run("ой простите не то прислал", null, "ой простите не то прислал");
+  t.check("an apology cannot resolve the technical 'Не нужно' catalog choice",
+    r.result.resolvedFullName === null && r.result.count === 0 && !r.state.data.unitFullName,
+    { result: r.result, state: r.state });
+
+  r = await run("Не нужно", null, "Не нужно");
+  t.check("even an exact service choice is not exposed as a real unit",
+    r.result.resolvedFullName === null && r.result.count === 0, r.result);
+
+  r = await run("это обычный мирный вопрос", null, "это обычный мирный вопрос");
+  t.check("one coincidental word in a sentence is too weak for fuzzy unit resolution",
+    r.result.resolvedFullName === null && r.result.count === 0, r.result);
+
+  r = await run("Мирный-1, проблема с кассой", null, "Мирный-1, проблема с кассой");
+  t.check("two identifying unit tokens still survive extra problem words",
+    r.result.resolvedFullName === "[dodopizza.ru] Мирный-1 (улица Ленина, 1)", r.result);
+
   // ── The point that was chosen for the partner ──
   // Both businesses have «Москва 0-22». The tool refuses to pick, and used to list both
   // full names anyway; the agent copied the first and the partner got a pizzeria.
@@ -50,6 +74,12 @@ async function main() {
     r.result.matches.every(m => m.fullName === undefined), r.result.matches);
   t.check("nothing is written to the document either",
     !r.state.data.unitFullName, r.state);
+
+  r = await run("Москва 0-22", null, "это Москва 0 22 у нас проблема на кассе",
+    "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)");
+  t.check("a newly named ambiguous point clears a different previously stored unit",
+    r.result.resolvedFullName === null && r.result.needsBusinessClarification === true &&
+    r.state.data.unitFullName === null, { result: r.result, state: r.state });
 
   // The word the PARTNER used narrows it, and then the full name is his to have.
   r = await run("Москва 0-22", null, "кофейня Москва 0-22");

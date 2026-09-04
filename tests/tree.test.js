@@ -196,6 +196,12 @@ function dialog(seed) {
     },
     // The solver's answer as the model would produce it, then the outcome the graph picks.
     async solver(answer) {
+      // In these unit-level conversations a solver call with article answers represents
+      // the next partner turn after the preceding question reached Pyrus. Production
+      // writes this marker in finalize; reproduce that boundary before parsing the answer.
+      if (answer && answer.answers && db[KEY].data && db[KEY].data.treePreparedQuestionNode) {
+        db[KEY].data.treeDeliveredQuestionNode = db[KEY].data.treePreparedQuestionNode;
+      }
       const e = makeEnv({ db: db, prev: JSON.stringify(answer), contextValues: { dialog: { taskId: String(TASK) } } });
       const r = await parseAgentJson(e, ["solver"]);
       carry(e);
@@ -364,6 +370,12 @@ async function main() {
   r = await d.search("no_internet");
   t.check("words that say nothing about the fork leave the question in place",
     r.turnKind === "questions" && /Додо ИС или интернет/.test(r.preQuestions[0]), r);
+
+  r = await d.search("no_internet", null, JSON.stringify({ scope: "интернет целиком" }));
+  t.check("an undelivered question cannot be self-answered through the answers payload either",
+    r.turnKind === "questions" && d.data.treeNode === "scope" &&
+    !(d.data.treeAnswers || {}).scope && /Додо ИС или интернет/.test(r.preQuestions[0]),
+    { result: r, data: d.data });
 
   // ── Ветка else и её отсутствие ──
   d = dialog();

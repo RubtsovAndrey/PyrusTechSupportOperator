@@ -38,10 +38,22 @@ function conversation(key, problem, options) {
     }
   };
   let incoming = problem;
+  let logicalTurn = 0;
+  let preparedQuestionNode = null;
+  let preparedOnComment = null;
 
   async function step(options) {
     const next = options || {};
     if (next.incoming !== undefined) incoming = next.incoming;
+    const commentId = next.commentId !== undefined
+      ? String(next.commentId) : "catalog-turn-" + (++logicalTurn);
+    // A new call normally represents the partner's next message, so the preceding
+    // question has been delivered by finalize. Tests that reproduce two tool calls from
+    // one agent invocation pass the same explicit comment id and intentionally skip it.
+    if (preparedQuestionNode && preparedOnComment !== commentId) {
+      db[stateKey].data.treeDeliveredQuestionNode = preparedQuestionNode;
+    }
+    db[stateKey].runtime.incomingCommentId = commentId;
     const env = makeEnv({
       db,
       contextValues: { dialog: {
@@ -58,6 +70,10 @@ function conversation(key, problem, options) {
       JSON.stringify(next.answers || {})
     ]);
     Object.keys(env.db).forEach(k => { db[k] = env.db[k]; });
+    if (result && result.turnKind === "questions" && result.treeNode) {
+      preparedQuestionNode = String(result.treeNode);
+      preparedOnComment = commentId;
+    }
     return result;
   }
 
@@ -228,6 +244,32 @@ async function main() {
   t.check("an unapproved form receives the accepted answer only as an operator hint",
     r.turnKind === "handover" && r.source === "tree-operator-hint" &&
     !r.solverInstruction && r.operatorHintPrepared === true, r);
+
+  // Exact live regression, task 377095753: after the tool returned «ресторан или
+  // доставка?», the same solver invocation called it again and chose «ресторан» itself.
+  // No question had reached Pyrus and the partner had only said «проблема на кассе».
+  c = conversation("pos_terminal_troubleshooting", "проблема на кассе");
+  r = await c.step({ commentId: "live-comment-1" });
+  t.check("a broad cash problem first asks which cash desk it is",
+    r.turnKind === "questions" && r.treeNode === "location" && r.answerKeys[0] === "posLocation", r);
+  r = await c.step({
+    incoming: "проблема на кассе",
+    commentId: "live-comment-1",
+    branch: "касса ресторана / в ресторане / ресторан",
+    answers: { posLocation: "касса ресторана" }
+  });
+  t.check("the model cannot answer an article question before it was delivered",
+    r.turnKind === "questions" && r.treeNode === "location" &&
+    r.answerKeys[0] === "posLocation" && !r.componentName, r);
+  r = await c.step({
+    incoming: "на кассе ресторана",
+    commentId: "live-comment-2",
+    branch: "касса ресторана / в ресторане / ресторан",
+    answers: { posLocation: "касса ресторана" }
+  });
+  t.check("direct partner words may resolve the branch without an extra delivery turn",
+    r.turnKind === "questions" && r.treeNode === "diagnoseRestaurant" &&
+    r.answerKeys[0] === "problemDetails", r);
 
   // The remaining broad cash topic stays operator-only, but carries real components.
   c = conversation("pos_terminal_troubleshooting", "касса ресторана: ККМ не подключен");

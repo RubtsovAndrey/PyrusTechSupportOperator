@@ -19,6 +19,10 @@ function nameOf(entry) {
   return s;
 }
 
+function isServiceUnit(entry) {
+  return normalize(nameOf(entry)) === "не нужно";
+}
+
 function businessOf(full) {
   const m = String(full || "").match(/^\[([^\]]+)\]/);
   return m ? m[1].split(".")[0] : "";
@@ -95,6 +99,7 @@ function validateUnit(candidate, business, ambiguity, network) {
       Log.warn({ message: "parseAgentJson: unitCatalog missing, cannot validate unit" });
       return null;
     }
+    const catalog = raw.filter(item => !isServiceUnit(item));
     // The business the hint names, whichever spelling it arrived in.
     const wantedBiz = business ? (businessFromText(business) || normalize(business)) : "";
     // Refusing to decide has to survive an agent that quotes the catalog back at us. The
@@ -103,9 +108,9 @@ function validateUnit(candidate, business, ambiguity, network) {
     // and listed both — and the agent, told never to assemble a name from that list, copied
     // the first one. An exact string is not a decision when the name it spells belongs to
     // two businesses and nobody has said which.
-    let hit = raw.find(item => normalize(item) === wantedFull);
+    let hit = catalog.find(item => normalize(item) === wantedFull);
     if (hit) {
-      const twins = raw.filter(item => normalize(nameOf(item)) === normalize(nameOf(hit)));
+      const twins = catalog.filter(item => normalize(nameOf(item)) === normalize(nameOf(hit)));
       const businesses = twins.map(businessOf).filter((b, i, a) => b && a.indexOf(b) === i);
       if (businesses.length > 1 && normalize(businessOf(hit)) !== wantedBiz) {
         Log.warn({ message: "parseAgentJson: unit \"" + candidate + "\" spells one of " + businesses.length + " businesses with that name" + (business ? " but the business named is \"" + business + "\"" : " and no business was named") + ", not persisting" });
@@ -117,7 +122,7 @@ function validateUnit(candidate, business, ambiguity, network) {
       }
     }
     if (!hit) {
-      let byName = raw.filter(item => normalize(nameOf(item)) === wantedName);
+      let byName = catalog.filter(item => normalize(nameOf(item)) === wantedName);
       // The same point name exists in more than one business, and the agent reports which
       // one it heard. Without that hint an ambiguous name is still refused: a point of the
       // wrong network in the Pyrus field is worse than an empty field.
@@ -147,7 +152,7 @@ function validateUnit(candidate, business, ambiguity, network) {
     // «Москва 1», и никакая «Москва 11» под правило не подходит, потому что normalize
     // разделяет дефис пробелом. Берётся первая по номеру — та же, что взял бы matchUnit.
     if (!hit && network) {
-      let kin = raw.filter(item => normalize(nameOf(item)).indexOf(wantedName + " ") === 0);
+      let kin = catalog.filter(item => normalize(nameOf(item)).indexOf(wantedName + " ") === 0);
       const businesses = kin.map(businessOf).filter((b, i, a) => b && a.indexOf(b) === i);
       if (kin.length && businesses.length > 1) {
         if (wantedBiz) kin = kin.filter(item => normalize(businessOf(item)) === wantedBiz);
@@ -447,6 +452,10 @@ if (parsed.partnerLanguage != null) {
 // not contain resolves to nothing and is not persisted.
 const unitCandidate = parsed.unitFullName || parsed.unit || null;
 const ambiguity = {};
+// Heal task documents poisoned by older deployments as soon as they enter the parser.
+// Otherwise the model can merely echo the technical option and the "already resolved"
+// fallback below would preserve it forever.
+let clearPreviousUnit = isServiceUnit(known.unitFullName);
 if (unitCandidate) {
   // ── Whose word says which business ──
   // The business is what tells «Москва 0-22» the pizzeria from «Москва 0-22» the coffee
@@ -476,11 +485,21 @@ if (unitCandidate) {
   // loop guard handed the chat to an operator. What is stored was resolved against the
   // catalog with the partner's own word, and it stays resolved: the agent repeating the
   // short name is not new information, and it cannot take a decided fact back.
-  if (!parsed.unitFullName && known.unitFullName &&
+  if (!parsed.unitFullName && known.unitFullName && !isServiceUnit(known.unitFullName) &&
       normalize(nameOf(known.unitFullName)) === normalize(nameOf(unitCandidate))) {
     parsed.unitFullName = known.unitFullName;
     delete ambiguity.kind;
     Log.info({ message: "parseAgentJson: unit \"" + unitCandidate + "\" is already resolved as " + known.unitFullName + " on task " + taskId + ", not asking again" });
+  }
+
+  if (!parsed.unitFullName && ambiguity.kind && known.unitFullName &&
+      normalize(nameOf(known.unitFullName)) !== normalize(nameOf(unitCandidate))) {
+    // The partner named a different point, but the new point still needs a business or
+    // address choice. Leaving the old resolved unit in `data` makes the generic
+    // "everything is known" guard route immediately and skips the required question.
+    clearPreviousUnit = true;
+    Log.info({ message: "parseAgentJson: unresolved new unit \"" + unitCandidate +
+      "\" replaces previous unit \"" + known.unitFullName + "\" on task " + taskId });
   }
 
   if (!parsed.unitFullName && ambiguity.kind) {
@@ -550,6 +569,10 @@ if (taskId) {
     // agents of a concurrent turn lost every fact they had collected since this run read
     // it — the defect this replaces.
     const patch = { "updatedAt": Date.now() };
+    if (clearPreviousUnit) {
+      data.unitFullName = null;
+      patch["data.unitFullName"] = null;
+    }
     PERSISTED.forEach(key => {
       if (parsed[key]) {
         data[key] = parsed[key];
@@ -571,6 +594,24 @@ if (taskId) {
       } else {
         delete parsed.caseSummary;
       }
+    }
+
+    // The inverse of the guard below is just as important: a model may claim `route`
+    // after an invalid/service unit was discarded. Intake cannot proceed until both
+    // required facts really exist in the validated document.
+    if (String(stage || "") === "intake" && String(parsed.action || "") === "route" &&
+        (!data.unitFullName || !data.problemSummary)) {
+      parsed.action = "clarify";
+      if (!data.unitFullName && !data.problemSummary) {
+        parsed.clarifyKind = ambiguity.kind || "need_unit_and_problem";
+      } else if (!data.unitFullName) {
+        parsed.clarifyKind = ambiguity.kind || "need_unit";
+      } else {
+        parsed.clarifyKind = "need_problem";
+      }
+      delete parsed.clarifyingQuestion;
+      Log.warn({ message: "parseAgentJson: intake tried to route task " + taskId +
+        " without all validated facts, asking for what is missing" });
     }
 
     // ── A question with nothing left to ask ──

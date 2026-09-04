@@ -39,6 +39,23 @@ function keyOf(s) {
   return normUnit(s).replace(/[\s-]+/g, " ").trim();
 }
 
+function nameFromFull(full) {
+  let s = String(full || "").trim();
+  const op = s.lastIndexOf("(");
+  if (op >= 0) s = s.slice(0, op).trim();
+  const bc = s.indexOf("]");
+  if (bc > 1 && s[0] === "[") s = s.slice(bc + 1).trim();
+  return s;
+}
+
+// The Pyrus field catalog contains a technical "Не нужно" option. It is useful to a
+// human filling the form, but it is not a restaurant and must never become a resolved
+// unit. A live apology, «ой, простите, не то прислал», shared the word «не» with that
+// option and the tolerant matcher wrote it into the task as a real Dodo Pizza unit.
+function isServiceUnitName(name) {
+  return keyOf(name) === "не нужно";
+}
+
 // Numeric collation, or "first point of the network" would be Тамбов-10 rather than
 // Тамбов-1 as soon as a city grows past nine points.
 function byName(a, b) {
@@ -120,6 +137,7 @@ function loadUnitCatalog() {
           let biz = "", name = before;
           const bc = before.indexOf("]");
           if (bc > 1 && before[0] === "[") { biz = before.slice(1, bc).trim(); name = before.slice(bc + 1).trim(); }
+          if (isServiceUnitName(name)) return null;
           const key = keyOf(name);
           return { name: name, business: biz.split(".")[0], fullName: full, key: key, tokens: key.split(" ").filter(Boolean) };
         }).filter(Boolean);
@@ -155,6 +173,10 @@ function matchUnitRaw(tokens, catalog) {
       if (hits > best) best = hits;
     }
   });
+  // One coincidental word inside a sentence is not a unit. Keep the tolerant pass for
+  // «Тамбов-1, у нас проблема» (two identifying tokens plus extra words), but do not let
+  // «обычный мирный вопрос» resolve a hypothetical point named «Мирный-1».
+  if (tokens.length > 1 && best < 2) return [];
   return scored.filter(s => s.hits === best).map(s => s.unit).sort(byName);
 }
 
@@ -195,6 +217,15 @@ if (hint && matches.length > 1) {
   if (narrowed.length) matches = narrowed;
 }
 
+// The query is model-authored; the current partner message is the evidence. It is also
+// used below to distinguish a genuinely named new point from an agent trying an unrelated
+// catalog search while the task already has a valid unit.
+let partnerMatches = matchUnitRaw(partnerTokens.filter(t => !isNoise(t)), catalog);
+if (hint && partnerMatches.length > 1) {
+  const narrowed = partnerMatches.filter(u => hint.match.some(m => u.business.indexOf(m) >= 0));
+  if (narrowed.length) partnerMatches = narrowed;
+}
+
 // The same visible name under two businesses is the only case worth asking about.
 let needsBusinessClarification = false;
 const seen = {};
@@ -228,19 +259,31 @@ if (String(scope || "").toLowerCase() === "network" && !resolvedFullName && matc
 // here, the answer came back with unitFullName null, and the next turn asked for the
 // point all over again — the dialog looped between the two questions. The value is
 // written where it is known to be right, by the code that took it out of the catalog.
-if (resolvedFullName) {
+const matchKeys = matches.map(u => u.key).filter((k, i, a) => a.indexOf(k) === i);
+const partnerMatchKeys = partnerMatches.map(u => u.key).filter((k, i, a) => a.indexOf(k) === i);
+const unresolvedNamedKey = !resolvedFullName && matches.length > 1 && matchKeys.length === 1 &&
+  partnerMatchKeys.indexOf(matchKeys[0]) >= 0 ? matchKeys[0] : null;
+
+if (resolvedFullName || unresolvedNamedKey) {
   try {
     const taskId = (AgentContext.getValue({ key: "dialog" }) || {}).taskId || null;
     if (taskId) {
       const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
       const state = (doc && doc.value) || {};
       const stored = state.data ? state.data.unitFullName : null;
-      if (stored !== resolvedFullName) {
+      if (resolvedFullName && stored !== resolvedFullName) {
         // Only the unit path: this tool runs inside an agent's turn, and rewriting the
         // whole document would undo whatever a concurrent turn has collected.
         writeState(taskId,
           { "data.unitFullName": resolvedFullName, "updatedAt": Date.now() }, "matchUnit");
         Log.info({ message: "matchUnit: persisted unit \"" + resolvedFullName + "\" for task " + taskId });
+      } else if (!resolvedFullName && stored && keyOf(nameFromFull(stored)) !== unresolvedNamedKey) {
+        // A newly named point exists but still needs a business/address choice. Keeping
+        // the previous point would make intake believe it has everything and route before
+        // asking that question. Empty is truthful until the new point is resolved.
+        writeState(taskId,
+          { "data.unitFullName": null, "updatedAt": Date.now() }, "matchUnit");
+        Log.info({ message: "matchUnit: cleared previous unit \"" + stored + "\" because partner named unresolved point \"" + matches[0].name + "\" on task " + taskId });
       }
     }
   } catch (e) {

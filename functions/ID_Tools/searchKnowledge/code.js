@@ -748,11 +748,29 @@ if (topicKey) {
     // that already keeps invented units and topics out of the Pyrus fields.
     if (topic.nodes) {
       const data = loadData();
+      const atId = data.treeNode ? String(data.treeNode) : null;
+      const at = atId && topic.nodes[atId] ? topic.nodes[atId] : null;
       const stored = data.treeAnswers && typeof data.treeAnswers === "object" ? data.treeAnswers : {};
       // What the partner said earlier in the chat counts as answered, and is written down
       // right here: the caller's own report of it arrives only after this turn is over, so
       // a tool that merely read the document would ask again for what it had just been told.
       const given = refuseUnsupportedBranchAnswers(readGivenAnswers(answers, topic), topic);
+      // The same safety rule must cover `answers` as well as the explicit `branch`
+      // parameter. Otherwise a second tool call could omit `branch`, inject the exact
+      // branch label as a newly "heard" answer and let the automatic tree walk accept it.
+      const awaitingDelivery = !!at &&
+        String(data.treePreparedQuestionNode || "") === String(at.id) &&
+        String(data.treeDeliveredQuestionNode || "") !== String(at.id);
+      const waitingBranchKey = awaitingDelivery ? branchKeyOf(at) : null;
+      if (waitingBranchKey && given[waitingBranchKey]) {
+        const claimed = branchFromWords(at, words(given[waitingBranchKey]));
+        const heardNow = branchFromWords(at, words(dialogValue.incomingText));
+        if (claimed && (!heardNow || String(heardNow.go) !== String(claimed.go))) {
+          delete given[waitingBranchKey];
+          Log.warn({ message: "searchKnowledge: answer " + waitingBranchKey +
+            " was supplied before node " + at.id + " was delivered and is not supported by the partner's words; ignored" });
+        }
+      }
       const known = Object.assign({}, stored, given);
       const givenPatch = {};
       Object.keys(given).forEach(k => {
@@ -762,8 +780,6 @@ if (topicKey) {
         patchData(givenPatch);
         Log.info({ message: "searchKnowledge: " + Object.keys(givenPatch).length + " answer(s) taken from the chat for " + topic.key + ": " + Object.keys(given).join(", ") });
       }
-      const atId = data.treeNode ? String(data.treeNode) : null;
-      const at = atId && topic.nodes[atId] ? topic.nodes[atId] : null;
       const chosen = String(branch || "").trim();
 
       let target = null;
@@ -796,13 +812,20 @@ if (topicKey) {
             || at.branches.find(b => sameLabel(b.go, chosen))
             || at.branches.find(b => b.when.some(w => String(chosen).toLowerCase().indexOf(String(w).toLowerCase()) >= 0));
           if (hit) {
-            // For a consequential fork the article may demand deterministic evidence in
-            // the partner's CURRENT message. `answers` is the model's interpretation and
-            // problemSummary may describe an older symptom, so neither can prove it.
-            const heardNow = at.requireBranchEvidence
-              ? branchFromWords(at, words(dialogValue.incomingText))
-              : hit;
-            if (at.requireBranchEvidence && (!heardNow || String(heardNow.go) !== String(hit.go))) {
+            // A model cannot answer a question it has only just received from this tool.
+            // Agent Platform permits another tool call in the same agent invocation; in a
+            // live chat the solver used it to choose «касса ресторана» immediately after
+            // searchKnowledge returned «ресторан или доставка?», before that question had
+            // ever reached Pyrus. The prepared-node marker remains until finalize records
+            // delivery, including when that reply was superseded by a newer webhook.
+            // Direct words from the partner may still answer an as-yet unasked question.
+            // `requireBranchEvidence` is stricter and always demands current words.
+            const heardNow = branchFromWords(at, words(dialogValue.incomingText));
+            const deliveredBefore = String(data.treeDeliveredQuestionNode || "") === String(at.id);
+            const awaitingDelivery = String(data.treePreparedQuestionNode || "") === String(at.id) &&
+              !deliveredBefore;
+            const needsCurrentEvidence = at.requireBranchEvidence || awaitingDelivery;
+            if (needsCurrentEvidence && (!heardNow || String(heardNow.go) !== String(hit.go))) {
               const branchKey = branchKeyOf(at);
               if (branchKey) {
                 // Do not leave the model's ambiguous paraphrase stored as an answer: that
@@ -816,7 +839,8 @@ if (topicKey) {
               target = at;
               how = "unsupported branch \"" + chosen + "\" ignored";
               Log.warn({ message: "searchKnowledge: branch \"" + chosen + "\" on node " + at.id +
-                " of " + topic.key + " is not supported by the partner's current words; asking for the fact again" });
+                " of " + topic.key + (!deliveredBefore ? " was chosen before the question was delivered" :
+                  " is not supported by the partner's current words") + "; asking for the fact again" });
             } else {
               target = resolveNode(topic.nodes, hit.go);
               how = "branch \"" + chosen + "\"";
@@ -990,6 +1014,10 @@ if (topicKey) {
       }
 
       if (unanswered.length && (!askedBefore || !engaged)) {
+        const runtime = loadState().runtime || {};
+        patch.treePreparedQuestionNode = target.id;
+        patch.treePreparedQuestionCommentId = runtime.incomingCommentId == null
+          ? null : String(runtime.incomingCommentId);
         patchData(patch);
         Log.info({ message: "searchKnowledge: topic " + topic.key + " -> node " + target.id + " (" + how + "), " + unanswered.length + " question(s)" + (ignoredTurns ? ", asked again after a reply that answered nothing" : "") });
         return {
