@@ -1,7 +1,9 @@
 ---
 id: parseOpenAnswers
 name: parseOpenAnswers
-description: Validates open-answer extraction against the active article keys and current partner evidence.
-response-description: "{ taskId, kind, answersAccepted, needsClarification, clarifyingQuestion }"
+description: Validates open-answer extraction against the active article keys and
+  current partner evidence.
+response-description: "{ taskId, kind, answersAccepted, needsClarification, clarifyingQuestion\
+  \ }"
 parameters: []
 language: JAVASCRIPT

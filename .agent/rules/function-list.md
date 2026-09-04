@@ -233,4 +233,8 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Tools/parseTurnInterpretation/
 - `ID_Tools.parseResponseComposition` — Проверяет привязку ответа Response Composer к авторизованному responsePlan. Не позволяет менять kind или действие; при повреждённом ответе использует безопасный текст плана.
   Directory: functions/ID_Tools/parseResponseComposition/
+- `ID_Tools.parseOpenAnswers` — Validates open-answer extraction against the active article keys and current partner evidence.
+  Directory: functions/ID_Tools/parseOpenAnswers/
+- `ID_Tools.parseOperatorAssist` — Validates an internal draft for the operator and restores the advisory knowledge-search result.
+  Directory: functions/ID_Tools/parseOperatorAssist/
 
