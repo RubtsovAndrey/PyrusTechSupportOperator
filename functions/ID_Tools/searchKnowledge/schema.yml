@@ -8,18 +8,17 @@ description: "Ищет в базе знаний тематику, подходя
   \ activeQuestionId, answerValue и дословным evidenceText."
 response-description: "В ответе всегда есть turnKind — он говорит, чем сейчас этот\
   \ виток: choose-branch (при activeQuestionId выбери по смыслу одно answerValue и\
-  \ повтори вызов с дословным evidenceText; иначе передай branch), questions (с\
-  формулируй вопросы по questionSpecs, а без него используй preQuestions), solution\
-  \ (выдай solverInstruction), handover (не говори ничего, передачей занимается сц\
-  енарий). При questions может прийти reasked: true — эти вопросы уже задавались,\
-  \ а партнёр ответил не на них; повторять их слово в слово нельзя. При questions\
-  \ поля subtaskEmailRequired и subtaskEmailMissing говорят, нужно ли вместе с воп\
-  росами запросить email для подзадачи техподдержки. На query: { found, source, topics:\
-  \ [{ score, key, description, route, componentName }] }. На topicKey ветвящаяся\
-  \ статья возвращает один узел: { turnKind, treeNode, preQuestions, questionSpecs,\
-  \ answerKeys, branchOptions, activeQuestionId, answerValues, refinementAvailable,\
-  \ refinementBranches, solverInstruction, treeEnd }. turnKind=refine-routing или\
-  \ refinementAvailable=true разрешает один\
+  \ повтори вызов с дословным evidenceText; иначе передай branch), questions (сфор\
+  мулируй вопросы по questionSpecs, а без него используй preQuestions), solution (в\
+  ыдай solverInstruction), handover (не говори ничего, передачей занимается сценар\
+  ий). При questions может прийти reasked: true — эти вопросы уже задавались, а па\
+  ртнёр ответил не на них; повторять их слово в слово нельзя. При questions поля subtaskEmailRequired\
+  \ и subtaskEmailMissing говорят, нужно ли вместе с вопросами запросить email для\
+  \ подзадачи техподдержки. На query: { found, source, topics: [{ score, key, description,\
+  \ route, componentName }] }. На topicKey ветвящаяся статья возвращает один узел\
+  : { turnKind, treeNode, preQuestions, questionSpecs, answerKeys, branchOptions,\
+  \ activeQuestionId, answerValues, refinementAvailable, refinementBranches, solverInstruction,\
+  \ treeEnd }. turnKind=refine-routing или refinementAvailable=true разрешает один\
   \ MCP-поиск более конкретной подготовленной темы перед резервной передачей опера\
   тору. Линейная статья возвращает либо свои вопросы — { needsPreQuestions: true,\
   \ preQuestions, answerKeys }, и если answerKeys непусты, ответы на эти вопросы в\
@@ -68,19 +67,23 @@ parameters:
 - name: activeQuestionId
   type: STRING
   required: false
-  description: "Идентификатор активного вопроса из ответа turnKind=choose-branch. Передавай только при смысловой классификации текущей реплики и только символ в символ."
+  description: Идентификатор активного вопроса из ответа turnKind=choose-branch. Передавай
+    только при смысловой классификации текущей реплики и только символ в символ.
   properties: null
   items: null
 - name: answerValue
   type: STRING
   required: false
-  description: "Одно конечное смысловое значение из answerValues активного вопроса. Это интерпретация слов партнёра, а не имя ветки или следующего узла. Не передавай при сомнении или противоречивом ответе."
+  description: "Одно конечное смысловое значение из answerValues активного вопроса\
+    . Это интерпретация слов партнёра, а не имя ветки или следующего узла. Не пере\
+    давай при сомнении или противоречивом ответе."
   properties: null
   items: null
 - name: evidenceText
   type: STRING
   required: false
-  description: "Дословный непрерывный фрагмент ТЕКУЩЕГО сообщения партнёра, который подтверждает answerValue. Не пересказывай и не дополняй цитату."
+  description: "Дословный непрерывный фрагмент ТЕКУЩЕГО сообщения партнёра, которы\
+    й подтверждает answerValue. Не пересказывай и не дополняй цитату."
   properties: null
   items: null
 language: JAVASCRIPT

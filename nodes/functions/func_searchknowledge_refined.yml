@@ -28,6 +28,18 @@ parameters:
       type: STRING
       value: "{}"
       filled-ai: false
+    activeQuestionId:
+      type: STRING
+      value: null
+      filled-ai: false
+    answerValue:
+      type: STRING
+      value: null
+      filled-ai: false
+    evidenceText:
+      type: STRING
+      value: null
+      filled-ai: false
   context-config: null
   hitl-tool-config: null
   custom-headers: null
