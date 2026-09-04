@@ -70,7 +70,7 @@ function conversation(key, problem, options) {
       JSON.stringify(next.answers || {})
     ]);
     Object.keys(env.db).forEach(k => { db[k] = env.db[k]; });
-    if (result && result.turnKind === "questions" && result.treeNode) {
+    if (result && (result.turnKind === "questions" || result.needsPreQuestions === true) && result.treeNode) {
       preparedQuestionNode = String(result.treeNode);
       preparedOnComment = commentId;
     }

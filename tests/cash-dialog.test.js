@@ -238,6 +238,82 @@ async function main() {
     r.stage === "closed" && r.internal.length === 0, r);
 
   bot = chat();
+  r = await bot.turn(
+    "Тамбов-1, да, на кассе ресторана закончилась лента и Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  t.check("an opening conversational yes does not answer a question that was never asked",
+    r.stage === "awaiting_answers" && /точно отображается закрытой/.test(r.replies.join(" ")) &&
+    !/другие фискальные документы/.test(r.replies.join(" ")), r);
+
+  // Natural binary answers belong to the question immediately before them. The live
+  // model attached «нет» about later fiscal documents to the future Test Driver key and
+  // the same reply was then reused across several nodes. Reproduce that wrong model JSON:
+  // the article must still advance exactly one question per partner turn.
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  r = await bot.turn("Да");
+  t.check("a bare yes answers only whether the shift closed",
+    r.stage === "awaiting_answers" && /другие фискальные документы/.test(r.replies.join(" ")),
+    r);
+  r = await bot.turn("Нет", {
+    // Deliberately the failure shape from production: a future key is rejected and the
+    // partner's own short reply is read against the delivered article question instead.
+    answers: { kktDriverAvailable: "нет" }
+  });
+  t.check("a bare no about later documents advances to the Test Driver question",
+    r.stage === "awaiting_answers" && /Тест драйвера ККТ/.test(r.replies.join(" ")) &&
+    /не печатали/.test(bot.data.treeAnswers.laterFiscalDocuments || "") &&
+    bot.data.treeAnswers.kktDriverAvailable == null,
+    { result: r, answers: bot.data.treeAnswers });
+  r = await bot.turn("Да");
+  t.check("a fresh bare yes about Test Driver reaches the approved instruction",
+    r.stage === "awaiting_confirmation" && /Печать копии последнего документа/.test(r.replies.join(" ")),
+    r);
+
+  // A safety fork may be clarified once, but two hedged answers cannot be converted into
+  // evidence by repeating the same question forever.
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  r = await bot.turn("Вроде да", {
+    answers: { shiftClosedInDodo: "вроде да" }
+  });
+  t.check("one hedged safety answer is clarified once",
+    r.stage === "awaiting_answers" && r.replies.length === 1 &&
+    /точно отображается закрытой/.test(r.replies[0]), r);
+  r = await bot.turn("Наверное", {
+    answers: { shiftClosedInDodo: "наверное" }
+  });
+  t.check("a second ambiguous answer hands over instead of looping",
+    r.stage === "escalated" && r.internal.length === 1 &&
+    /дважды не смог однозначно ответить/.test(r.internal[0]), r);
+
+  // A new concrete symptom discovered while trying approved advice may point to another
+  // reviewed article, but only as an internal hint for the operator.
+  bot = chat();
+  await bot.turn(
+    "Тамбов-1, на кассе ресторана Z-отчёт не распечатался",
+    { unit: "Тамбов-1" }
+  );
+  await bot.turn("Да");
+  await bot.turn("Нет");
+  await bot.turn("Да");
+  r = await bot.turn("Нет, галочка «Включено» не ставится и пропадает при нажатии", {
+    status: "failed"
+  });
+  t.check("checkbox failure hands the chat over without another partner instruction",
+    r.stage === "escalated" && !/USB-порт/.test(r.replies.join(" ")), r);
+  t.check("the operator receives the already-reviewed KKM connection hint",
+    r.internal.length === 1 && /Проверьте соединение между ККМ/.test(r.internal[0]) &&
+    /b12b10c3/.test(r.internal[0]), r.internal);
+
+  bot = chat();
   await bot.turn(
     "Тамбов-1, на кассе доставки смена закрылась, Z-отчёт не вышел",
     { unit: "Тамбов-1" }

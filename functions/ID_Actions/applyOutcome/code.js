@@ -196,7 +196,13 @@ function fallbackProblem(data) {
   const evidence = d.treeAnswerEvidence && typeof d.treeAnswerEvidence === "object"
     ? d.treeAnswerEvidence : {};
   const values = Object.keys(evidence).map(key => clean(evidence[key])).filter(Boolean);
-  const latest = clean(d.latestPartnerEvidence) || (values.length ? values[values.length - 1] : "");
+  // A confirmation failure is the freshest partner fact in the dialog. It is not an
+  // article answer, so `latestPartnerEvidence` may still contain an earlier «да» about a
+  // prerequisite. Prefer the exact failure text when the summary model is unavailable.
+  const failedOutcome = d.knowledgeOutcome && d.knowledgeOutcome.status === "failed"
+    ? clean(d.knowledgeOutcome.partnerText) : "";
+  const latest = failedOutcome || clean(d.latestPartnerEvidence) ||
+    (values.length ? values[values.length - 1] : "");
   if (!latest) return base;
   const normalized = value => clean(value).toLowerCase().replace(/ё/g, "е")
     .replace(/[^0-9a-zа-я]+/g, " ").trim();

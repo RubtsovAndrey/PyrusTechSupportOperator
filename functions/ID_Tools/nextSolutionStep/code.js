@@ -126,15 +126,57 @@ const topicKey = data.topicKey || null;
 if (!topicKey) return decide("escalate", "topic is unknown");
 
 let topic = null;
+let catalogTopics = [];
 try {
   const doc = Db.get({ dbIntegration: DB_ID, documentKey: "knowledge_catalog" });
-  const topics = doc && doc.value && Array.isArray(doc.value.topics) ? doc.value.topics : [];
-  topic = topics.find(t => t && String(t.key || "").toLowerCase() === String(topicKey).toLowerCase()) || null;
+  catalogTopics = doc && doc.value && Array.isArray(doc.value.topics) ? doc.value.topics : [];
+  topic = catalogTopics.find(t => t && String(t.key || "").toLowerCase() === String(topicKey).toLowerCase()) || null;
 } catch (e) {
   Log.warn({ message: "nextSolutionStep: catalog read failed: " + e });
 }
 
 if (!topic) return decide("escalate", "topic " + topicKey + " is not in the catalog", { topicKey: topicKey });
+
+// An advice node may recognise a concrete failure and point to an already-reviewed
+// operator-only node in another prepared article. The link lives in the article, while
+// this engine merely validates and follows it. Nothing from such a hint is ever returned
+// to the partner; applyOutcome adds it to the internal handover summary.
+function operatorHintAfterFailure(node, facts) {
+  const rules = node && Array.isArray(node.onFailOperatorHints) ? node.onFailOperatorHints : [];
+  const outcome = facts && facts.knowledgeOutcome && facts.knowledgeOutcome.status === "failed"
+    ? facts.knowledgeOutcome : null;
+  const clean = value => String(value || "").toLowerCase().replace(/ё/g, "е")
+    .replace(/[^0-9a-zа-я]+/g, " ").replace(/\s+/g, " ").trim();
+  const evidence = clean(outcome && outcome.partnerText);
+  if (!evidence) return null;
+
+  for (let i = 0; i < rules.length; i++) {
+    const rule = rules[i] || {};
+    const phrases = Array.isArray(rule.when) ? rule.when : [];
+    if (!phrases.some(phrase => {
+      const expected = clean(phrase);
+      return expected && evidence.indexOf(expected) >= 0;
+    })) continue;
+    const sourceTopic = catalogTopics.find(candidate =>
+      candidate && String(candidate.key || "") === String(rule.topicKey || ""));
+    const sourceNodes = sourceTopic && sourceTopic.nodes && typeof sourceTopic.nodes === "object"
+      ? sourceTopic.nodes : null;
+    const sourceNode = sourceNodes && sourceNodes[String(rule.nodeId || "")];
+    const ref = sourceNode && sourceNode.knowledgeRef;
+    if (!sourceNode || !sourceNode.advice || !ref || String(ref.mode || "") !== "operator_hint") {
+      Log.warn({ message: "nextSolutionStep: onFailOperatorHints points to a missing or non-operator node " +
+        String(rule.topicKey || "?") + "/" + String(rule.nodeId || "?") });
+      continue;
+    }
+    return {
+      topicKey: String(sourceTopic.key),
+      nodeId: String(rule.nodeId),
+      text: String(sourceNode.advice),
+      sourceArticleIds: (Array.isArray(ref.articleIds) ? ref.articleIds : []).filter(Boolean).join(", ")
+    };
+  }
+  return null;
+}
 
 // A branching article does not count steps: where «не помогло» goes is written on the
 // node the partner is standing on, and only that node knows. `onFail` may name another
@@ -143,6 +185,7 @@ const nodes = topic.nodes && typeof topic.nodes === "object" ? topic.nodes : nul
 if (nodes) {
   const at = data.treeNode && nodes[String(data.treeNode)] ? nodes[String(data.treeNode)] : null;
   const failTo = String((at && at.onFail) || topic.onFail || "escalate");
+  const operatorHint = operatorHintAfterFailure(at, data);
   const extra = { topicKey: topicKey, treeNode: data.treeNode || null, failTo: failTo };
   // A node that only ends the dialog needs no agent to say it. Routing through the solver
   // to reach it would spend a model call — and a chance for the model to invent a farewell
@@ -153,10 +196,12 @@ if (nodes) {
     // `decide.reason` is useful in logs but unreadable in an operator summary. Persist a
     // human reason separately: the partner tried the approved instruction and explicitly
     // reported that the problem remained.
-    writeState(taskId, {
+    const terminalPatch = {
       "data.handoverReason": "утверждённая рекомендация по сценарию " + topicKey + " не помогла партнёру",
       "updatedAt": Date.now()
-    }, "nextSolutionStep");
+    };
+    if (operatorHint) terminalPatch["data.operatorAdvice"] = operatorHint;
+    writeState(taskId, terminalPatch, "nextSolutionStep");
     return decide(String(fail.end) === "subtask" ? "subtask" : "escalate",
       "node " + failTo + " only ends the dialog", extra);
   }

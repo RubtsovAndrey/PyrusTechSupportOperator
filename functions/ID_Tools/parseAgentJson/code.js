@@ -324,7 +324,7 @@ function answerKeysOfTopic(key) {
 // surname, a length of service — and the model, shown only the word, matched nothing and
 // asked the partner what he had already written. Every meaning is listed, because which
 // branch the dialog will take is not known until the answer is in.
-function answerPromptsOfTopic(key, collected) {
+function answerPromptsOfTopic(key, collected, dialogData) {
   const topic = topicByKey(key);
   if (!topic) return [];
   const nodes = topic.nodes && typeof topic.nodes === "object" ? topic.nodes : null;
@@ -338,10 +338,36 @@ function answerPromptsOfTopic(key, collected) {
     const text = String(q.question || "").trim();
     if (text && questions[k].indexOf(text) < 0) questions[k].push(text);
   });
-  if (nodes) Object.keys(nodes).forEach(id => add(nodes[id] && nodes[id].ask));
-  add(topic.askBeforeHandover);
+  const activeId = dialogData && dialogData.treeNode ? String(dialogData.treeNode) : null;
+  const active = activeId && nodes && nodes[activeId] ? nodes[activeId] : null;
+  // Before the article starts, advertise every field so the Solver can recover facts from
+  // the opening message. Once a concrete node is active, advertise only that node: showing
+  // future binary questions is what made a bare «нет» answer the wrong question live.
+  if (active) add(active.ask);
+  else if (nodes) Object.keys(nodes).forEach(id => add(nodes[id] && nodes[id].ask));
+  if (!nodes || !active || dialogData && dialogData.treeHandoverAsked === true) {
+    add(topic.askBeforeHandover);
+  }
   add(topic.preQuestions);
   return order.map(k => questions[k].length ? k + " — " + questions[k].join(" / ") : k);
+}
+
+function isContextualShortReply(text) {
+  const tokens = normalize(text).replace(/[^0-9a-zа-я]+/g, " ").split(" ").filter(Boolean);
+  if (!tokens.length || tokens.length > 6) return false;
+  return ["да", "нет", "ага", "неа", "вроде", "скорее", "кажется", "наверное"]
+    .indexOf(tokens[0]) >= 0 || (tokens[0] === "не" && tokens[1] === "знаю");
+}
+
+function deliveredAnswerKeysOfTopic(key, dialogData) {
+  const topic = topicByKey(key);
+  const nodes = topic && topic.nodes && typeof topic.nodes === "object" ? topic.nodes : null;
+  const deliveredId = dialogData && dialogData.treeDeliveredQuestionNode
+    ? String(dialogData.treeDeliveredQuestionNode) : null;
+  const node = deliveredId && nodes && nodes[deliveredId] ? nodes[deliveredId] : null;
+  return node && Array.isArray(node.ask)
+    ? node.ask.map(q => q && q.key ? String(q.key) : "").filter(Boolean)
+    : null;
 }
 
 function validateComponent(candidate) {
@@ -796,6 +822,9 @@ if (taskId) {
     // just collected, and the answers are the entire point of the tree.
     if (parsed.answers && typeof parsed.answers === "object" && !Array.isArray(parsed.answers)) {
       const allowed = answerKeysOfTopic(data.topicKey || parsed.topicKey);
+      const raw = String(dialog.incomingText || "").trim();
+      const contextualAllowed = isContextualShortReply(raw)
+        ? deliveredAnswerKeysOfTopic(data.topicKey || parsed.topicKey, data) : null;
       const stored = Object.assign({}, data.treeAnswers);
       const evidence = Object.assign({}, data.treeAnswerEvidence);
       const refused = [];
@@ -808,13 +837,18 @@ if (taskId) {
       Object.keys(parsed.answers).forEach(k => {
         const value = parsed.answers[k];
         if (allowed.indexOf(k) < 0) { refused.push(k); return; }
+        if (contextualAllowed && contextualAllowed.indexOf(k) < 0) {
+          refused.push(k);
+          Log.warn({ message: "parseAgentJson: contextual reply cannot fill future answer " + k +
+            "; it belongs to delivered node " + data.treeDeliveredQuestionNode });
+          return;
+        }
         if (suppressed.indexOf(k) >= 0) { refused.push(k); return; }
         // Objects and arrays are not answers to a question, and an array would break the
         // point write outright. Only what a partner can actually say is kept.
         if (value === null || value === undefined || value === "") return;
         if (typeof value === "object") { refused.push(k); return; }
         const answer = String(value);
-        const raw = String(dialog.incomingText || "").trim();
         if (raw) {
           // Keep the current partner evidence even when searchKnowledge already persisted
           // the same semantic answer earlier in this tool loop. Otherwise a later safety
@@ -1132,7 +1166,7 @@ if (taskId) {
     // Written only when it actually changed: an unconditional path in every patch would
     // make «this turn collected nothing» indistinguishable from «this turn collected
     // something» in the write, and that distinction is what the tests of this function rest on.
-    const open = answerPromptsOfTopic(data.topicKey, data.treeAnswers);
+    const open = answerPromptsOfTopic(data.topicKey, data.treeAnswers, data);
     const openLine = open.length ? open.join("; ") : null;
     if ((known.openAnswerPrompts || null) !== openLine) patch["data.openAnswerPrompts"] = openLine;
 

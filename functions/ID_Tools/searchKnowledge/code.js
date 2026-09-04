@@ -93,9 +93,10 @@ function normalizeNodes(t) {
       // selected branch must also be supported by the partner's current message using
       // the article's own `when` phrases.  Otherwise the question is asked again.
       requireBranchEvidence: n.requireBranchEvidence === true,
-      // A retry question must consume a new partner message. Without this flag, the tree's
-      // normal multi-hop optimisation can apply the same «не знаю» to both the first and
-      // second clarification and hand over after asking only once.
+      // A contextual short answer must not be reused by the next question. Without this
+      // flag, the tree's normal multi-hop optimisation can apply the same «не знаю» or
+      // «нет» to two different forks. A rich reply that explicitly supplies both facts is
+      // still allowed to advance several nodes.
       requireFreshTurn: n.requireFreshTurn === true,
       "else": n["else"] ? String(n["else"]) : null,
       go: n.go ? String(n.go) : null,
@@ -583,6 +584,35 @@ function words(s) {
   return String(s || "").toLowerCase().replace(/ё/g, "е").replace(/[^0-9a-zа-я]+/g, " ").trim().split(" ").filter(Boolean);
 }
 
+// A short «да / нет / вроде да» has no meaning without the question immediately before
+// it. The Solver sees every still-unfilled key of an article and may attach such a reply
+// to a future question (in a live Z-report dialog, «нет» about later documents became
+// `kktDriverAvailable: нет`). Keep contextual replies bound to the last question that was
+// actually delivered. Rich answers remain free to supply several facts at once.
+function isContextualShortReply(text) {
+  const tokens = words(text);
+  if (!tokens.length || tokens.length > 6) return false;
+  return ["да", "нет", "ага", "неа", "вроде", "скорее", "кажется", "наверное"]
+    .indexOf(tokens[0]) >= 0 || (tokens[0] === "не" && tokens[1] === "знаю");
+}
+
+function bindContextualAnswers(given, topic, data) {
+  const accepted = Object.assign({}, given || {});
+  if (!isContextualShortReply(dialogValue.incomingText)) return accepted;
+  const deliveredId = String(data && data.treeDeliveredQuestionNode || "");
+  const delivered = deliveredId && topic.nodes && topic.nodes[deliveredId];
+  if (!delivered) return accepted;
+  const allowed = {};
+  (delivered.ask || []).forEach(q => { if (q && q.key) allowed[String(q.key)] = true; });
+  Object.keys(accepted).forEach(key => {
+    if (allowed[key]) return;
+    delete accepted[key];
+    Log.warn({ message: "searchKnowledge: contextual reply was attached to future answer " +
+      key + "; only the delivered node " + deliveredId + " may consume it" });
+  });
+  return accepted;
+}
+
 function contiguousStemMatch(said, parts) {
   if (!parts.length || said.length < parts.length) return false;
   for (let start = 0; start <= said.length - parts.length; start++) {
@@ -607,7 +637,7 @@ function orderedStemMatch(said, parts) {
   return at === parts.length;
 }
 
-function branchFromWords(node, said) {
+function branchFromWords(node, said, allowContextualAliases) {
   if (!said.length) return null;
 
   let best = 0;
@@ -618,6 +648,17 @@ function branchFromWords(node, said) {
       // A multi-word label counts only when the answer carries every word of it, so
       // «номер телефона» is not claimed by an answer that merely says «номер».
       const parts = words(label);
+      // A one-word yes/no alias lets the article understand an ordinary answer to its
+      // own binary question, but only after that question really reached Pyrus. An
+      // opening «Да, у нас закончилась бумага и не вышел Z-отчёт» is not evidence that
+      // the still-unasked shift-state question has a positive answer. Hedged replies
+      // remain ambiguous even in the proper context.
+      if (parts.length === 1 && (parts[0] === "да" || parts[0] === "нет")) {
+        if (!allowContextualAliases ||
+            said.some(w => ["вроде", "кажется", "наверное", "скорее"].indexOf(w) >= 0)) {
+          return;
+        }
+      }
       const hasNegation = parts.some(p => p === "не" || p === "нет" || p === "без");
       if (parts.length && parts.every(p => said.some(w => stemMatch(w, p))) &&
           (!hasNegation || orderedStemMatch(said, parts))) {
@@ -640,12 +681,12 @@ function branchFromWords(node, said) {
   return goes.length === 1 ? top[0] : null;
 }
 
-function branchFromAnswers(node, known) {
+function branchFromAnswers(node, known, allowContextualAliases) {
   // Only what THIS node asked: an answer collected three nodes ago has already had its say,
   // and matching it again would re-decide a branch on stale words.
   const said = [];
   (node.ask || []).forEach(q => { if (known[q.key]) words(known[q.key]).forEach(w => said.push(w)); });
-  return branchFromWords(node, said);
+  return branchFromWords(node, said, allowContextualAliases);
 }
 
 // Which question of the node the branches read, if it can be told at all.
@@ -946,7 +987,8 @@ if (effectiveTopicKey) {
       // What the partner said earlier in the chat counts as answered, and is written down
       // right here: the caller's own report of it arrives only after this turn is over, so
       // a tool that merely read the document would ask again for what it had just been told.
-      const given = refuseUnsupportedBranchAnswers(readGivenAnswers(answers, topic), topic);
+      const given = bindContextualAnswers(
+        refuseUnsupportedBranchAnswers(readGivenAnswers(answers, topic), topic), topic, data);
       // The same safety rule must cover `answers` as well as the explicit `branch`
       // parameter. Otherwise a second tool call could omit `branch`, inject the exact
       // branch label as a newly "heard" answer and let the automatic tree walk accept it.
@@ -955,8 +997,8 @@ if (effectiveTopicKey) {
         String(data.treeDeliveredQuestionNode || "") !== String(at.id);
       const waitingBranchKey = awaitingDelivery ? branchKeyOf(at) : null;
       if (waitingBranchKey && given[waitingBranchKey]) {
-        const claimed = branchFromWords(at, words(given[waitingBranchKey]));
-        const heardNow = branchFromWords(at, words(dialogValue.incomingText));
+        const claimed = branchFromWords(at, words(given[waitingBranchKey]), false);
+        const heardNow = branchFromWords(at, words(dialogValue.incomingText), false);
         if (claimed && (!heardNow || String(heardNow.go) !== String(claimed.go))) {
           delete given[waitingBranchKey];
           Log.warn({ message: "searchKnowledge: answer " + waitingBranchKey +
@@ -1014,8 +1056,8 @@ if (effectiveTopicKey) {
             // delivery, including when that reply was superseded by a newer webhook.
             // Direct words from the partner may still answer an as-yet unasked question.
             // `requireBranchEvidence` is stricter and always demands current words.
-            const heardNow = branchFromWords(at, words(dialogValue.incomingText));
             const deliveredBefore = String(data.treeDeliveredQuestionNode || "") === String(at.id);
+            const heardNow = branchFromWords(at, words(dialogValue.incomingText), deliveredBefore);
             const awaitingDelivery = String(data.treePreparedQuestionNode || "") === String(at.id) &&
               !deliveredBefore;
             const needsCurrentEvidence = at.requireBranchEvidence || awaitingDelivery;
@@ -1085,7 +1127,8 @@ if (effectiveTopicKey) {
       // partner who says everything in his first message reaches the end of the article at
       // once. It stops the moment a node has something left to ask or leaves any doubt.
       for (let hop = 0; hop < MAX_HOPS; hop++) {
-        if (target.requireFreshTurn && target.id !== atId) {
+        if (target.requireFreshTurn && target.id !== atId &&
+            isContextualShortReply(dialogValue.incomingText)) {
           const runtime = loadState().runtime || {};
           const fresh = {};
           target.ask.forEach(q => {
@@ -1097,7 +1140,7 @@ if (effectiveTopicKey) {
             ? null : String(runtime.incomingCommentId);
           patchData(fresh);
           Log.info({ message: "searchKnowledge: node " + target.id + " of " + topic.key +
-            " requires a fresh partner turn; current words are not reused" });
+            " requires a fresh partner turn for a contextual short reply; current words are not reused" });
           break;
         }
         // ── The question the partner has already answered, unasked ──
@@ -1122,7 +1165,8 @@ if (effectiveTopicKey) {
           const evidenceWords = target.requireBranchEvidence
             ? words(dialogValue.incomingText)
             : PARTNER_WORDS;
-          const heard = branchFromWords(target, evidenceWords);
+          const deliveredBefore = String(data.treeDeliveredQuestionNode || "") === String(target.id);
+          const heard = branchFromWords(target, evidenceWords, deliveredBefore);
           if (heard) {
             known[askKey] = heard.when[0];
             const heardPatch = {};
@@ -1133,7 +1177,8 @@ if (effectiveTopicKey) {
         }
         if (!target.branches.length) break;
         if (target.ask.some(q => !known[q.key])) break;
-        const own = branchFromAnswers(target, known);
+        const own = branchFromAnswers(target, known,
+          String(data.treeDeliveredQuestionNode || "") === String(target.id));
         if (!own) break;
         if (own.refineBeforeHandover) {
           refinementBranch = own;
@@ -1164,6 +1209,15 @@ if (effectiveTopicKey) {
         handoverReason: null,
         treeExplain: null,
         operatorAdvice: null,
+        // A model may call the tool twice in one turn: first without a branch, then with
+        // an unsupported guess. Keep the ambiguity count while the article is still on
+        // the same node; clear it only after genuine progress to another node.
+        treeBranchMissNode: String(data.treeBranchMissNode || "") === String(target.id)
+          ? data.treeBranchMissNode : null,
+        treeBranchMissCount: String(data.treeBranchMissNode || "") === String(target.id)
+          ? data.treeBranchMissCount : null,
+        treeBranchMissCommentId: String(data.treeBranchMissNode || "") === String(target.id)
+          ? data.treeBranchMissCommentId : null,
         requiredArticleQuestion: null,
         routingRefinementOffer: null
       };
@@ -1309,9 +1363,43 @@ if (effectiveTopicKey) {
         const mustClarifyBranch = target.requireBranchEvidence === true && !offer;
         if (mustClarifyBranch) {
           const runtime = loadState().runtime || {};
-          patch.treePreparedQuestionNode = target.id;
-          patch.treePreparedQuestionCommentId = runtime.incomingCommentId == null
+          const currentCommentId = runtime.incomingCommentId == null
             ? null : String(runtime.incomingCommentId);
+          const askedBefore = String(data.treeDeliveredQuestionNode || "") === String(target.id);
+          const sameNode = String(data.treeBranchMissNode || "") === String(target.id);
+          const alreadyCounted = currentCommentId != null &&
+            String(data.treeBranchMissCommentId || "") === currentCommentId;
+          const missCount = askedBefore && !alreadyCounted
+            ? (sameNode ? Number(data.treeBranchMissCount) || 0 : 0) + 1
+            : (sameNode ? Number(data.treeBranchMissCount) || 0 : 0);
+          patch.treeBranchMissNode = target.id;
+          patch.treeBranchMissCount = missCount;
+          patch.treeBranchMissCommentId = currentCommentId;
+
+          // Two genuinely ambiguous answers to the same delivered safety question are
+          // enough. Repeating it forever cannot make the evidence safer; hand the chat to
+          // a person and preserve the partner's wording in the summary instead.
+          if (askedBefore && missCount >= 2) {
+            patch.treeEnd = "escalate";
+            patch.handoverReason = "партнёр дважды не смог однозначно ответить на вопрос статьи " +
+              "о безопасном продолжении сценария";
+            patch.requiredArticleQuestion = null;
+            patchData(patch);
+            Log.warn({ message: "searchKnowledge: node " + target.id + " of " + topic.key +
+              " remained ambiguous twice; handing over instead of repeating the question" });
+            return {
+              found: true,
+              source: "tree-branch-ambiguous-limit",
+              turnKind: "handover",
+              key: topic.key,
+              componentName: component,
+              treeNode: target.id,
+              treeEnd: "escalate",
+              solverInstruction: null
+            };
+          }
+          patch.treePreparedQuestionNode = target.id;
+          patch.treePreparedQuestionCommentId = currentCommentId;
           patch.requiredArticleQuestion = articleQuestionRequirement(topic.key, target.id, target.ask);
         }
         patchData(patch);

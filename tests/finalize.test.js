@@ -697,6 +697,28 @@ async function main() {
     /Суть: странная проблема на кассе\. Партнёр уточнил: Это касса ресторана, там пишет что-то про ошибку реквизита/.test(fallbackNote),
     fallbackNote);
 
+  const failedAdviceFallback = makeEnv({
+    prev: { taskId: "11613", reason: "рекомендация не помогла" },
+    db: { [KEY]: state({
+      stage: "awaiting_confirmation",
+      pendingOutcome: null,
+      data: {
+        problemSummary: "при закрытии смены не распечатался Z-отчёт",
+        latestPartnerEvidence: "Да",
+        knowledgeOutcome: {
+          status: "failed",
+          partnerText: "Нет, галочка Включено не ставится и пропадает при нажатии"
+        }
+      }
+    }) },
+    contextValues: { dialog: { taskId: "11613" } }
+  });
+  await applyOutcome(failedAdviceFallback, ["escalated", null]);
+  const failedAdviceNote = failedAdviceFallback.db[KEY].pendingOutcome.internalNote;
+  t.check("a missing summary prefers the current advice failure over stale article answers",
+    /Партнёр уточнил: Нет, галочка Включено не ставится и пропадает при нажатии/.test(failedAdviceNote) &&
+    !/Партнёр уточнил: Да(?:\.|\n)/.test(failedAdviceNote), failedAdviceNote);
+
   const refinementCrash = makeEnv({
     prev: { taskId: "11613" },
     db: { [KEY]: state({

@@ -174,6 +174,33 @@ function lintTopics(topics) {
           say(id + ".knowledgeRef is operator_hint, but the node has no advice for the operator");
         }
       }
+      if (n.onFailOperatorHints !== undefined) {
+        const hints = Array.isArray(n.onFailOperatorHints) ? n.onFailOperatorHints : [];
+        if (!hints.length) say(id + ".onFailOperatorHints is set but contains no rules");
+        if (!n.advice || !n.onFail) {
+          say(id + ".onFailOperatorHints requires an advice node with onFail");
+        }
+        hints.forEach((hint, i) => {
+          const h = hint || {};
+          const where = id + ".onFailOperatorHints[" + i + "]";
+          if (!(Array.isArray(h.when) ? h.when : []).filter(Boolean).length) {
+            say(where + " has no partner phrases in when");
+          }
+          if (!String(h.topicKey || "").trim() || !String(h.nodeId || "").trim()) {
+            return say(where + " must name topicKey and nodeId");
+          }
+          const sourceTopic = topics.find(candidate =>
+            candidate && String(candidate.key || "") === String(h.topicKey));
+          const sourceNodes = sourceTopic && sourceTopic.nodes && typeof sourceTopic.nodes === "object"
+            ? sourceTopic.nodes : null;
+          const sourceNode = sourceNodes && sourceNodes[String(h.nodeId)];
+          if (!sourceNode) return say(where + " points at a missing node " + h.topicKey + "/" + h.nodeId);
+          if (!sourceNode.advice || !sourceNode.knowledgeRef ||
+              String(sourceNode.knowledgeRef.mode || "") !== "operator_hint") {
+            say(where + " must point at an operator_hint node with advice");
+          }
+        });
+      }
       if (n.externalKnowledge !== undefined) {
         const external = n.externalKnowledge || {};
         const sources = Array.isArray(external.sources) ? external.sources.filter(Boolean) : [];
