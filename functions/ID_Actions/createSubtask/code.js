@@ -195,21 +195,24 @@ const TOPIC_DESCRIPTION_LIMIT = 70;
 
 function summaryFields(o) {
   const data = o.data || {};
+  const problemKnown = !!String(data.caseSummary || data.problemSummary || "").trim();
   const short = s => {
     const one = String(s || "").replace(/\s+/g, " ").trim();
     return one.length > TOPIC_DESCRIPTION_LIMIT ? one.slice(0, TOPIC_DESCRIPTION_LIMIT) + "…" : one;
   };
   return {
     // Обязательное печатается даже пустым: пустота здесь тоже факт. «Email: не указан»
-    // говорит, что спросить его не удалось, а «тематика не определена» отличает «статья
-    // велела передать» от «статьи никто не написал».
+    // говорит, что спросить его не удалось. Для пустой тематики отдельно различаем
+    // ещё не описанную проблему и описанную проблему без подготовленного сценария.
     unit: data.unitFullName || "не определён",
     language: data.partnerLanguage || "русский (рабочее предположение)",
     unitDomain: businessDomainOf(data.unitFullName) || "не определён (рабочее предположение РФ)",
     email: data.email || "не указан",
     topic: data.topicKey
       ? data.topicKey + (o.description ? " — " + short(o.description) : "") + (o.topicNote || "")
-      : "не определена — подходящей статьи в базе нет",
+      : (problemKnown
+        ? "не определена — подходящей подготовленной темы не найдено"
+        : "не определена — проблема ещё не описана"),
     // caseSummary is written by the terminal summariser. It may fail without blocking the
     // business action, in which case the short intake summary remains a safe fallback.
     problem: data.caseSummary || data.problemSummary || "не описана",

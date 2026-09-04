@@ -351,8 +351,13 @@ const partnerName = lastInbound
 // российские инструкции не исполняются, даже если модель забудет вернуть код языка.
 function languageSampleOf(text) {
   return String(text || "")
-    .replace(/https?:\/\/\S+/gi, " ")
-    .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi, " ");
+    // A pasted address is not a language sample. `https?` was too narrow: the live chat
+    // received file:///Users/.../ТЕСТ%20ЧАТ.html and classified the Latin path as an
+    // English message, which disabled the Russian flow before the partner had even
+    // described a problem. Accept any URI scheme and common scheme-less web addresses.
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, " ")
+    .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi, " ")
+    .replace(/\b(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[\/:?#]\S*)?/gi, " ");
 }
 function scriptOf(text) {
   const source = languageSampleOf(text);

@@ -359,6 +359,25 @@ async function main() {
   t.check("an email address alone does not switch the conversation language",
     r.state.runtime.languageGuard === "possibly_ru", r.state.runtime);
 
+  r = await run([{ id: 421, author: PARTNER,
+    text: "file:///Users/andreyrubtsov/PyrusTechSupportOperator/ТЕСТ%20ЧАТ.html", channel: CHAN }], {});
+  t.check("a pasted file URI alone is language-neutral",
+    r.state.runtime.languageGuard === "possibly_ru" && r.state.runtime.lang === null, r.state.runtime);
+
+  r = await run([{ id: 422, author: PARTNER, text: "pyrus.com/t/377085483", channel: CHAN }], {});
+  t.check("a scheme-less web address alone is language-neutral",
+    r.state.runtime.languageGuard === "possibly_ru" && r.state.runtime.lang === null, r.state.runtime);
+
+  r = await run([{ id: 423, author: PARTNER,
+    text: "Не закрывается чек, подробности https://pyrus.com/t/377085483", channel: CHAN }], {});
+  t.check("Russian text beside a link remains a Russian-flow signal",
+    r.state.runtime.languageGuard === "possibly_ru" && r.state.runtime.lang === "cyrillic", r.state.runtime);
+
+  r = await run([{ id: 424, author: PARTNER,
+    text: "The restaurant register cannot close a receipt https://pyrus.com/t/377085483", channel: CHAN }], {});
+  t.check("meaningful English text beside a link still blocks Russian automation",
+    r.state.runtime.languageGuard === "non_ru" && r.state.runtime.lang === "latin", r.state.runtime);
+
   r = await run([{ id: 43, author: PARTNER, text: "Теперь продолжим по-русски, касса не печатает чек", channel: CHAN }], {
     [KEY]: { taskId: 11613, runtime: { languageGuard: "non_ru" } }
   });

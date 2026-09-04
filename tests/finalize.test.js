@@ -10,6 +10,7 @@ const finalize = loadFunction("functions/ID_Pyrus/finalize/code.js");
 const applyOutcome = loadFunction("functions/ID_Actions/applyOutcome/code.js", ["outcome", "replyText"]);
 // And the round trip needs the third: a stage is only real if the next webhook reads it back.
 const receiveWebhook = loadFunction("functions/ID_Pyrus/receiveWebhook/code.js");
+const parseAgentJson = loadFunction("functions/ID_Tools/parseAgentJson/code.js", ["stage"]);
 
 const BOT = { id: 1314929, name: "Бот" };
 const PARTNER = { id: 555, name: "Партнёр" };
@@ -62,6 +63,48 @@ async function run(options) {
 
 async function main() {
   const t = suite("finalize");
+
+  // ── A meaningless pasted link is a clarification, not a foreign-language handover ──
+  // This is the exact shape of live task 377085483. The language guard, intake parser and
+  // outcome builder each looked reasonable alone, but their combination silently handed
+  // the chat to an operator and claimed it had been reopened.
+  const pasted = makeEnv({
+    payload: {
+      task_id: 11613, event: "comment", access_token: "t", api_url: "https://api.pyrus.com/v4/",
+      task: {
+        id: 11613, form_id: 2430464, fields: [], comments: [{
+          id: 421, author: PARTNER,
+          text: "file:///Users/andreyrubtsov/PyrusTechSupportOperator/ТЕСТ%20ЧАТ.html",
+          channel: CHAN
+        }]
+      }
+    }
+  });
+  await receiveWebhook(pasted);
+  const parsedPaste = makeEnv({
+    db: pasted.db,
+    prev: JSON.stringify({
+      action: "clarify", partnerLanguage: "ru", clarifyKind: "need_unit_and_problem",
+      unit: null, unitFullName: null, problemSummary: null,
+      clarifyingQuestion: null, replyText: null,
+      reason: "Нет данных о юните и проблеме"
+    }),
+    contextValues: pasted.values
+  });
+  const parsedPasteResult = await parseAgentJson(parsedPaste, ["intake"]);
+  const decidedPaste = makeEnv({
+    db: parsedPaste.db,
+    prev: parsedPasteResult,
+    contextValues: pasted.values
+  });
+  await applyOutcome(decidedPaste, ["clarify", null]);
+  t.check("a pasted URI reaches the normal Russian clarification end to end",
+    decidedPaste.db[KEY].pendingOutcome.kind === "clarify" &&
+    decidedPaste.db[KEY].pendingOutcome.nextStage === "gathering" &&
+    /о какой точке/.test(decidedPaste.db[KEY].pendingOutcome.replyText || "") &&
+    /что именно сейчас не работает/.test(decidedPaste.db[KEY].pendingOutcome.replyText || "") &&
+    decidedPaste.db[KEY].pendingOutcome.internalNote === null,
+    decidedPaste.db[KEY].pendingOutcome);
 
   // ── Skipped runs must not touch anything ──
   let r = await run({

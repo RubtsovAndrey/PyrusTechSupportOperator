@@ -676,7 +676,40 @@ async function main() {
   await d.outcome("escalated", {});
   note = d.state.pendingOutcome.internalNote;
   t.check("with no article at all the summary says so instead of leaving a blank",
-    /Тематика: не определена/.test(note) && !/Собрано у партнёра/.test(note), note);
+    /Тематика: не определена — подходящей подготовленной темы не найдено/.test(note) &&
+    !/Собрано у партнёра/.test(note), note);
+
+  d = dialog({
+    data: { partnerLanguage: "ru" },
+    runtime: { languageGuard: "possibly_ru", unitFieldId: 97, componentFieldId: 36 }
+  });
+  await d.outcome("clarify", { agentStage: "intake", clarifyKind: "need_unit_and_problem" });
+  t.check("a language-neutral meaningless paste asks for unit and problem instead of handing over",
+    d.state.pendingOutcome.kind === "clarify" &&
+    /о какой точке/.test(d.state.pendingOutcome.replyText || "") &&
+    /что именно сейчас не работает/.test(d.state.pendingOutcome.replyText || ""),
+    d.state.pendingOutcome);
+
+  d = dialog({
+    data: { partnerLanguage: "ru" },
+    runtime: { languageGuard: "non_ru", unitFieldId: 97, componentFieldId: 36 }
+  });
+  await d.outcome("clarify", {
+    agentStage: "intake", clarifyKind: "need_unit_and_problem",
+    reason: "Нет данных о юните и проблеме"
+  });
+  note = d.state.pendingOutcome.internalNote;
+  t.check("a technical silent handover keeps its real reason",
+    /Причина передачи: не удалось безопасно сформировать локализованный вопрос/.test(note) &&
+    !/партнёр написал в закрытый чат/.test(note), note);
+  t.check("a summary distinguishes an undescribed problem from a failed topic search",
+    /Тематика: не определена — проблема ещё не описана/.test(note), note);
+
+  d = dialog();
+  await d.outcome("handover_silent", { stage: "reopened" });
+  note = d.state.pendingOutcome.internalNote;
+  t.check("a genuine reopened chat still names the closed-chat reason",
+    /Причина передачи: партнёр написал в закрытый чат/.test(note), note);
 
   // ── Ключи ответов берутся из статьи, а не от модели ──
   d = dialog();
