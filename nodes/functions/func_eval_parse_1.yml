@@ -1,0 +1,17 @@
+---
+id: func_eval_parse_1
+name: Validate eval selection 1
+position:
+  x: 810
+  y: 1350
+next-step: func_eval_collect_1
+next-error-step: func_eval_collect_1
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: parseOperatorEvidence
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

@@ -1,0 +1,25 @@
+---
+id: func_eval_select_5
+name: Eval Selector 5
+position:
+  x: 10
+  y: 2950
+next-step: func_eval_capture_5
+next-error-step: func_eval_error_5
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: selectOperatorEvidence
+  is-tool: false
+  parameters:
+    llmModel:
+      type: LLM_MODEL
+      value: "1000299722-open_ai_gpt56terra-uos"
+      filled-ai: false
+    maxCompletionTokens:
+      type: INTEGER
+      value: "8192"
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

@@ -1,0 +1,11 @@
+---
+id: cond_eval_ready
+name: Evaluation case ready?
+position:
+  x: 810
+  y: 1000
+next-step: func_eval_select_1
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).ready === true"
+  false-step: null

@@ -1,0 +1,33 @@
+---
+id: func_eval_prepare
+name: Prepare Selector evaluation
+position:
+  x: 410
+  y: 1000
+next-step: cond_eval_ready
+next-error-step: null
+parameters:
+  type: USER
+  collection: ID_Dev
+  function: prepareSelectorEval
+  is-tool: false
+  parameters:
+    expectedProject:
+      type: STRING
+      value: "pyrustechsupportoper-1000299722-YwT"
+      filled-ai: false
+    dbIntegration:
+      type: INTEGRATION_DB
+      value: "1000299722-pyrus_bot_database-lwi"
+      filled-ai: false
+    modelKey:
+      type: LLM_MODEL
+      value: "1000299722-open_ai_gpt56terra-uos"
+      filled-ai: false
+    maxCompletionTokens:
+      type: INTEGER
+      value: "8192"
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

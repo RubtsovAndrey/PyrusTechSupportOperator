@@ -1,0 +1,19 @@
+---
+id: captureSelectorEval
+name: captureSelectorEval
+description: Dev-only evaluation harness; no Pyrus actions.
+response-description: Evaluation control or result; never a partner reply.
+parameters:
+- name: expectedProject
+  type: STRING
+  required: true
+  description: expectedProject for the isolated dev evaluation.
+- name: dbIntegration
+  type: INTEGRATION_DB
+  required: true
+  description: dbIntegration for the isolated dev evaluation.
+- name: transportError
+  type: BOOLEAN
+  required: true
+  description: transportError for the isolated dev evaluation.
+language: JAVASCRIPT

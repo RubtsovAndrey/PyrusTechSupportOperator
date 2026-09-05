@@ -1,0 +1,9 @@
+---
+id: trigger_selector_eval
+name: Dev - Selector evaluation
+position:
+  x: 10
+  y: 1000
+next-step: func_eval_prepare
+next-error-step: null
+parameters: {}

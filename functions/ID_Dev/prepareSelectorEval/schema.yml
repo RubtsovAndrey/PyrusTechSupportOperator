@@ -1,0 +1,23 @@
+---
+id: prepareSelectorEval
+name: prepareSelectorEval
+description: Dev-only evaluation harness; no Pyrus actions.
+response-description: Evaluation control or result; never a partner reply.
+parameters:
+- name: expectedProject
+  type: STRING
+  required: true
+  description: expectedProject for the isolated dev evaluation.
+- name: dbIntegration
+  type: INTEGRATION_DB
+  required: true
+  description: dbIntegration for the isolated dev evaluation.
+- name: modelKey
+  type: LLM_MODEL
+  required: true
+  description: modelKey for the isolated dev evaluation.
+- name: maxCompletionTokens
+  type: INTEGER
+  required: true
+  description: maxCompletionTokens for the isolated dev evaluation.
+language: JAVASCRIPT

@@ -1,0 +1,29 @@
+---
+id: func_eval_collect_3
+name: Collect sample 3
+position:
+  x: 1210
+  y: 2150
+next-step: func_eval_select_4
+next-error-step: null
+parameters:
+  type: USER
+  collection: ID_Dev
+  function: collectSelectorEval
+  is-tool: false
+  parameters:
+    expectedProject:
+      type: STRING
+      value: "pyrustechsupportoper-1000299722-YwT"
+      filled-ai: false
+    dbIntegration:
+      type: INTEGRATION_DB
+      value: "1000299722-pyrus_bot_database-lwi"
+      filled-ai: false
+    lastIteration:
+      type: BOOLEAN
+      value: "false"
+      filled-ai: false
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null
