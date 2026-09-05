@@ -60,7 +60,15 @@ for (const entry of [{ label: "defaultModel", key: defaultModel }, { label: "sel
   try {
     const response = await Llm.sendRequest({ llmModelKey: entry.key,
       messages: [{ role: "user", text: 'Return only this JSON: {"ok":true}' }], tools: [], maxCompletionTokens: 512 });
-    const parsed = response && typeof response.text === "string" ? JSON.parse(response.text) : null;
+    let parsed = null;
+    if (response && typeof response.text === "string") {
+      const text = response.text.trim();
+      // A single Markdown fence is presentation, not an API failure. Extra prose or
+      // multiple objects still fail the response contract; do not extract arbitrary JSON.
+      const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/i.exec(text);
+      try { parsed = JSON.parse(fenced ? fenced[1] : text); }
+      catch (e) { /* Transport succeeded; malformed text is unexpected_response below. */ }
+    }
     checks[entry.label] = parsed && parsed.ok === true &&
       (!Array.isArray(response.toolCalls) || response.toolCalls.length === 0) ? "ok" : "unexpected_response";
   } catch (e) { checks[entry.label] = "failed"; }

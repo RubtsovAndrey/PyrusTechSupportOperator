@@ -25,7 +25,7 @@ async function main() {
     env.Llm = { sendRequest: async args => {
       llm.push(args);
       if (options.fail) throw new Error("private request PRIVATE_TOKEN");
-      return { text: '{"ok":true}', toolCalls: [] };
+      return { text: options.text === undefined ? '{"ok":true}' : options.text, toolCalls: options.toolCalls || [] };
     } };
     try { return { result: await node.code(env, node.values), env, http, llm }; }
     catch (error) { return { error, env, http, llm }; }
@@ -45,6 +45,15 @@ async function main() {
   r = await run({ fail: true });
   t.check("provider failures do not expose request headers in diagnostics", r.result.checks.kbToolDiscovery === "failed" &&
     r.result.checks.selectorModel === "failed" && !JSON.stringify([r.result, r.env.logs]).includes("PRIVATE_TOKEN"), r.result);
+  r = await run({ text: '```json\n{"ok":true}\n```' });
+  t.check("a successful model response inside one Markdown fence is accepted",
+    r.result.checks.defaultModel === "ok" && r.result.checks.selectorModel === "ok", r.result);
+  for (const options of [{ text: 'Here is the result: {"ok":true}' }, { text: '{"ok":true}{"ok":false}' },
+    { text: '```json\n{"ok":true}\n```\nExtra text' }, { text: '{"ok":false}' }, { toolCalls: [{ name: "unexpected" }] }]) {
+    r = await run(options);
+    t.check("unexpected model output is distinct from transport failure: " + JSON.stringify(options),
+      r.result.checks.defaultModel === "unexpected_response" && r.result.checks.selectorModel === "unexpected_response", r.result);
+  }
   for (const options of [{ foreign: true }, { live: true }]) {
     r = await run(options);
     t.check("wrong project or non-test execution stops before accessing integrations: " + JSON.stringify(options),
