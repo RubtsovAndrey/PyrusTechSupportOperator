@@ -276,6 +276,27 @@ async function main() {
   t.check("an unknown topic asks only for the missing unit before a complete handover",
     checks.length > 0 && checks.every(c => c.ok), checks.filter(c => !c.ok));
 
+  const businessLater = matchingUnknownUnitLaterTurns();
+  businessLater[1].partner.text = "Пиццерия";
+  businessLater[1].internal[0].text += " Юнит: [dodopizza.ru] Москва 0-22";
+  businessLater.splice(1, 0, {
+    partner: { text: "Москва 0-22" }, outcome: "clarify",
+    replies: [{ text: "Подскажите, это пиццерия или кофейня?" }], internal: [],
+    logs: ["matchUnit: count=2 needsBusiness=true"],
+    path: ["Intake Agent", "Outcome - clarify", "finalize"],
+    calls: ['ID_Tools.matchUnit({"query":"Москва 0-22"})', 'ID_Actions.applyOutcome({"outcome":"clarify"})'],
+    errors: []
+  });
+  checks = validateScenario(businessLater, loadScenario(scenariosFile, "unknown-courier-avatar-business-later"));
+  t.check("business clarification for an ambiguous unit is an expected third turn",
+    checks.every(c => c.ok), checks.filter(c => !c.ok));
+
+  const wrongObject = matchingTurn();
+  wrongObject.internal[0].text += " Для смены аватарки курьера используется шаблон поиска по ClientUUId.";
+  checks = validateScenario([wrongObject], scenario);
+  t.check("a ClientUUId instruction fails even alongside the right photo article",
+    checks.some(c => !c.ok && /ClientUUId/.test(c.label)), checks);
+
   const posScenario = loadScenario(scenariosFile, "known-pos-connection-then-handover");
   checks = validateScenario(matchingPosTurns(), posScenario);
   t.check("the known POS scenario accepts advice followed by a documented handover",

@@ -32,7 +32,7 @@
                 "Основание:",
                 "300×300"
               ],
-              "excludes": ["Обновления Додо ИС", "Инструкция по работе с Kibana", "кандидатов-бариста", "ТВ-бордах", "Поддержка клиентов: как оформлять заказ", "Печать чека на кассе доставки", "на сайте и в приложении"]
+              "excludes": ["Обновления Додо ИС", "Инструкция по работе с Kibana", "кандидатов-бариста", "ТВ-бордах", "Поддержка клиентов: как оформлять заказ", "Печать чека на кассе доставки", "на сайте и в приложении", "ClientUUId"]
             },
             "logs": {
               "includes": ["parseOperatorQueries:", "findOperatorKnowledge:", "подсказок 1", "parseOperatorEvidence: selected"]
@@ -99,7 +99,8 @@
                 "Печать чека на кассе доставки",
                 "на сайте и в приложении",
                 "Инструкция по работе с Kibana",
-                "ТВ-бордах"
+                "ТВ-бордах",
+                "ClientUUId"
               ]
             },
             "path": {
@@ -108,6 +109,161 @@
             },
             "calls": {
               "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"escalated\""]
+            },
+            "noErrors": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "unknown-courier-avatar-business-later",
+      "title": "Аватарка курьера: неоднозначный юнит требует уточнения бизнеса, затем передача с основанием",
+      "messages": [
+        "Как поменять аватарку у курьера?",
+        "Москва 0-22",
+        "Пиццерия"
+      ],
+      "expect": {
+        "turnCount": 3,
+        "turns": [
+          {
+            "partner": {
+              "includes": [
+                "аватарку у курьера"
+              ]
+            },
+            "outcome": "clarify",
+            "replies": {
+              "count": 1,
+              "includes": [
+                "о какой точке идёт речь",
+                "город и номер"
+              ]
+            },
+            "internal": {
+              "count": 0
+            },
+            "path": {
+              "includes": [
+                "Intake Agent",
+                "Outcome - clarify",
+                "finalize"
+              ],
+              "excludes": [
+                "Routing Agent",
+                "Find knowledge for operator"
+              ]
+            },
+            "calls": {
+              "includes": [
+                "ID_Actions.applyOutcome",
+                "\"outcome\":\"clarify\""
+              ]
+            },
+            "noErrors": true
+          },
+          {
+            "partner": {
+              "includes": [
+                "Москва 0-22"
+              ]
+            },
+            "outcome": "clarify",
+            "replies": {
+              "count": 1,
+              "includes": [
+                "пиццерия или кофейня"
+              ]
+            },
+            "internal": {
+              "count": 0
+            },
+            "logs": {
+              "includes": [
+                "needsBusiness=true"
+              ]
+            },
+            "path": {
+              "includes": [
+                "Intake Agent",
+                "Outcome - clarify",
+                "finalize"
+              ],
+              "excludes": [
+                "Routing Agent",
+                "Find knowledge for operator",
+                "Operator Evidence Selector"
+              ]
+            },
+            "calls": {
+              "includes": [
+                "ID_Tools.matchUnit",
+                "\"outcome\":\"clarify\""
+              ]
+            },
+            "noErrors": true
+          },
+          {
+            "partner": {
+              "includes": [
+                "Пиццерия"
+              ]
+            },
+            "outcome": "escalated",
+            "replies": {
+              "count": 1,
+              "includes": [
+                "Понадобится время на изучение вопроса"
+              ],
+              "excludes": [
+                "Возможные материалы из Базы Знаний",
+                "Черновик возможного"
+              ]
+            },
+            "internal": {
+              "count": 1,
+              "includes": [
+                "Бот передаёт обращение оператору",
+                "Возможные материалы из Базы Знаний",
+                "Сотрудники: личная карточка сотрудника в Додо ИС",
+                "Черновик возможного первого ответа партнёру",
+                "Сформирован автоматически и не отправлен",
+                "Основание:",
+                "300×300",
+                "[dodopizza.ru] Москва 0-22"
+              ],
+              "excludes": [
+                "Поддержка клиентов: как оформлять заказ",
+                "Печать чека на кассе доставки",
+                "на сайте и в приложении",
+                "Инструкция по работе с Kibana",
+                "ТВ-бордах",
+                "ClientUUId"
+              ]
+            },
+            "path": {
+              "includes": [
+                "Routing Agent",
+                "Knowledge Query Planner",
+                "Validate operator search queries",
+                "Find knowledge for operator",
+                "Operator Evidence Selector",
+                "Validate operator evidence",
+                "Operator Assist Composer",
+                "Validate operator draft",
+                "Outcome - escalate to operator",
+                "finalize"
+              ],
+              "excludes": [
+                "Solver / Policy Reader",
+                "Response Composer"
+              ]
+            },
+            "calls": {
+              "includes": [
+                "ID_Actions.applyOutcome",
+                "\"outcome\":\"escalated\""
+              ]
             },
             "noErrors": true
           }
