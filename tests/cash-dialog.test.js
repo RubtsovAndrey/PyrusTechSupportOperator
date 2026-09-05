@@ -7,7 +7,7 @@ const { conversation } = require("./dialog");
 const RESTAURANT = "Касса → Касса ресторана → Печать чека";
 const DELIVERY = "Касса → Касса доставки → Печать чека";
 const OWN_KB_SPACE = "6d8f5fa3-7fd4-44c8-978d-68743b232533";
-const KB_CREDENTIAL = "1000299722-kbmcptoken-vod";
+const KB_CREDENTIAL = require("../tools/project-bindings").projectBindings().kbCredentialKey;
 let taskId = 780000;
 
 function sse(payload) {

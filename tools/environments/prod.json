@@ -7,6 +7,11 @@
   "webhookNodeId": "trigger_webhook_pyrus",
   "webhookUrl": "https://agentplatform.just-ai.com/workflow-trigger/ede0819c-4ba6-419f-8460-d3269e5db77d",
   "databaseKey": "1000299722-pyrus_bot_database-hul",
+  "kbCredentialKey": "1000299722-kbmcptoken-vod",
+  "models": {
+    "default": "1000299722-open_ai_gpt41mini-tme",
+    "selector": "1000299722-open_ai_gpt56terra-swl"
+  },
   "configTemplate": "docs/environments/prod-config.json",
   "note": "Reserved for future production; currently the existing TEST project. Real Pyrus forms are not enabled."
 }

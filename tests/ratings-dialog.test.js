@@ -4,7 +4,7 @@ const { suite } = require("./harness");
 const { conversation } = require("./dialog");
 const CATALOG = require("../docs/knowledge_catalog.json");
 
-const CRED = "1000299722-kbmcptoken-vod";
+const CRED = require("../tools/project-bindings").projectBindings().kbCredentialKey;
 const RKO_ID = "272d65f9-ca3b-4d54-a1ce-5a9fff4a04eb";
 const RKO_UPDATED = "2026-05-22T09:01:53.619596";
 const STANDARDS_ID = "4c1ae39a-6d5e-4235-809e-98d73ad95111";

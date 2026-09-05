@@ -47,7 +47,7 @@ const supportArticles = support.operatorKnowledge && Array.isArray(support.opera
   ? support.operatorKnowledge.articles : [];
 let currentCommentId = null;
 try {
-  const doc = Db.get({ dbIntegration: "1000299722-pyrus_bot_database-hul",
+  const doc = Db.get({ dbIntegration: "1000299722-pyrus_bot_database-lwi",
     documentKey: "state:" + dialog.taskId });
   const runtime = doc && doc.value && doc.value.runtime || {};
   currentCommentId = runtime.incomingCommentId == null ? null : String(runtime.incomingCommentId);

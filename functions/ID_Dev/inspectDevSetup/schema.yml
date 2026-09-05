@@ -1,0 +1,27 @@
+---
+id: inspectDevSetup
+name: inspectDevSetup
+description: Checks dev configuration and read access without writing data or calling Pyrus.
+response-description: Setup check statuses only; never credential values or article contents.
+parameters:
+- name: expectedProject
+  type: STRING
+  required: true
+  description: Dev project identity; rejects execution in another project.
+- name: dbIntegration
+  type: INTEGRATION_DB
+  required: true
+  description: Project-scoped dev state database.
+- name: kbCredential
+  type: CREDENTIAL
+  required: true
+  description: Custom credential used by knowledge search.
+- name: defaultModel
+  type: LLM_MODEL
+  required: true
+  description: Default model integration in dev.
+- name: selectorModel
+  type: LLM_MODEL
+  required: true
+  description: Selector model integration in dev.
+language: JAVASCRIPT

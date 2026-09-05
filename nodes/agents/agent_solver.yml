@@ -2,12 +2,12 @@
 id: agent_solver
 name: Solver / Policy Reader
 position:
-  x: 4211
-  y: -1574
+  x: 4237
+  y: -1600
 next-step: func_parsejson_solver
 next-error-step: func_escalate_m9k4j
 parameters:
-  llm-model-key: 1000299722-open_ai_gpt41mini-tme
+  llm-model-key: 1000299722-open_ai_gpt41mini-etf
   llm-model-settings:
     max-tokens: 1024
     temperature: 0.5

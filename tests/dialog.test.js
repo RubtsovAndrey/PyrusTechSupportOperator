@@ -365,7 +365,7 @@ async function main() {
   bot = conversation({
     taskId: ++taskId,
     catalog: DIALOG_CATALOG,
-    credentials: { "1000299722-kbmcptoken-vod": "read-token" },
+    credentials: { [require("../tools/project-bindings").projectBindings().kbCredentialKey]: "read-token" },
     onMcp: a => {
       const name = a.body.params.name;
       if (name === "search_content") return { status: 200, body: mcpSse({ results: [{

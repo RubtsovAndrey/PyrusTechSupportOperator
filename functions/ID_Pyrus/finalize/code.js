@@ -1,4 +1,4 @@
-const DB_ID = "1000299722-pyrus_bot_database-hul";
+const DB_ID = "1000299722-pyrus_bot_database-lwi";
 // Same id as in receiveWebhook, and from the same place: needed to tell the bot's own
 // replies from the partner's messages when deciding whether a newer message has arrived.
 // Kept in the `config` document precisely because it lives in two files — a literal here

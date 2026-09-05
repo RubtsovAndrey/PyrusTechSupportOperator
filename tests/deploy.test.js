@@ -18,9 +18,12 @@ async function main() {
   try {
     fs.mkdirSync(repo);
     for (const rel of ["tools/deploy.ps1", "tools/check-environment.js", "tools/environments/dev.json", "tools/environments/prod.json",
-      "docs/environments/dev-config.json", "docs/environments/prod-config.json", "tests/graph.js", "tests/harness.js",
-      "integrations/databases/1000299722-pyrus_bot_database-hul.yml", "credentials/custom/1000299722-pyrustoken-lef.yml"]) copy(rel);
+      "docs/environments/dev-config.json", "docs/environments/prod-config.json", "tests/graph.js", "tests/harness.js"]) copy(rel);
     const profile = JSON.parse(fs.readFileSync(path.join(repo, "tools/environments/prod.json")));
+    const devProfile = JSON.parse(fs.readFileSync(path.join(repo, "tools/environments/dev.json")));
+    Object.assign(devProfile, { lifecycle: "awaiting-project", projectKey: null, webhookUrl: null, databaseKey: null });
+    write("tools/environments/dev.json", JSON.stringify(devProfile));
+    write("integrations/databases/" + profile.databaseKey + ".yml", "key: " + profile.databaseKey + "\nscope: PROJECT\n");
     write("manifest.yml", "schema-version: 1.0\nproject-key: " + profile.projectKey + "\n");
     const hookRel = "nodes/triggers/webhook/trigger_webhook_pyrus.yml";
     const hook = "id: trigger_webhook_pyrus\nparameters:\n  url: " + profile.webhookUrl + "\n";

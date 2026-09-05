@@ -17,7 +17,7 @@ const https = require("https");
 const { loadFunction, makeEnv } = require("../tests/harness");
 
 const ROOT = path.resolve(__dirname, "..");
-const CRED = "1000299722-kbmcptoken-vod";
+const CRED = require("./project-bindings").projectBindings().kbCredentialKey;
 
 function loadToken() {
   const file = path.join(ROOT, ".env.local");

@@ -1,12 +1,17 @@
 {
   "environment": "dev",
   "branch": "dev",
-  "lifecycle": "awaiting-project",
+  "lifecycle": "test",
   "projectName": "PyrusTechSupportOperator-dev",
-  "projectKey": null,
+  "projectKey": "pyrustechsupportoper-1000299722-YwT",
   "webhookNodeId": "trigger_webhook_pyrus",
-  "webhookUrl": null,
-  "databaseKey": null,
+  "webhookUrl": "https://agentplatform.just-ai.com/workflow-trigger/e78aebc0-9b6e-42ab-aab1-eaba33ac1a2a",
+  "databaseKey": "1000299722-pyrus_bot_database-lwi",
+  "kbCredentialKey": "1000299722-kbmcptoken-sut",
+  "models": {
+    "default": "1000299722-open_ai_gpt41mini-etf",
+    "selector": "1000299722-open_ai_gpt56terra-uos"
+  },
   "configTemplate": "docs/environments/dev-config.json",
-  "note": "Register the new project's bindings after reviewing its first export. Bootstrap is an import seed, not an isolated running environment."
+  "note": "Bindings reviewed in export 1d682dc. Server DB contents, credential values and publication still need runtime verification."
 }

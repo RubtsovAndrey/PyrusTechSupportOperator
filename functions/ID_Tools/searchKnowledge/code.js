@@ -1,4 +1,4 @@
-const DB_ID = "1000299722-pyrus_bot_database-hul";
+const DB_ID = "1000299722-pyrus_bot_database-lwi";
 const RAG_KEY = "1000299722-testovaa_baza_znanij-gsp";
 
 const MAX_TOPICS = 3;

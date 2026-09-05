@@ -8,8 +8,8 @@
 
 const MCP_URL = "https://knowledgebase.dodois.io/mcp";
 const CREDENTIAL_KEYS = [
-  "1000299722-kbmcptoken-vod",
-  "1000299722-knowledge_base_mcp_t-qvb"
+  "1000299722-kbmcptoken-sut",
+  "1000299722-knowledge_base_mcp_t-fwc"
 ];
 const LIMIT = 3;
 const SEARCH_LIMIT = 20;
@@ -17,7 +17,7 @@ const BROAD_SEARCH_LIMIT = 9;
 const EXCERPT_LIMIT = 240;
 const GROUNDING_LIMIT = 1800;
 const READ_LIMIT = 6;
-const DB_ID = "1000299722-pyrus_bot_database-hul";
+const DB_ID = "1000299722-pyrus_bot_database-lwi";
 const OWN_SPACE_ID = "6d8f5fa3-7fd4-44c8-978d-68743b232533";
 const SUPPORT_SPACE_IDS = [
   "9f2a0e8b-3109-4354-afe0-0f6fc9a6ce0d",

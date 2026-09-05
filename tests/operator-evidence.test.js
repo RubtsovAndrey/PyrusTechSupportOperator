@@ -71,7 +71,7 @@ async function main() {
   }
 
   function bot() {
-    return conversation({ catalog: { topics: [] }, credentials: { "1000299722-kbmcptoken-vod": "fake" },
+    return conversation({ catalog: { topics: [] }, credentials: { [require("../tools/project-bindings").projectBindings().kbCredentialKey]: "fake" },
       onMcp: a => {
         const name = a.body.params.name;
         const payload = name === "search_content" ? { results: [

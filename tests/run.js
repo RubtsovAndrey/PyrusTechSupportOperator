@@ -18,6 +18,7 @@ const SUITES = [
   "./mvp-eval-cases.test.js",
   "./live-trace.test.js",
   "./deploy.test.js",
+  "./dev-setup.test.js",
   // Идёт последним: остальные наборы проверяют функции поштучно, этот — разговор целиком,
   // и по упавшей проверке здесь при зелёных выше сразу видно, что дело в графе, а не в коде.
   "./dialog.test.js"
@@ -27,6 +28,7 @@ const SUITES = [
 // platform does. Top-level `await` and `return` are legal there, so `node --check` alone
 // reports false failures.
 const FUNCTION_PARAMS = {
+  "functions/ID_Dev/inspectDevSetup/code.js": ["expectedProject", "dbIntegration", "kbCredential", "defaultModel", "selectorModel"],
   "functions/ID_Tools/selectOperatorEvidence/code.js": ["llmModel", "maxCompletionTokens"],
   "functions/ID_Actions/applyOutcome/code.js": ["outcome", "replyText"],
   "functions/ID_Tools/parseAgentJson/code.js": ["stage"],

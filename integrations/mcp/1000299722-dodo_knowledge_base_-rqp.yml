@@ -1,8 +1,0 @@
----
-key: 1000299722-dodo_knowledge_base_-rqp
-credential-key: 1000299722-knowledge_base_mcp_t-qvb
-name: Dodo Knowledge Base MCP
-transport-type: STREAMABLE_HTTP
-collection-name: knowledgebase
-url: https://knowledgebase.dodois.io/mcp
-custom-headers: null

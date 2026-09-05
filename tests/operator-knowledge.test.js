@@ -3,7 +3,7 @@
 const { loadFunction, makeEnv, suite } = require("./harness");
 
 const findKnowledge = loadFunction("functions/ID_Tools/findOperatorKnowledge/code.js");
-const CRED = "1000299722-kbmcptoken-vod";
+const CRED = require("../tools/project-bindings").projectBindings().kbCredentialKey;
 const OWN_SPACE = "6d8f5fa3-7fd4-44c8-978d-68743b232533";
 const SUPPORT_SPACE = "963b66c2-e111-43c6-a9ff-e7e5af3e4244";
 

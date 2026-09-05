@@ -1,4 +1,4 @@
-const DB_ID = "1000299722-pyrus_bot_database-hul";
+const DB_ID = "1000299722-pyrus_bot_database-lwi";
 
 function normalize(value) {
   return String(value || "").toLowerCase().replace(/ё/g, "е")

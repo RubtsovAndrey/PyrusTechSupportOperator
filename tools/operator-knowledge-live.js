@@ -12,7 +12,7 @@ async function main() {
   const env = makeEnv({
     db: { "state:retrieval-check": { runtime: { incomingCommentId: "read-only" } } },
     prev: { taskId: "retrieval-check", reason: "read-only retrieval check" },
-    credentials: { "1000299722-kbmcptoken-vod": "transport-owned-token" },
+    credentials: { [require("./project-bindings").projectBindings().kbCredentialKey]: "transport-owned-token" },
     contextValues: {
       dialog: { taskId: "retrieval-check", problemSummary: queries[0] },
       operatorSearchQueries: { taskId: "retrieval-check", originalQuery: queries[0], searchQueries: queries }

@@ -1,4 +1,4 @@
-const DB_ID = "1000299722-pyrus_bot_database-hul";
+const DB_ID = "1000299722-pyrus_bot_database-lwi";
 
 function lastJsonObject(value) {
   if (value && typeof value === "object" && !Array.isArray(value)) return value;

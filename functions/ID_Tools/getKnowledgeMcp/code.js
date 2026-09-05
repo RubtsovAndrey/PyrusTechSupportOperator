@@ -23,15 +23,15 @@
 // отдаёт параметры top-level переменными. То есть функция не выполняла ничего.
 
 const MCP_URL = "https://knowledgebase.dodois.io/mcp";
-const DB_ID = "1000299722-pyrus_bot_database-hul";
+const DB_ID = "1000299722-pyrus_bot_database-lwi";
 
 // Токен живёт в хранилище платформы. Первый ключ — CUSTOM-credential, заведённый ради этой
 // функции; второй — credential MCP-интеграции, и он в списке лишь потому, что читаемость
 // группы MCP через `Credentials.get` не проверена (в схеме перечислены LLM/CHANNEL/FUNCTION/
 // CUSTOM). Порядок важен: сначала тот, который заведён правильно.
 const CREDENTIAL_KEYS = [
-  "1000299722-kbmcptoken-vod",
-  "1000299722-knowledge_base_mcp_t-qvb"
+  "1000299722-kbmcptoken-sut",
+  "1000299722-knowledge_base_mcp_t-fwc"
 ];
 
 // Наше пространство БЗ — «ИИ Техподдержка - Конфигурация». Поиск по умолчанию ограничен им:
