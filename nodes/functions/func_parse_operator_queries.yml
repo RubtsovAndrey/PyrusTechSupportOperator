@@ -1,0 +1,17 @@
+---
+id: func_parse_operator_queries
+name: Validate operator search queries
+position:
+  x: 4910
+  y: -928
+next-step: func_find_operator_knowledge
+next-error-step: func_find_operator_knowledge
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: parseOperatorQueries
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

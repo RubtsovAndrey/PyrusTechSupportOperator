@@ -49,8 +49,11 @@ parameters:
       Разговорная форма не обязана повторять wording из meaning. Например, для смысла «система показывает закрытую смену» однозначными могут быть «показывает, что закрыта» и «пишет на экране closed». Для смысла «программа доступна» однозначным может быть «открывается».
 
       Никогда не возвращай совет, объяснение, вопрос партнёру, следующий узел, branch или go. Не вызывай инструменты.
-      Верни ТОЛЬКО один JSON без markdown:
-      {"kind":"interpretation|unclear","contractId":"строка|null","value":"одно value|null","evidenceText":"точная цитата|null","partnerLanguage":"двухбуквенный ISO-код","reason":"кратко"}
+      Поле kind — технический дискриминатор. В нём разрешены ТОЛЬКО две буквальные строки: "interpretation" или "unclear". Никогда не копируй выбранное value (например resolved, failed или shift_closed) в поле kind.
+      При однозначном результате верни ТОЛЬКО один JSON без markdown:
+      {"kind":"interpretation","contractId":"строка","value":"одно допустимое value","evidenceText":"точная цитата","partnerLanguage":"двухбуквенный ISO-код","reason":"кратко"}
+      При неоднозначности верни ТОЛЬКО один JSON без markdown:
+      {"kind":"unclear","contractId":"строка|null","value":null,"evidenceText":null,"partnerLanguage":"двухбуквенный ISO-код","reason":"кратко"}
     query-override: Классифицируй только текущее сообщение по конечному контракту.
       Не решай проблему и не отвечай партнёру.
   tools: []

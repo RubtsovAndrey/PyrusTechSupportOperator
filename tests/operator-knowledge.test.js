@@ -30,21 +30,43 @@ function hit(id, overrides) {
 async function run(options) {
   const o = options || {};
   const logs = [];
+  const baseDialog = Object.assign({
+    taskId: "17",
+    problemSummary: "не закрывается смена и не выходит Z-отчёт"
+  }, o.dialog || {});
+  const contextValues = { dialog: baseDialog };
+  if (o.queries) contextValues.operatorSearchQueries = {
+    taskId: "17",
+    originalQuery: baseDialog.problemSummary,
+    searchQueries: o.queries,
+    reason: "подходящей тематики нет"
+  };
   const env = makeEnv({
     prev: o.prev || { taskId: "17", reason: "подходящей тематики нет" },
-    contextValues: { dialog: Object.assign({
-      taskId: "17",
-      problemSummary: "не закрывается смена и не выходит Z-отчёт"
-    }, o.dialog || {}) },
+    contextValues: contextValues,
     credentials: o.credentials === undefined ? { [CRED]: "read-token" } : o.credentials,
     noCredentials: o.noCredentials,
     onPost: a => {
       const name = a.body.params.name;
       if (o.fail) throw new Error("network down");
       if (name === "search_content") {
-        return { status: 200, body: sse({ results: o.hits === undefined
+        const request = a.body.params.arguments.request || {};
+        const results = o.searchResults ? o.searchResults(request) : (o.hits === undefined
           ? [hit("article-1"), hit("article-2", { articleTitle: "Кассовые отчёты" })]
-          : o.hits }) };
+          : o.hits);
+        return { status: 200, body: sse({ results: results }) };
+      }
+      if (name === "get_content") {
+        const request = a.body.params.arguments.request || {};
+        const article = o.contents && o.contents[request.id];
+        if (!article) throw new Error("unexpected article " + request.id);
+        return { status: 200, body: sse(article) };
+      }
+      if (name === "search_in_content") {
+        const request = a.body.params.arguments.request || {};
+        return { status: 200, body: sse({
+          found: true, articleId: request.id, excerpt: o.insideExcerpt || "Релевантный раздел статьи."
+        }) };
       }
       if (name === "get_link_templates") {
         return { status: 200, body: sse({
@@ -73,8 +95,9 @@ async function main() {
     r.env.values.operatorSupport.operatorKnowledge.articles.length === 2 &&
     /не отправлялись/.test(r.env.notes.join("\n")),
     { value: r.env.values.operatorSupport, notes: r.env.notes });
-  t.check("search covers every readable space by omitting the spaces filter",
-    !("spaces" in r.env.posts[0].body.params.arguments.request),
+  t.check("search starts in the approved support spaces",
+    Array.isArray(r.env.posts[0].body.params.arguments.request.spaces) &&
+    r.env.posts[0].body.params.arguments.request.spaces.indexOf(SUPPORT_SPACE) >= 0,
     r.env.posts[0].body.params.arguments.request);
   t.check("links use the template returned by MCP",
     r.result.operatorKnowledge.articles[0].url ===
@@ -83,8 +106,8 @@ async function main() {
     r.env.posts.every(p => p.body.params.name !== "get_content"),
     r.env.posts.map(p => p.body.params.name));
   t.check("the log distinguishes MCP candidates from hints shown to the operator",
-    /MCP 2 результатов/.test(r.logs.join("\n")) && /релевантных 2/.test(r.logs.join("\n")) &&
-    /после приоритета и дедупликации 2/.test(r.logs.join("\n")),
+    /2 MCP-результатов/.test(r.logs.join("\n")) && /релевантных 2/.test(r.logs.join("\n")) &&
+    /подсказок 2/.test(r.logs.join("\n")),
     r.logs);
 
   r = await run({ hits: [
@@ -116,11 +139,12 @@ async function main() {
   });
   t.check("the three irrelevant articles from the live avatar trace are suppressed",
     r.result.operatorKnowledge.articles.length === 0, r.result.operatorKnowledge);
-  t.check("no link template is requested when every candidate is noise",
-    r.env.posts.length === 1 && r.env.posts[0].body.params.name === "search_content",
+  t.check("noise in support spaces causes one broad fallback but no link request",
+    r.env.posts.length === 2 && r.env.posts.every(p => p.body.params.name === "search_content") &&
+    !("spaces" in r.env.posts[1].body.params.arguments.request),
     r.env.posts.map(p => p.body.params.name));
   t.check("the log says that candidates existed but none passed relevance",
-    /MCP 3 результатов/.test(r.logs.join("\n")) && /не пропустил ни одного/.test(r.logs.join("\n")), r.logs);
+    /3 MCP-результатов/.test(r.logs.join("\n")) && /не пропустил ни одного/.test(r.logs.join("\n")), r.logs);
 
   r = await run({
     dialog: { problemSummary: "сломался кондиционер в подсобке" },
@@ -143,6 +167,30 @@ async function main() {
   t.check("two meaningful query words in a title are enough even when the excerpt uses synonyms",
     r.result.operatorKnowledge.articles.length === 1 &&
     r.result.operatorKnowledge.articles[0].articleId === "avatar", r.result.operatorKnowledge);
+
+  const avatarArticle = "a13f90e0-6f24-45ba-b7af-9c21a387ff3a";
+  r = await run({
+    dialog: { problemSummary: "как поменять аватарку у курьера" },
+    queries: ["как поменять аватарку у курьера", "изменить фото сотрудника"],
+    searchResults: request => request.query === "изменить фото сотрудника" ? [hit(avatarArticle, {
+      articleTitle: "Сотрудники: личная карточка сотрудника в «Додо ИС»",
+      excerpt: "В личной карточке сотрудника можно загрузить фотографию.",
+      spaceId: SUPPORT_SPACE,
+      spaceTitle: "База знаний поддержки",
+      canReadFully: false
+    })] : [],
+    insideExcerpt: "# Личная карточка сотрудника\nВойдите в Додо ИС с ролью Менеджер офиса. Откройте Команда → Сотрудники. В карточке сотрудника загрузите квадратную фотографию 300×300."
+  });
+  t.check("a semantic variant finds the real avatar article missed by the original wording",
+    r.result.operatorKnowledge.articles.length === 1 &&
+    r.result.operatorKnowledge.articles[0].articleId === avatarArticle &&
+    r.result.operatorKnowledge.articles[0].matchedQuery === "изменить фото сотрудника",
+    r.result.operatorKnowledge);
+  t.check("the selected article is read by the permitted method and grounds Operator Assist",
+    /Менеджер офиса/.test(r.result.operatorKnowledge.articles[0].contentExcerpt) &&
+    r.env.posts.some(p => p.body.params.name === "search_in_content") &&
+    /300×300/.test(r.env.notes.join("\n")),
+    { article: r.result.operatorKnowledge.articles[0], calls: r.env.posts.map(p => p.body.params.name) });
 
   r = await run({ hits: [
     hit("support-copy", { spaceId: SUPPORT_SPACE, articleTitle: "Закрытие кассовой смены" }),

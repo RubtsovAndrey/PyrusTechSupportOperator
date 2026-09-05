@@ -1,0 +1,7 @@
+---
+id: parseOperatorQueries
+name: parseOperatorQueries
+description: Validates bounded semantic search-query variants for unknown-topic operator assistance.
+response-description: "{ taskId, reason, originalQuery, searchQueries[] }"
+parameters: []
+language: JAVASCRIPT

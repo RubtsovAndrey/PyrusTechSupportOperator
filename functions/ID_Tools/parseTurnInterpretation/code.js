@@ -157,9 +157,21 @@ if (contractKind === "article_answer") {
 }
 
 const kind = parsed ? String(parsed.kind || "") : "";
-if (!parsed || (kind !== "interpretation" && kind !== "answer")) {
+const selected = String(parsed && (parsed.value || parsed.answerValue) || "");
+const selectedIsAllowed = values.some(item => String(item.value) === selected);
+// GPT-4.1 mini once returned `{kind:"resolved", value:"resolved"}` for a confirmation:
+// the semantic decision, contract id and verbatim evidence were all correct, but the
+// discriminator copied the finite value. Recover only that exact typo. This is not a
+// general JSON repair: an arbitrary/solution-shaped kind, an unknown value, stale contract
+// or invented evidence still fails closed below.
+const recoveredValueAsKind = !!parsed && kind === selected && selectedIsAllowed;
+if (!parsed || ((kind !== "interpretation" && kind !== "answer") && !recoveredValueAsKind)) {
   return unclear(parsed && kind === "unclear"
     ? "interpreter reported ambiguity" : "interpreter did not return the interpretation contract");
+}
+if (recoveredValueAsKind) {
+  Log.warn({ message: "parseTurnInterpretation: recovered a finite value copied into kind for " +
+    contractKind + " contract " + contractId + " on task " + taskId });
 }
 
 // `answer`/activeQuestionId/answerValue is accepted only as a compatibility shape for a
@@ -168,8 +180,7 @@ const returnedContractId = String(parsed.contractId || parsed.activeQuestionId |
 if (returnedContractId !== contractId) {
   return unclear("contractId does not match the current interpretation contract");
 }
-const selected = String(parsed.value || parsed.answerValue || "");
-if (!values.some(item => String(item.value) === selected)) {
+if (!selectedIsAllowed) {
   return unclear("value is not allowed by the interpretation contract");
 }
 

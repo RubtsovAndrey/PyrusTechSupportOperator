@@ -32,6 +32,7 @@ const CATALOGS = {
       { key: "printer_no_receipt", description: "не печатает чек", componentName: "Касса", route: "solver" },
       { key: "access_request", description: "нужен доступ", componentName: "Доступы", route: "subtask" },
       { key: "payment_dispute", description: "спор по оплате", componentName: "Оплаты", route: "escalate" },
+      { key: "ratings_questions", description: "вопросы и апелляции по рейтингам", componentName: "Рейтинги" },
       {
         key: "answer_retry", description: "проверка позднего ответа", start: "collect",
         nodes: { collect: { ask: [{ key: "details", label: "Детали", question: "Что произошло?" }], end: "subtask" } }
@@ -217,6 +218,22 @@ async function main() {
   t.check("a routing question without two prepared candidates becomes a handover",
     r.result.route === "escalate" && !r.result.clarifyingQuestion &&
     /нет двух подтверждённых/.test(r.state.data.handoverReason || ""),
+    { result: r.result, data: r.state.data });
+
+  r = await run("routing", json({
+    topicKey: "ratings_questions", route: "clarify",
+    candidateTopicKeys: ["ratings_questions"], partnerLanguage: "ru",
+    clarifyingQuestion: "Уточните вопрос по рейтингу."
+  }), {
+    runtime: { role: "chat" },
+    data: {
+      unitFullName: "[dodopizza.ru] Тамбов-1 (улица Кирова, 101)",
+      problemSummary: "куда отправить апелляцию по РКО"
+    }
+  });
+  t.check("one explicitly selected catalog topic does not trigger a redundant clarification",
+    r.result.route === "solver" && r.result.topicKey === "ratings_questions" &&
+    !r.result.clarifyingQuestion && !r.state.data.handoverReason,
     { result: r.result, data: r.state.data });
 
   r = await run("routing", json({

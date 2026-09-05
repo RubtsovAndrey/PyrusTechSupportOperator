@@ -864,7 +864,27 @@ if (taskId) {
       if (String(parsed.route || "") === "clarify") {
         const question = String(parsed.clarifyingQuestion || "").replace(/\s+/g, " ").trim();
         const alreadyAsked = !!String(data.routingClarificationQuestion || "").trim();
-        if (candidateKeys.length < 2 || !question || alreadyAsked) {
+        // Live ratings trace: the router selected the only catalog-backed topic correctly,
+        // but emitted `route: clarify` with that same single candidate. There is no real
+        // ambiguity to ask about. Recover only an exact one-candidate selection and derive
+        // its route from the catalog, never from model prose. Solver/searchKnowledge will
+        // validate the policy again before any partner-facing action.
+        const uniqueTopic = candidateKeys.length === 1 &&
+          String(parsed.topicKey || "") === String(candidateKeys[0])
+          ? topicByKey(candidateKeys[0]) : null;
+        const catalogRoute = uniqueTopic ? String(uniqueTopic.route || "solver") : "";
+        const uniqueRoute = ["solver", "subtask", "escalate"].indexOf(catalogRoute) >= 0
+          ? catalogRoute : null;
+        if (uniqueRoute) {
+          parsed.route = uniqueRoute;
+          delete parsed.clarifyingQuestion;
+          data.routingClarificationQuestion = null;
+          data.routingClarificationTopics = null;
+          patch["data.routingClarificationQuestion"] = null;
+          patch["data.routingClarificationTopics"] = null;
+          Log.warn({ message: "parseAgentJson: routing returned clarify for the single selected topic " +
+            candidateKeys[0] + " on task " + taskId + "; using its catalog route " + uniqueRoute });
+        } else if (candidateKeys.length < 2 || !question || alreadyAsked) {
           parsed.route = "escalate";
           delete parsed.clarifyingQuestion;
           data.handoverReason = alreadyAsked
@@ -1283,6 +1303,18 @@ if (taskId) {
       : null;
     if ((known.openAnswerDirectKeys || null) !== directKeysLine) {
       patch["data.openAnswerDirectKeys"] = directKeysLine;
+    }
+
+    // Preserve the routing handover seed before the next agent replaces Context's last
+    // result. The query planner may suggest search paraphrases, but it must not be trusted
+    // to reproduce the reason or rewrite the original partner problem.
+    if (String(stage || "") === "routing" && String(parsed.route || "") === "escalate") {
+      AgentContext.putValue({ key: "operatorSearchSeed", value: {
+        taskId: String(taskId),
+        query: String(data.problemSummary || dialog.problemSummary || dialog.incomingText || "").trim(),
+        reason: String(data.handoverReason || parsed.reason ||
+          "подходящей утверждённой тематики нет").trim()
+      } });
     }
 
     if (!documentExists) patch["data"] = data;

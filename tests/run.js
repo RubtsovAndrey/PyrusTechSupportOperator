@@ -13,7 +13,7 @@ const SUITES = [
   "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
   "./pos-terminal-catalog.test.js", "./cash-dialog.test.js", "./ratings-dialog.test.js", "./routing-catalog.test.js", "./routing.test.js",
   "./getknowledgemcp.test.js", "./operator-knowledge.test.js", "./kbarticle.test.js", "./synckb.test.js",
-  "./operator-assist.test.js",
+  "./operator-query-planner.test.js", "./operator-assist.test.js",
   "./knowledge-validation.test.js",
   "./mvp-eval-cases.test.js",
   "./live-trace.test.js",
@@ -444,6 +444,26 @@ function checkAgentPromptContracts() {
   if (composer.indexOf("tools: []") < 0 || composer.indexOf("responsePlan") < 0 ||
       composer.indexOf("не выбираешь действие") < 0 || composer.indexOf("planId") < 0) {
     problems.push(composerRel + ": Composer снова получил policy-полномочия или потерял привязку к плану");
+  }
+  const intakeRel = "nodes/agents/agent_intake.yml";
+  const intake = fs.readFileSync(path.join(ROOT, intakeRel), "utf8");
+  if (intake.indexOf("Конкретный вопрос или просьба об инструкции сами являются сутью обращения") < 0 ||
+      intake.indexOf("не спрашивай вслед «что произошло?»") < 0) {
+    problems.push(intakeRel + ": конкретный вопрос снова может быть ошибочно принят за отсутствие сути проблемы");
+  }
+  const queryPlannerRel = "nodes/agents/agent_operator_query_planner.yml";
+  const queryPlanner = fs.readFileSync(path.join(ROOT, queryPlannerRel), "utf8");
+  if (queryPlanner.indexOf("tools: []") < 0 ||
+      queryPlanner.indexOf("до двух") < 0 ||
+      queryPlanner.indexOf("Не добавляй названия продуктов") < 0 ||
+      queryPlanner.indexOf('"search_queries"') < 0) {
+    problems.push(queryPlannerRel + ": планировщик поиска потерял ограниченный контракт или запрет домыслов");
+  }
+  const operatorAssistRel = "nodes/agents/agent_operator_assist.yml";
+  const operatorAssist = fs.readFileSync(path.join(ROOT, operatorAssistRel), "utf8");
+  if (operatorAssist.indexOf("Если материалов нет") < 0 ||
+      operatorAssist.indexOf('{"operatorDraft":null}') < 0) {
+    problems.push(operatorAssistRel + ": Operator Assist снова может сочинять черновик без найденного источника");
   }
   const parserRel = "functions/ID_Tools/parseAgentJson/code.js";
   const parser = fs.readFileSync(path.join(ROOT, parserRel), "utf8");

@@ -3,7 +3,7 @@
   "scenarios": [
     {
       "id": "unknown-courier-avatar",
-      "title": "Неизвестный вопрос об аватарке курьера передаётся оператору без нерелевантных подсказок",
+      "title": "Неизвестный вопрос об аватарке курьера находит релевантную статью и передаётся оператору",
       "messages": [
         "Тамбов-1, нужно поменять аватарку у курьера"
       ],
@@ -25,16 +25,18 @@
               "includes": [
                 "Бот передаёт обращение оператору",
                 "Тематика: не определена",
+                "Возможные материалы из Базы Знаний",
+                "Сотрудники: личная карточка сотрудника в Додо ИС",
                 "Черновик возможного первого ответа партнёру",
                 "Сформирован автоматически и не отправлен"
               ],
-              "excludes": ["Возможные материалы из Базы Знаний"]
+              "excludes": ["Обновления Додо ИС", "Инструкция по работе с Kibana", "кандидатов-бариста"]
             },
             "logs": {
-              "includes": ["findOperatorKnowledge:", "фильтр релевантности не пропустил ни одного"]
+              "includes": ["parseOperatorQueries:", "findOperatorKnowledge:", "подсказок 1"]
             },
             "path": {
-              "includes": ["Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"]
+              "includes": ["Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"]
             },
             "calls": {
               "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"escalated\""]
@@ -83,12 +85,14 @@
               "count": 1,
               "includes": [
                 "Бот передаёт обращение оператору",
+                "Возможные материалы из Базы Знаний",
+                "Сотрудники: личная карточка сотрудника в Додо ИС",
                 "Черновик возможного первого ответа партнёру",
                 "Сформирован автоматически и не отправлен"
               ]
             },
             "path": {
-              "includes": ["Routing Agent", "Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"],
+              "includes": ["Routing Agent", "Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"],
               "excludes": ["Solver / Policy Reader", "Response Composer"]
             },
             "calls": {
@@ -344,7 +348,7 @@
               "includes": ["findOperatorKnowledge:", "релевантных"]
             },
             "path": {
-              "includes": ["Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"],
+              "includes": ["Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"],
               "excludes": ["Solver / Policy Reader", "Response Composer"]
             },
             "calls": {

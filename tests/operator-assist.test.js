@@ -44,6 +44,18 @@ async function main() {
     r.result.operatorDraft === null && r.result.operatorKnowledge.articles.length === 1,
     r.result);
 
+  const emptySupport = {
+    taskId: "17",
+    reason: "подходящей тематики нет",
+    operatorKnowledge: { query: "как поменять аватарку у курьера", articles: [] }
+  };
+  r = await run(JSON.stringify({
+    operatorDraft: "Уточните, это специальное приложение или система управления курьерами?"
+  }), emptySupport);
+  t.check("a draft invented without retrieved evidence is discarded",
+    r.result.operatorDraft === null && r.result.operatorKnowledge.articles.length === 0,
+    r.result);
+
   return t.report();
 }
 

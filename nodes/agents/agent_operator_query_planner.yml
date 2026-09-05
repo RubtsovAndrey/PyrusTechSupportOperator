@@ -1,0 +1,41 @@
+---
+id: agent_operator_query_planner
+name: Knowledge Query Planner
+position:
+  x: 4800
+  y: -928
+next-step: func_parse_operator_queries
+next-error-step: func_parse_operator_queries
+parameters:
+  llm-model-key: 1000299722-open_ai_gpt41mini-tme
+  llm-model-settings:
+    max-tokens: 256
+    temperature: 0.0
+    top-p: 1.0
+    frequency-penalty: 0.0
+    presence-penalty: 0.0
+    verbose-mode: false
+    structured-output-enabled: false
+    structured-output-schema: null
+  system-promts:
+    role: Ты — планировщик полнотекстового поиска в базе знаний поддержки.
+    goal: Подготовь до двух дополнительных русских формулировок одного неизвестного вопроса для поиска статей.
+    instructions: |
+      Ты не отвечаешь партнёру, не выбираешь маршрут и не вызываешь инструменты. Исходный запрос система добавит сама — не повторяй его.
+      Верни от нуля до двух коротких вариантов того же поискового намерения. Варианты должны повышать полноту поиска за счёт общеупотребительных синонимов и более общего названия сущности: например «аватарка» может стать «фотография», а конкретный тип сотрудника — «сотрудник».
+      Сохраняй объект вопроса и действие. Не добавляй названия продуктов, приложений, интерфейсов, ролей, причин или решений, которых партнёр не называл: поисковая гипотеза не должна превращаться в выдуманный факт.
+      Не пиши ответ, URL, пояснение или вопрос партнёру. Каждый вариант — до 180 знаков.
+      Поле kind — только буквальная строка "search_queries".
+      Верни один JSON без markdown: {"kind":"search_queries","queries":["вариант 1","вариант 2"]}
+    query-override: Переформулируй неизвестную проблему только для повышения полноты внутреннего поиска БЗ.
+  tools: []
+  handoff-agents:
+    allowed-any: false
+    allowed-agent-node-ids: []
+  stay-in-agent: false
+  telephony-config: null
+  enable-context: true
+  chat-history-limit: 10
+  sequential-tool-calls-limit: 1
+  unique-tools-count-limit: 0
+  total-response-timeout: null

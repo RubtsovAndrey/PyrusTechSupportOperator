@@ -168,6 +168,15 @@ async function main() {
     r.result.contractKind === "confirmation" && r.result.status === "resolved" &&
     r.result.treeEnd === undefined, r.result);
 
+  r = await interpretGeneral("да спасибо", confirmation, JSON.stringify({
+    kind: "resolved", contractId: confirmation.id, value: "resolved",
+    evidenceText: "да спасибо", partnerLanguage: "ru", reason: "однозначно"
+  }), "awaiting_confirmation");
+  t.check("a finite value accidentally copied into kind is narrowly recovered",
+    r.result.status === "resolved" && r.result.interpretationValue === "resolved" &&
+    r.logs.some(row => /recovered a finite value/.test(String(row.message || ""))),
+    { result: r.result, logs: r.logs });
+
   r = await interpretGeneral("а где это открыть?", confirmation, JSON.stringify({
     kind: "interpretation", contractId: confirmation.id, value: "question",
     evidenceText: "где это открыть", partnerLanguage: "ru", reason: "спрашивает"

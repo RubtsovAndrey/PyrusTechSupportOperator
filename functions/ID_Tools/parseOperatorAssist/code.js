@@ -43,6 +43,16 @@ const text = typeof raw === "string" ? raw : (raw && raw.content ? raw.content :
 const parsed = lastJsonObject(text);
 let draft = parsed && typeof parsed.operatorDraft === "string"
   ? parsed.operatorDraft.replace(/\s+/g, " ").trim() : "";
+const supportArticles = support.operatorKnowledge && Array.isArray(support.operatorKnowledge.articles)
+  ? support.operatorKnowledge.articles : [];
+
+// With no retrieved evidence the drafting model has no legitimate source for a product,
+// system or diagnostic question. A neutral draft sounds harmless but the live avatar trace
+// showed that it can still invent a false distinction. Silence is the safe bounded result.
+if (!supportArticles.length && draft) {
+  Log.warn({ message: "parseOperatorAssist: discarded an ungrounded draft because no knowledge article was found" });
+  draft = "";
+}
 
 // URLs already have their own labelled, deterministic block. Repeating a model-written
 // link inside a draft makes it look as though the link itself was verified as an answer.

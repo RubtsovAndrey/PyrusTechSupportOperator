@@ -8,4 +8,4 @@ next-step: agent_summary_subtask
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).route === 'subtask'"
-  false-step: func_find_operator_knowledge
+  false-step: agent_operator_query_planner

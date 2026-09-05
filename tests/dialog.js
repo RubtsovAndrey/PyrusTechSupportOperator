@@ -196,6 +196,15 @@ const AGENTS = {
     });
   },
 
+  // Search paraphrases are advisory and bounded by parseOperatorQueries. The reference
+  // agent uses no domain dictionary; individual tests can supply explicit variants.
+  async agent_operator_query_planner(env, turn) {
+    return json({
+      kind: "search_queries",
+      queries: Array.isArray(turn.operatorSearchQueries) ? turn.operatorSearchQueries : []
+    });
+  },
+
   // Open article fields are extracted by a role that cannot read policy or choose an
   // outcome. The simulator accepts only keys from the current contract and cites the
   // complete current message as evidence, which is necessarily a verbatim fragment.
