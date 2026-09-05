@@ -2,8 +2,8 @@
 id: func_parsejson_summary_subtask
 name: parseSummaryForSubtask
 position:
-  x: 5480
-  y: -2130
+  x: 5858
+  y: -2353
 next-step: func_createsubtask_v5r8k
 next-error-step: func_createsubtask_v5r8k
 parameters:

@@ -2,8 +2,8 @@
 id: agent_operator_assist
 name: Operator Assist Composer
 position:
-  x: 5235
-  y: -928
+  x: 5394
+  y: -802
 next-step: func_parse_operator_assist
 next-error-step: func_parse_operator_assist
 parameters:
