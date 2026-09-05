@@ -116,13 +116,16 @@ function turnsOf(file) {
       at: trace.startTime || trace.traceStartTime || "",
       partner: null, taskId: null,
       replies: [], internal: [], calls: [], outcome: null,
-      path: [], logs: [], prompts: [], llmReplies: [], errors: [], taskState: null
+      path: [], nodeIds: [], logs: [], prompts: [], llmReplies: [], errors: [], taskState: null
     };
 
     all.forEach(span => {
       const label = String(span.label || "");
       const e = span.relatedEvent || {};
       const d = data(span);
+      const block = e.spanContext && e.spanContext.blockInfo;
+      const nodeId = block && typeof block.blockState === "string" ? block.blockState.replace(/^\//, "") : null;
+      if (nodeId && turn.nodeIds.indexOf(nodeId) < 0) turn.nodeIds.push(nodeId);
 
       const move = /^Переход: «(.+?)» → «(.+?)»/.exec(label);
       if (move) {
@@ -282,6 +285,7 @@ function renderDocument(document, withPrompt) {
     t.logs.forEach(l => lines.push("  лог: " + cut(l, 300)));
     t.errors.forEach(l => lines.push("  ОШИБКА: " + l));
     lines.push("  путь: " + t.path.filter(n => n !== "Pyrus Webhook").join(" → "));
+    if (t.nodeIds && t.nodeIds.length) lines.push("  id выполненных узлов: " + t.nodeIds.join(", "));
   });
 
   lines.push("", "Всего витков в документе '" + document.source + "': " + document.turns.length);
@@ -348,6 +352,13 @@ function validateScenario(turns, scenario) {
 
     textChecks("логи", turn.logs.join("\n"), wanted.logs);
     textChecks("путь", turn.path.join(" → "), wanted.path);
+    if (wanted.nodeIds) {
+      const actualIds = turn.nodeIds || [];
+      (wanted.nodeIds.includes || []).forEach(id => add(prefix + "выполнен узел " + id,
+        actualIds.includes(id), "фактически: " + actualIds.join(", ")));
+      (wanted.nodeIds.excludes || []).forEach(id => add(prefix + "не выполнен старый узел " + id,
+        !actualIds.includes(id), "фактически: " + actualIds.join(", ")));
+    }
     textChecks("вызовы", turn.calls.join("\n"), wanted.calls);
 
     if (wanted.task) {

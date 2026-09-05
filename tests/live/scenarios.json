@@ -49,6 +49,99 @@
       }
     },
     {
+      "id": "unknown-courier-avatar-terra-direct",
+      "title": "Terra: опубликован явный вызов Selector без прежнего agent-узла",
+      "messages": [
+        "Тамбов-1, нужно поменять аватарку у курьера"
+      ],
+      "expect": {
+        "turnCount": 1,
+        "turns": [
+          {
+            "partner": {
+              "includes": [
+                "Тамбов-1",
+                "аватарку у курьера"
+              ]
+            },
+            "outcome": "escalated",
+            "replies": {
+              "count": 1,
+              "includes": [
+                "Понадобится время на изучение вопроса"
+              ],
+              "excludes": [
+                "Возможные материалы из Базы Знаний",
+                "не отправлялись партнёру автоматически"
+              ]
+            },
+            "internal": {
+              "count": 1,
+              "includes": [
+                "Бот передаёт обращение оператору",
+                "Тематика: не определена",
+                "Возможные материалы из Базы Знаний",
+                "Сотрудники: личная карточка сотрудника в Додо ИС",
+                "Черновик возможного первого ответа партнёру",
+                "Сформирован автоматически и не отправлен",
+                "Основание:",
+                "300×300"
+              ],
+              "excludes": [
+                "Обновления Додо ИС",
+                "Инструкция по работе с Kibana",
+                "кандидатов-бариста",
+                "ТВ-бордах",
+                "Поддержка клиентов: как оформлять заказ",
+                "Печать чека на кассе доставки",
+                "на сайте и в приложении",
+                "ClientUUId"
+              ]
+            },
+            "logs": {
+              "includes": [
+                "parseOperatorQueries:",
+                "findOperatorKnowledge:",
+                "подсказок 1",
+                "parseOperatorEvidence: selected",
+                "selectOperatorEvidence: requesting 1000299722-open_ai_gpt56terra-swl without function tools",
+                "selectOperatorEvidence: received text"
+              ]
+            },
+            "path": {
+              "includes": [
+                "Knowledge Query Planner",
+                "Validate operator search queries",
+                "Find knowledge for operator",
+                "Operator Evidence Selector",
+                "Validate operator evidence",
+                "Operator Assist Composer",
+                "Validate operator draft",
+                "Outcome - escalate to operator",
+                "finalize"
+              ]
+            },
+            "calls": {
+              "includes": [
+                "ID_Actions.applyOutcome",
+                "\"outcome\":\"escalated\"",
+                "ID_Tools.selectOperatorEvidence"
+              ]
+            },
+            "noErrors": true,
+            "nodeIds": {
+              "includes": [
+                "func_select_operator_evidence"
+              ],
+              "excludes": [
+                "agent_operator_evidence_selector"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "id": "unknown-courier-avatar-unit-later",
       "title": "Неизвестный вопрос сначала уточняет юнит, затем передаётся без произвольного вопроса о системе",
       "messages": [

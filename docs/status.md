@@ -4,6 +4,14 @@
 > [`current-project-status.md`](current-project-status.md). Этот файл ниже сохраняется как
 > подробная хронология экспериментов, решений и инцидентов.
 
+**Обновление 2026-09-05, повтор Terra исполнил старый runtime.** Во втором smoke
+`377343334` снова выполнен `/agent_operator_evidence_selector` типа `system.agent`;
+вызова исправленной функции нет. `ccc49a8` подтверждён в GitHub, причина неприменения
+на платформе не установлена. Запрошена проверка импорта/публикации; Browser не подключён.
+В `read-trace` и отдельный Terra-сценарий добавлены реальные id узлов. 1362 проверки;
+скрипт push больше не объявляет опубликованный runtime подтверждённым.
+[Документация Just AI и разбор повторного smoke](terra-selector-test.md).
+
 **Обновление 2026-09-05, отказ адаптера Terra.** В `377340756` провайдер отклонил
 function tool switchToState с reasoning через Chat Completions; 32/42, handover без цитат.
 В `aa85343` Selector перенесён из agent-узла в функцию с `Llm.sendRequest` и пустыми tools.

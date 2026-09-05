@@ -1,4 +1,4 @@
-﻿# Deploy = push to GitHub, from where the platform picks the project up by itself.
+﻿# Push prepares Git synchronization. Import and publication must be verified separately.
 #
 # The script exists for one step: the check that a deploy did not carry away the directories
 # the platform does not know about. Its export owns the whole repository root and deletes
@@ -79,7 +79,7 @@ $incoming = @(git log --oneline HEAD..origin/main)
 $outgoing = @(git log --oneline origin/main..HEAD)
 
 if ($incoming.Count -eq 0 -and $outgoing.Count -eq 0) {
-  Write-Host "Nothing to deploy: the local branch matches origin/main." -ForegroundColor Green
+  Write-Host "Nothing to push: the local branch matches origin/main. Platform publication is not verified." -ForegroundColor Yellow
   exit 0
 }
 
@@ -136,8 +136,9 @@ if ($merging) {
 }
 
 # ── 6. Deploy ──
-Step "git push origin main - the platform takes it from there"
+Step "git push origin main - prepare platform synchronization"
 if ((RunGit push origin main) -ne 0) { Fail "could not push to origin" }
 
 Write-Host ""
-Write-Host "Done. HEAD = $(git rev-parse --short HEAD), the deploy is running." -ForegroundColor Green
+Write-Host "Pushed HEAD = $(git rev-parse --short HEAD). Platform import and publication are NOT verified." -ForegroundColor Yellow
+Write-Host "Check Git synchronization and publication in Agent Platform, then confirm the changed node IDs in a fresh trace before accepting the rollout."

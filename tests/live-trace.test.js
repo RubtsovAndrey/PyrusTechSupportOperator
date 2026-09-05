@@ -297,6 +297,20 @@ async function main() {
   t.check("a ClientUUId instruction fails even alongside the right photo article",
     checks.some(c => !c.ok && /ClientUUId/.test(c.label)), checks);
 
+  const directScenario = loadScenario(scenariosFile, "unknown-courier-avatar-terra-direct");
+  const directTurn = matchingTurn();
+  directTurn.nodeIds = ["func_select_operator_evidence"];
+  directTurn.logs.push("selectOperatorEvidence: requesting 1000299722-open_ai_gpt56terra-swl without function tools",
+    "selectOperatorEvidence: received text");
+  directTurn.calls.push("ID_Tools.selectOperatorEvidence({})");
+  checks = validateScenario([directTurn], directScenario);
+  t.check("direct Terra smoke requires the new runtime node and explicit request markers",
+    checks.every(c => c.ok), checks.filter(c => !c.ok));
+  directTurn.nodeIds = ["agent_operator_evidence_selector"];
+  checks = validateScenario([directTurn], directScenario);
+  t.check("an old node with the identical display name fails rollout verification",
+    checks.filter(c => !c.ok && /узел/.test(c.label)).length === 2, checks.filter(c => !c.ok));
+
   const posScenario = loadScenario(scenariosFile, "known-pos-connection-then-handover");
   checks = validateScenario(matchingPosTurns(), posScenario);
   t.check("the known POS scenario accepts advice followed by a documented handover",
@@ -497,7 +511,9 @@ async function main() {
   const providerErrorJson = path.join(tmp, "provider-error.json");
   fs.writeFileSync(providerErrorJson, JSON.stringify([{ type: "trace", children: [{
     type: "span", label: "Запрос к LLM", hasError: true, errorMessage: "unknown error",
-    relatedEvent: { isError: false }, outputData: { statusCode: 502,
+    relatedEvent: { isError: false, spanContext: { blockInfo: {
+      blockState: "/agent_operator_evidence_selector", blockName: "Operator Evidence Selector", blockType: "system.agent"
+    } } }, outputData: { statusCode: 502,
       message: "External llm provider returned error status 400",
       args: { upstreamResponse: { message: "Function tools with reasoning_effort are not supported for gpt-5.6-terra in /v1/chat/completions. Use /v1/responses or reasoning_effort none." } } }
   }] }]), "utf8");
@@ -505,6 +521,9 @@ async function main() {
   t.check("provider compatibility details survive an adapter's unknown-error wrapper",
     providerErrors.length === 1 && /gpt-5.6-terra/.test(providerErrors[0]) &&
     /reasoning_effort/.test(providerErrors[0]), providerErrors);
+  t.check("trace parser retains actual node IDs independently of display names",
+    turnsOf(providerErrorJson).turns[0].nodeIds.join() === "agent_operator_evidence_selector",
+    turnsOf(providerErrorJson).turns[0].nodeIds);
 
   const guardedOutcomeJson = path.join(tmp, "guarded-outcome.json");
   fs.writeFileSync(guardedOutcomeJson, JSON.stringify([{
