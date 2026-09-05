@@ -2,8 +2,8 @@
 id: cond_routing_subtask
 name: routing subtask?
 position:
-  x: 4332
-  y: -966
+  x: 4378
+  y: -972
 next-step: agent_summary_subtask
 next-error-step: null
 parameters:
