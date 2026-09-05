@@ -1,4 +1,4 @@
-const DB_ID = "1000299722-pyrus_bot_database-hul";
+const DB_ID = "1000299722-pyrus_bot_database-lwi";
 
 // One read of `config` for everything this function takes from it. Two separate reads for
 // two settings would be two round trips on the hot path of every webhook.

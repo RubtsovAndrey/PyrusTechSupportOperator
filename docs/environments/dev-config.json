@@ -1,8 +1,0 @@
-{
-  "forms": {
-    "2430464": { "role": "chat", "environment": "test", "knowledgeExecution": "handover_only" },
-    "2454249": { "role": "ticket", "environment": "test", "knowledgeExecution": "handover_only" }
-  },
-  "subtaskFormId": 2454249,
-  "subtaskClaimTtlMs": 120000
-}

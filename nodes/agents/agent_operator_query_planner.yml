@@ -7,7 +7,7 @@ position:
 next-step: func_parse_operator_queries
 next-error-step: func_parse_operator_queries
 parameters:
-  llm-model-key: 1000299722-open_ai_gpt41mini-tme
+  llm-model-key: 1000299722-open_ai_gpt41mini-etf
   llm-model-settings:
     max-tokens: 256
     temperature: 0.0

@@ -1,4 +1,4 @@
-const DB_ID = "1000299722-pyrus_bot_database-hul";
+const DB_ID = "1000299722-pyrus_bot_database-lwi";
 
 // Pyrus form and field ids live in the `config` document so they can be changed
 // without touching code. The defaults keep the bot working on an empty database.

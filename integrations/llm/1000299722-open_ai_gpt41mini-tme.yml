@@ -1,7 +1,0 @@
----
-key: 1000299722-open_ai_gpt41mini-tme
-credential-key: null
-name: OPEN_AI - gpt-4.1-mini
-provider: OPEN_AI
-model: just-ai/openai-proxy/gpt-4.1-mini
-is-direct-access: false

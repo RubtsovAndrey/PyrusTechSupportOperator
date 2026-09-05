@@ -14,7 +14,7 @@ parameters:
   parameters:
     llmModel:
       type: LLM_MODEL
-      value: 1000299722-open_ai_gpt56terra-swl
+      value: 1000299722-open_ai_gpt56terra-uos
       filled-ai: false
     maxCompletionTokens:
       type: INTEGER
