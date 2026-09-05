@@ -1,5 +1,8 @@
 # Первая живая серия Selector: success-full
 
+Дополнение: оставшиеся три серии также завершены успешно;
+[итог всего набора и следующий шаг](selector-eval-baseline-2026-09-05.md).
+
 Трасса: `/Users/andreyrubtsov/Documents/pyrus_dev_stand/dev_terra_success_full/all-logs-1788633316977.json`.
 Начало: 5 сентября 2026, 21:34:44 МСК. Run ID: `eb63fd45-6f01-409e-8e3c-f9cb37cfe1d4`.
 
