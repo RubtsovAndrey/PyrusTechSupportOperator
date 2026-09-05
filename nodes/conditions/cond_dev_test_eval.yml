@@ -1,0 +1,11 @@
+---
+id: cond_dev_test_eval
+name: Selector evaluation command?
+position:
+  x: 810
+  y: 250
+next-step: func_eval_prepare
+next-error-step: null
+parameters:
+  condition: "(Context.getLastFunctionResult() || {}).selectorEval === true"
+  false-step: func_inspect_dev_setup

@@ -1,5 +1,5 @@
 const { suite, makeEnv } = require("./harness");
-const { loadGraph } = require("./graph");
+const { loadGraph, runTurn } = require("./graph");
 const { projectBindings } = require("../tools/project-bindings");
 const config = require("../docs/environments/dev-config.json");
 
@@ -8,7 +8,8 @@ async function main() {
   const graph = loadGraph();
   const node = graph.func_inspect_dev_setup;
   const bindings = projectBindings();
-  t.check("diagnostic trigger ends at a standalone function", graph.trigger_dev_setup.nextStep === node.id && !node.nextStep && !node.nextErrorStep && !node.isTool);
+  t.check("setup trigger routes commands before standalone diagnostics", graph.trigger_dev_setup.nextStep === "func_route_dev_test" &&
+    graph.cond_dev_test_eval.falseStep === node.id && !node.nextStep && !node.nextErrorStep && !node.isTool);
   t.check("diagnostics use registered dev bindings", node.values.join() === [bindings.projectKey, bindings.databaseKey,
     bindings.kbCredentialKey, bindings.models.default, bindings.models.selector].join());
   async function run(options = {}) {
@@ -16,6 +17,7 @@ async function main() {
       credentials: options.empty ? {} : { [bindings.kbCredentialKey]: "PRIVATE_TOKEN" } });
     env.Context.getProjectShortName = () => options.foreign ? "another-project" : bindings.projectKey;
     env.Context.isTestChannel = () => !options.live;
+    env.Context.getMessageContent = () => ({ text: options.command || "проверка" });
     const http = []; const llm = [];
     env.Http.post = async args => {
       http.push(args);
@@ -27,10 +29,21 @@ async function main() {
       if (options.fail) throw new Error("private request PRIVATE_TOKEN");
       return { text: options.text === undefined ? '{"ok":true}' : options.text, toolCalls: options.toolCalls || [] };
     } };
-    try { return { result: await node.code(env, node.values), env, http, llm }; }
+    try {
+      if (options.graph) {
+        const trace = await runTurn(graph, env, "trigger_dev_setup", { agent: () => { throw new Error("No agents."); } });
+        return { result: env.prev, trace, env, http, llm };
+      }
+      return { result: await node.code(env, node.values), env, http, llm };
+    }
     catch (error) { return { error, env, http, llm }; }
   }
   let r = await run();
+  for (const command of ["проверка", "/start"]) {
+    const routed = await run({ graph: true, command });
+    t.check("setup command still reaches diagnostics: " + command, routed.result.kind === "dev_setup_check" &&
+      routed.llm.length === 2 && !routed.env.puts.length && !routed.trace.some(s => s.error));
+  }
   t.check("ready configuration and integrations are reported without secret values",
     r.result.checks.config === "ok" && r.result.checks.catalog === "present" && r.result.checks.kbToolDiscovery === "ok" &&
     r.result.checks.defaultModel === "ok" && r.result.checks.selectorModel === "ok" &&

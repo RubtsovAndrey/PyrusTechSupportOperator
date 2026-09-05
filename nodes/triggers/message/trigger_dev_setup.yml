@@ -4,6 +4,6 @@ name: Dev - check setup
 position:
   x: 10
   y: 600
-next-step: func_inspect_dev_setup
+next-step: func_route_dev_test
 next-error-step: null
 parameters: {}

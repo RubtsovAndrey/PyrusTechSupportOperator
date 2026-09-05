@@ -55,10 +55,23 @@ async function main() {
         passageId: mode === "noise" ? "p0" : "p1", quote: mode === "bad" ? quote + " UNSUPPORTED" : mode === "noise" ? noise : quote }];
       return { text: JSON.stringify({ kind: "operator_evidence", requestId: request.id, selected }), toolCalls: [] };
     } };
-    const trace = await runTurn(graph, env, "trigger_selector_eval", { agent: () => { throw new Error("No agents."); } });
+    const trace = await runTurn(graph, env, options.trigger || "trigger_selector_eval", { agent: () => { throw new Error("No agents."); } });
     return { env, calls, deleted, trace, report: env.prev, run: env.db["selector_eval_run:test-eval-request"] };
   }
   let r = await run();
+  for (const caseId of Object.keys(bundle.cases)) {
+    const routed = await run({ trigger: "trigger_dev_setup", caseId,
+      outputs: caseId === "noise-only" ? Array(5).fill("empty") : [] });
+    t.check("setup entry dispatches " + caseId + " to five Selector calls without diagnostic probes",
+      routed.calls.length === 5 && routed.report.kind === "selector_eval_report" && routed.report.caseId === caseId &&
+      routed.report.expectedMet === 5 && !routed.env.creds.length &&
+      !routed.trace.some(s => s.id === "func_inspect_dev_setup" || s.error));
+  }
+  for (const forbidden of [{ foreign: true }, { live: true }]) {
+    const routed = await run({ trigger: "trigger_dev_setup", ...forbidden });
+    t.check("setup routing keeps dev/Test guard: " + JSON.stringify(forbidden),
+      !routed.calls.length && !routed.env.puts.length && !routed.env.creds.length && routed.trace.some(s => s.error));
+  }
   t.check("one command performs exactly five successful samples", r.calls.length === 5 && r.report.samples === 5 && r.report.expectedMet === 5 && !r.trace.some(s => s.error), r.report);
   t.check("every request within a batch is byte-identical", r.calls.every(c => JSON.stringify(c) === JSON.stringify(r.calls[0])));
   t.check("expected answers and prior outputs never enter the model input", !/requiredEvidence|expectedMet|UNTOUCHED/.test(JSON.stringify(r.calls)));

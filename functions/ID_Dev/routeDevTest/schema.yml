@@ -1,0 +1,11 @@
+---
+id: routeDevTest
+name: routeDevTest
+description: Dev-only evaluation harness; no Pyrus actions.
+response-description: Evaluation control or result; never a partner reply.
+parameters:
+- name: expectedProject
+  type: STRING
+  required: true
+  description: expectedProject for the isolated dev evaluation.
+language: JAVASCRIPT

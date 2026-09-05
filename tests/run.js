@@ -29,6 +29,7 @@ const SUITES = [
 // platform does. Top-level `await` and `return` are legal there, so `node --check` alone
 // reports false failures.
 const FUNCTION_PARAMS = {
+  "functions/ID_Dev/routeDevTest/code.js": ["expectedProject"],
   "functions/ID_Dev/prepareSelectorEval/code.js": ["expectedProject", "dbIntegration", "modelKey", "maxCompletionTokens"],
   "functions/ID_Dev/captureSelectorEval/code.js": ["expectedProject", "dbIntegration", "transportError"],
   "functions/ID_Dev/collectSelectorEval/code.js": ["expectedProject", "dbIntegration", "lastIteration"],
