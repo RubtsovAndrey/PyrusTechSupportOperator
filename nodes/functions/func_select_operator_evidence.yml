@@ -12,8 +12,14 @@ parameters:
   function: selectOperatorEvidence
   is-tool: false
   parameters:
-    llmModel: 1000299722-open_ai_gpt56terra-swl
-    maxCompletionTokens: 8192
+    llmModel:
+      type: LLM_MODEL
+      value: 1000299722-open_ai_gpt56terra-swl
+      filled-ai: false
+    maxCompletionTokens:
+      type: INTEGER
+      value: "8192"
+      filled-ai: false
   context-config: null
   hitl-tool-config: null
   custom-headers: null

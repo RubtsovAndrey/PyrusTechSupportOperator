@@ -159,6 +159,20 @@ function kindOf(rel) {
   return "function";
 }
 
+// Agent Platform imports typed parameter descriptors, never bare scalar values.
+// Mirror that boundary before running mocks, which otherwise conceal import failures.
+function validateFunctionArguments(args) {
+  const errors = [];
+  Object.entries(args || {}).forEach(([name, arg]) => {
+    if (!arg || typeof arg !== "object" || Array.isArray(arg) ||
+        typeof arg.type !== "string" || typeof arg["filled-ai"] !== "boolean" ||
+        !(arg.value === null || typeof arg.value === "string")) {
+      errors.push(name + ": expected type, string/null value and boolean filled-ai");
+    }
+  });
+  return errors;
+}
+
 function loadGraph() {
   const nodes = {};
   walk(path.join(ROOT, "nodes"), []).filter(f => f.endsWith(".yml")).forEach(file => {
@@ -182,13 +196,18 @@ function loadGraph() {
       args: p.parameters && typeof p.parameters === "object" ? p.parameters : {}
     };
     if (node.kind === "function" && node.collection && node.fn) {
+      const errors = validateFunctionArguments(node.args);
+      if (errors.length) throw new Error(rel + ": " + errors.join("; "));
       node.names = paramNames(node.collection, node.fn);
       node.code = loadFunction("functions/" + node.collection + "/" + node.fn + "/code.js", node.names);
       // Значения, зашитые в узел (`outcome: clarify`). `filled-ai` заполняет модель, то
       // есть в вызове инструмента — здесь они приходят от подставного агента.
       node.values = node.names.map(n => {
         const a = node.args[n];
-        return a && a.value !== undefined ? a.value : null;
+        if (!a || a.value == null) return null;
+        if (a.type === "INTEGER" || a.type === "NUMBER") return Number(a.value);
+        if (a.type === "BOOLEAN") return a.value === "true";
+        return a.value;
       });
     }
     nodes[node.id] = node;
@@ -247,4 +266,4 @@ async function runTurn(graph, env, start, hooks) {
   return trace;
 }
 
-module.exports = { parseYaml, loadGraph, runTurn, evalCondition };
+module.exports = { parseYaml, loadGraph, runTurn, evalCondition, validateFunctionArguments };

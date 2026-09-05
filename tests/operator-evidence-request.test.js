@@ -1,11 +1,12 @@
 const fs = require("fs");
 const path = require("path");
 const { loadFunction, makeEnv, suite, ROOT } = require("./harness");
-const { parseYaml } = require("./graph");
+const { parseYaml, loadGraph, validateFunctionArguments } = require("./graph");
 const select = loadFunction("functions/ID_Tools/selectOperatorEvidence/code.js",
   ["llmModel", "maxCompletionTokens"]);
 const node = parseYaml(fs.readFileSync(path.join(ROOT, "nodes/functions/func_select_operator_evidence.yml"), "utf8"));
-const args = node.parameters.parameters;
+const graphNode = loadGraph().func_select_operator_evidence;
+const args = Object.fromEntries(graphNode.names.map((name, i) => [name, graphNode.values[i]]));
 const request = { id: "request-17", taskId: "17", incomingCommentId: "22", query: "Как изменить фото?",
   candidates: [{ id: "c0", passages: [{ id: "p0", text: "Загрузите фотографию в карточку сотрудника." }] }] };
 
@@ -25,6 +26,13 @@ async function run(response, input) {
 
 async function main() {
   const t = suite("operator evidence explicit LLM request");
+  t.check("function node parameters match the platform import descriptor format",
+    validateFunctionArguments(node.parameters.parameters).length === 0);
+  t.check("the old scalar parameter format is rejected before deployment",
+    validateFunctionArguments({ llmModel: args.llmModel, maxCompletionTokens: 8192 }).length === 2);
+  t.check("primitive descriptor values must be serialized as strings and filled-ai as boolean",
+    validateFunctionArguments({ budget: { type: "INTEGER", value: 8192, "filled-ai": false },
+      model: { type: "LLM_MODEL", value: args.llmModel } }).length === 2);
   const frame = JSON.stringify({ kind: "operator_evidence", requestId: request.id, selected: [] });
   let r = await run({ text: frame, toolCalls: [] });
   const call = r.calls[0];
