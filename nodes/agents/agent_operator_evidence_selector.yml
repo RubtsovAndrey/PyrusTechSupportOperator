@@ -7,9 +7,9 @@ position:
 next-step: func_parse_operator_evidence
 next-error-step: func_parse_operator_evidence
 parameters:
-  llm-model-key: 1000299722-open_ai_gpt41mini-tme
+  llm-model-key: 1000299722-open_ai_gpt56terra-swl
   llm-model-settings:
-    max-tokens: 2000
+    max-tokens: 8192
     temperature: 0.0
     top-p: 1.0
     frequency-penalty: 0.0
