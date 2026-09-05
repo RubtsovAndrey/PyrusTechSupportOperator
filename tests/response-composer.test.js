@@ -21,7 +21,7 @@ function plan(overrides) {
 }
 
 async function parse(frame, planOverrides, stateOverrides) {
-  const responsePlan = plan(planOverrides);
+  const responsePlan = planOverrides === null ? undefined : plan(planOverrides);
   const env = makeEnv({
     prev: frame,
     db: { [KEY]: Object.assign({ taskId: 11613, runtime: { incomingCommentId: "22" } }, stateOverrides || {}) },
@@ -115,6 +115,22 @@ async function main() {
   }), { id: "response:11613:21:solution", incomingCommentId: "21" });
   t.check("a plan from another partner turn fails closed",
     !r.result && /another partner turn/.test(r.error || ""), r);
+
+  const recoveryState = {
+    data: { topicKey: "ratings", treeNode: "collect", partnerLanguage: "ru",
+      requiredArticleQuestion: { topicKey: "ratings", nodeId: "collect", incomingCommentId: "22",
+        text: "Какой результат вы ожидаете? Укажите email.", verbatim: false } }
+  };
+  r = await parse({ planId: "confirmation:old", replyText: "Повторить отвергнутый совет" }, null, recoveryState);
+  t.check("a missing plan recovers only the current policy question and ignores composer prose",
+    r.result && r.result.kind === "questions" &&
+    r.result.replyText === recoveryState.data.requiredArticleQuestion.text, r);
+  for (const change of [{ treeNode: "other" }, { treeEnd: "subtask" }, { partnerLanguage: "en" },
+    { topicKey: "other" }, { requiredArticleQuestion: Object.assign({}, recoveryState.data.requiredArticleQuestion,
+      { incomingCommentId: "21" }) }]) {
+    r = await parse({}, null, { data: Object.assign({}, recoveryState.data, change) });
+    t.check("question recovery rejects an incompatible state: " + Object.keys(change)[0], !r.result && !!r.error, r);
+  }
 
   return t.report();
 }

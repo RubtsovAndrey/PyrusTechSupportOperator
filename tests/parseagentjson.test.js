@@ -114,6 +114,34 @@ async function main() {
     !r.result.replyText &&
     !r.result.treeEnd, r.result);
 
+  // A live ratings turn returned an array, leaving the old confirmation context alive.
+  r = await run("solver", json({ contentPlan: ["Какой результат вы ожидаете?", "Укажите email."],
+    kind: "questions", answers: {} }), {
+    runtime: { incomingCommentId: "ratings-collect" }, data: { topicKey: "ratings_questions" }
+  });
+  t.check("a textual array publishes one current isolated response plan",
+    r.result.responsePlan && r.result.responsePlan.contentPlan === "Какой результат вы ожидаете?\nУкажите email." &&
+    r.values.responsePlan.incomingCommentId === "ratings-collect" && !r.result.replyText &&
+    Object.keys(r.values).sort().join(",") === "dialog,responsePlan", r);
+
+  for (const invalid of [[], ["Вопрос?", { action: "finished" }], { text: "Вопрос?" }]) {
+    r = await run("solver", json({ contentPlan: invalid, kind: "questions" }), {
+      runtime: { incomingCommentId: "ratings-collect" },
+      data: { topicKey: "ratings_questions", treeNode: "collect",
+        requiredArticleQuestion: { topicKey: "ratings_questions", nodeId: "collect",
+          incomingCommentId: "ratings-collect", text: "Какой результат вы ожидаете?\nУкажите email.", verbatim: false } }
+    });
+    t.check("a malformed plan uses the current open-question fallback: " + JSON.stringify(invalid),
+      r.result.responsePlan && r.result.responsePlan.verbatim &&
+      r.result.responsePlan.contentPlan === "Какой результат вы ожидаете?\nУкажите email.", r.result);
+  }
+
+  r = await run("solver", json({ contentPlan: ["Перезагрузите кассу"], kind: "solution" }), {
+    runtime: { incomingCommentId: "new" }, data: { topicKey: "printer_no_receipt" }
+  });
+  t.check("array normalisation cannot authorise advice without a current permit",
+    r.result.kind === "handover" && !r.result.responsePlan, r.result);
+
   // The article owns a pending question in the current comment. Even a malformed or
   // disobedient Solver response cannot turn it into advice or an operator handover.
   r = await run("solver", json({

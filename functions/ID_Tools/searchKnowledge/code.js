@@ -1537,8 +1537,15 @@ if (effectiveTopicKey) {
         patch.preparedQuestionValuesJson = semanticQuestion
           ? JSON.stringify(semanticQuestion.values) : null;
         patch.preparedQuestionText = semanticQuestion ? semanticQuestion.question : null;
-        if (target.requireBranchEvidence === true) {
-          patch.requiredArticleQuestion = articleQuestionRequirement(topic.key, target.id, unanswered);
+        patch.requiredArticleQuestion = articleQuestionRequirement(topic.key, target.id, unanswered);
+        if (patch.requiredArticleQuestion && target.requireBranchEvidence !== true) {
+          // Open questions may be composed naturally. Keep a current, policy-owned
+          // fallback as well, including the email needed by this subtask terminal.
+          patch.requiredArticleQuestion.verbatim = false;
+          patch.requiredArticleQuestion.text = [target.advice,
+            patch.requiredArticleQuestion.text,
+            target.end === "subtask" && !data.email ? "Укажите email для обращения." : null
+          ].filter(Boolean).join("\n");
         }
         patchData(patch);
         Log.info({ message: "searchKnowledge: topic " + topic.key + " -> node " + target.id + " (" + how + "), " + unanswered.length + " question(s)" + (ignoredTurns ? ", asked again after a reply that answered nothing" : "") });

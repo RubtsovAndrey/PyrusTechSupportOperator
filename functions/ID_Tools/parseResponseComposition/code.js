@@ -41,14 +41,8 @@ function urls(value) {
 }
 
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
-const plan = AgentContext.getValue({ key: "responsePlan" }) || {};
+let plan = AgentContext.getValue({ key: "responsePlan" });
 const taskId = dialog.taskId == null ? null : String(dialog.taskId);
-if (!taskId || !plan || typeof plan !== "object" || String(plan.taskId || "") !== taskId ||
-    !String(plan.id || "") || ["solution", "questions"].indexOf(String(plan.kind || "")) < 0 ||
-    !String(plan.contentPlan || "").trim()) {
-  throw new Error("parseResponseComposition: response plan is incomplete");
-}
-
 let state = {};
 try {
   const doc = Db.get({ dbIntegration: DB_ID, documentKey: "state:" + taskId });
@@ -58,6 +52,31 @@ try {
 }
 const currentCommentId = state.runtime && state.runtime.incomingCommentId != null
   ? String(state.runtime.incomingCommentId) : null;
+// If publication of the plan was lost, only the current question selected by the
+// article can rescue the turn. Never reconstruct advice or reuse an earlier question.
+let recoveredQuestion = false;
+if (!plan) {
+  const data = state.data || {};
+  const question = data.requiredArticleQuestion || {};
+  if (taskId && currentCommentId && !data.treeEnd && data.topicKey &&
+      String(question.incomingCommentId || "") === currentCommentId &&
+      String(question.topicKey || "") === String(data.topicKey) &&
+      String(question.nodeId || "") === String(data.treeNode || "") &&
+      (!data.partnerLanguage || data.partnerLanguage === "ru") &&
+      typeof question.text === "string" && question.text.trim()) {
+    plan = {
+      id: "response:" + taskId + ":" + currentCommentId + ":questions",
+      taskId: taskId, incomingCommentId: currentCommentId, kind: "questions",
+      contentPlan: question.text.trim(), partnerLanguage: "ru", verbatim: true
+    };
+    recoveredQuestion = true;
+  }
+}
+if (!taskId || !plan || typeof plan !== "object" || String(plan.taskId || "") !== taskId ||
+    !String(plan.id || "") || ["solution", "questions"].indexOf(String(plan.kind || "")) < 0 ||
+    typeof plan.contentPlan !== "string" || !plan.contentPlan.trim()) {
+  throw new Error("parseResponseComposition: response plan is incomplete");
+}
 if (String(plan.incomingCommentId || "") !== String(currentCommentId || "")) {
   throw new Error("parseResponseComposition: response plan belongs to another partner turn");
 }
@@ -68,8 +87,8 @@ const raw = Context.getLastFunctionResult();
 // surface without adding any conversational value. The graph sends that plan directly
 // here; ordinary plans still arrive from Response Composer and take the validated path
 // below.
-const directVerbatim = plan.verbatim === true && raw && typeof raw === "object" &&
-  raw.responsePlan && String(raw.responsePlan.id || "") === String(plan.id);
+const directVerbatim = recoveredQuestion || (plan.verbatim === true && raw && typeof raw === "object" &&
+  raw.responsePlan && String(raw.responsePlan.id || "") === String(plan.id));
 const text = typeof raw === "string" ? raw : (raw && raw.content ? raw.content : raw);
 const parsed = directVerbatim ? null : lastJsonObject(text);
 let replyText = "";
@@ -105,7 +124,9 @@ if (plan.verbatim === true && !directVerbatim) {
   }
 }
 
-if (directVerbatim) {
+if (recoveredQuestion) {
+  Log.warn({ message: "parseResponseComposition: recovered missing response plan from current article question on task " + taskId });
+} else if (directVerbatim) {
   Log.info({ message: "parseResponseComposition: materialized verbatim response plan " +
     plan.id + " without an LLM call on task " + taskId });
 } else if (fallback) {
@@ -118,12 +139,12 @@ if (directVerbatim) {
 }
 
 return {
-  source: directVerbatim ? "response-plan-verbatim" : "response-composer",
+  source: recoveredQuestion ? "response-plan-recovery" : (directVerbatim ? "response-plan-verbatim" : "response-composer"),
   responsePlanId: String(plan.id),
   replyText: replyText,
   kind: String(plan.kind),
-  partnerLanguage: String(plan.partnerLanguage || parsed.partnerLanguage || "ru").toLowerCase(),
+  partnerLanguage: String(plan.partnerLanguage || (parsed && parsed.partnerLanguage) || "ru").toLowerCase(),
   taskId: taskId,
-  compositionFallback: fallback,
-  reason: fallbackReason
+  compositionFallback: fallback || recoveredQuestion,
+  reason: recoveredQuestion ? "missing response plan recovered from current article question" : fallbackReason
 };

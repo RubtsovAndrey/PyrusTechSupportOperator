@@ -4,7 +4,7 @@
 // human. Search only prepares internal evidence and can neither answer the partner nor
 // authorise an action. A bounded semantic planner supplies at most two query variants;
 // code retains the original wording, searches trusted support spaces first, validates
-// relevance per query, then reads only the selected articles.
+// reads a bounded set of semantic candidates before deciding relevance.
 
 const MCP_URL = "https://knowledgebase.dodois.io/mcp";
 const CREDENTIAL_KEYS = [
@@ -16,6 +16,7 @@ const SEARCH_LIMIT = 20;
 const BROAD_SEARCH_LIMIT = 9;
 const EXCERPT_LIMIT = 240;
 const GROUNDING_LIMIT = 1800;
+const READ_LIMIT = 6;
 const OWN_SPACE_ID = "6d8f5fa3-7fd4-44c8-978d-68743b232533";
 const SUPPORT_SPACE_IDS = [
   "9f2a0e8b-3109-4354-afe0-0f6fc9a6ce0d",
@@ -68,13 +69,6 @@ function relevance(query, hit) {
   const excerpt = matches(words, hit.excerpt || "");
   const pass = words.length === 1 ? title > 0 || excerpt > 0 : title >= 1 || excerpt >= 2;
   return { pass: pass, words: words, title: title, excerpt: excerpt };
-}
-
-function spacePriority(spaceId) {
-  const id = String(spaceId || "").toLowerCase();
-  if (id === OWN_SPACE_ID) return 3;
-  if (SUPPORT_SPACE_IDS.indexOf(id) >= 0) return 2;
-  return 0;
 }
 
 function titleKey(hit) {
@@ -193,14 +187,13 @@ function groundingExcerpt(content, queries) {
   chunks
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .splice(3);
-  chunks.sort((a, b) => a.index - b.index);
   const parts = [];
-  if (first) parts.push(first);
   chunks.forEach(item => {
     if (!parts.some(existing => existing.indexOf(item.text) >= 0 || item.text.indexOf(existing) >= 0)) {
       parts.push(item.text);
     }
   });
+  if (first && !parts.some(part => part.indexOf(first) >= 0)) parts.push(first);
   return compact(parts.join(" "), GROUNDING_LIMIT);
 }
 
@@ -268,7 +261,8 @@ async function searchAll(spaces, limit) {
     try {
       const result = await rpc(token, "search_content", { request: request });
       const hits = result && Array.isArray(result.results) ? result.results : [];
-      hits.forEach((hit, order) => found.push({ hit: hit || {}, query: queries[i], order: i * limit + order }));
+      hits.forEach((hit, order) => found.push({ hit: hit || {}, query: queries[i],
+        position: order, order: i * limit + order }));
     } catch (e) {
       Log.warn({ message: "findOperatorKnowledge: поиск по варианту «" + queries[i].slice(0, 100) +
         "» не удался, остальные варианты продолжатся: " + e });
@@ -277,57 +271,119 @@ async function searchAll(spaces, limit) {
   return found;
 }
 
-function rankRows(rows) {
+// Interleave the first result of every query, then the second, etc. A short title
+// is not evidence that a semantic hit is irrelevant: the relevant section may be deep
+// inside the article. Deduplicate by id before spending the read budget.
+function candidatesFrom(rows) {
   const byArticle = {};
-  let eligible = 0;
   rows.forEach(row => {
-    const hit = row.hit || {};
-    const id = hit.articleId || hit.id;
-    if (!id || hit.isWatermarksEnabled) return;
+    const hit = row.hit;
+    if (!(hit.articleId || hit.id) || hit.isWatermarksEnabled) return;
     if (hit.status && String(hit.status).toLowerCase() !== "published") return;
-    eligible++;
-    const score = relevance(row.query, hit);
-    if (!score.pass) return;
-    const ranked = {
-      hit: hit,
-      query: row.query,
-      order: row.order,
-      rank: spacePriority(hit.spaceId) * 100 + score.title * 10 + score.excerpt
-    };
     const key = articleKey(hit);
-    if (!byArticle[key] || byArticle[key].rank < ranked.rank ||
-        byArticle[key].rank === ranked.rank && byArticle[key].order > ranked.order) {
-      byArticle[key] = ranked;
+    if (!byArticle[key]) byArticle[key] = { hit: hit, variants: [],
+      position: row.position, order: row.order };
+    const item = byArticle[key];
+    item.variants.push(row);
+    if (row.position < item.position || row.position === item.position && row.order < item.order) {
+      item.position = row.position;
+      item.order = row.order;
     }
   });
-  const candidates = Object.keys(byArticle).map(key => byArticle[key])
-    .sort((a, b) => b.rank - a.rank || a.order - b.order);
-  return { candidates: candidates, eligible: eligible };
+  return Object.keys(byArticle).map(key => byArticle[key])
+    .sort((a, b) => a.position - b.position || a.order - b.order);
+}
+
+const readCache = {};
+let readCount = 0;
+let fullyRead = 0;
+async function inspectCandidates(rows) {
+  const candidates = candidatesFrom(rows);
+  const inspected = [];
+  let scopeReads = 0;
+  for (let i = 0; i < candidates.length; i++) {
+    const item = candidates[i];
+    const hit = item.hit;
+    const id = hit.articleId || hit.id;
+    const canReadFully = hit.canReadFully !== undefined ? hit.canReadFully : hit.CanReadFully;
+    // Prefer the variant for which MCP placed this article highest, even when the
+    // original wording has more superficial overlap with the title.
+    const variants = item.variants.slice().sort((a, b) => a.position - b.position || a.order - b.order);
+    const query = variants[0].query;
+    const cacheKey = articleKey(hit) + (canReadFully === true ? "" : ":" + query);
+    let content = readCache[cacheKey] || "";
+    if (canReadFully === true || canReadFully === false) {
+      if (!(cacheKey in readCache)) {
+        if (scopeReads >= READ_LIMIT) continue;
+        scopeReads++;
+        readCount++;
+        try {
+          if (canReadFully === true) {
+            const article = await rpc(token, "get_content", { request: { id: id } });
+            if (article && (article.id == null || String(article.id) === String(id)) &&
+                (!article.space || article.space.id == null ||
+                  String(article.space.id) === String(hit.spaceId || ""))) {
+              content = String(article.content || "").trim();
+              if (content) fullyRead++;
+            }
+          } else {
+            const inside = await rpc(token, "search_in_content", { request: { id: id, query: query } });
+            if (inside && inside.found !== false &&
+                (inside.articleId == null || String(inside.articleId) === String(id))) {
+              content = String(inside.excerpt || "").trim();
+            }
+          }
+        } catch (e) {
+          Log.warn({ message: "findOperatorKnowledge: статья " + id + " не прочиталась: " + e });
+        }
+        readCache[cacheKey] = content;
+      }
+    }
+    let best = null;
+    variants.forEach(row => {
+      const score = relevance(row.query, hit);
+      const contentMatches = matches(score.words, content);
+      // Content can corroborate a top semantic candidate even when the title uses
+      // different terminology. Metadata-only candidates retain the conservative filter.
+      if (!score.pass && !(contentMatches >= 2 || contentMatches > 0 && row.position < 2)) return;
+      const coverage = score.words.length ? contentMatches / score.words.length : 0;
+      const candidate = { hit: hit, query: row.query, content: content,
+        coverage: coverage, position: row.position, order: row.order };
+      if (!best || compareEvidence(candidate, best) < 0) best = candidate;
+    });
+    if (best) inspected.push(best);
+  }
+  return inspected.sort(compareEvidence);
+}
+
+function compareEvidence(a, b) {
+  // Source spaces bound search scope; they confer no absolute relevance bonus.
+  // A read section covering the query wins; MCP order breaks ties before title words.
+  return b.coverage - a.coverage || a.position - b.position || a.order - b.order;
 }
 
 let rows = await searchAll(PRIORITY_SPACES, SEARCH_LIMIT);
-let ranked = rankRows(rows);
+let relevant = await inspectCandidates(rows);
 let searchScope = "support";
-if (!ranked.candidates.length) {
+if (!relevant.length) {
   rows = await searchAll(null, BROAD_SEARCH_LIMIT);
-  ranked = rankRows(rows);
+  relevant = await inspectCandidates(rows);
   searchScope = "all";
 }
 
 const accepted = [];
 const seenTitles = {};
-for (let i = 0; i < ranked.candidates.length && accepted.length < LIMIT; i++) {
-  const item = ranked.candidates[i];
+for (let i = 0; i < relevant.length && accepted.length < LIMIT; i++) {
+  const item = relevant[i];
   const key = titleKey(item.hit);
   if (key && seenTitles[key]) continue;
   if (key) seenTitles[key] = true;
   accepted.push(item);
 }
-
 if (!accepted.length) {
   Log.info({ message: "findOperatorKnowledge: " + queries.length + " формулировок → " +
-    rows.length + " MCP-результатов (область " + searchScope + "), опубликованных кандидатов " +
-    ranked.eligible + ", фильтр релевантности не пропустил ни одного" });
+    rows.length + " MCP-результатов (область " + searchScope +
+    "), фильтр релевантности не пропустил ни одного после чтения кандидатов; чтений " + readCount });
   return finish([]);
 }
 
@@ -338,50 +394,23 @@ try {
 } catch (e) {
   Log.warn({ message: "findOperatorKnowledge: шаблон ссылок не получен: " + e });
 }
-
-const articles = [];
-let fullyRead = 0;
-for (let i = 0; i < accepted.length; i++) {
-  const item = accepted[i];
+const articles = accepted.map(item => {
   const hit = item.hit;
   const id = hit.articleId || hit.id;
-  let contentExcerpt = "";
-  const canReadFully = hit.canReadFully !== undefined ? hit.canReadFully : hit.CanReadFully;
-  try {
-    if (canReadFully === true) {
-      const article = await rpc(token, "get_content", { request: { id: id } });
-      const sameId = !article || article.id == null || String(article.id) === String(id);
-      const sameSpace = !article || !article.space || article.space.id == null ||
-        String(article.space.id) === String(hit.spaceId || "");
-      if (sameId && sameSpace && article && String(article.content || "").trim()) {
-        contentExcerpt = groundingExcerpt(article.content, queries);
-        fullyRead++;
-      } else {
-        Log.warn({ message: "findOperatorKnowledge: статья " + id +
-          " вернулась с другим id/space или без содержимого; оставлен поисковый excerpt" });
-      }
-    } else if (canReadFully === false) {
-      const inside = await rpc(token, "search_in_content", { request: { id: id, query: item.query } });
-      if (inside && inside.found !== false) contentExcerpt = groundingExcerpt(inside.excerpt, queries);
-    }
-  } catch (e) {
-    Log.warn({ message: "findOperatorKnowledge: статья " + id +
-      " не прочиталась, оставлен поисковый excerpt: " + e });
-  }
   const shortExcerpt = compact(hit.excerpt, EXCERPT_LIMIT);
-  articles.push({
+  return {
     articleId: id,
     title: hit.articleTitle || hit.title || "Статья без заголовка",
     spaceId: hit.spaceId || null,
     spaceTitle: hit.spaceTitle || "пространство не указано",
     excerpt: shortExcerpt,
-    contentExcerpt: contentExcerpt || shortExcerpt,
+    contentExcerpt: groundingExcerpt(item.content, [item.query]) || shortExcerpt,
     matchedQuery: item.query,
     url: articleUrl(template, { spaceId: hit.spaceId, articleId: id })
-  });
-}
-
+  };
+});
 Log.info({ message: "findOperatorKnowledge: " + queries.length + " формулировок → " +
   rows.length + " MCP-результатов (область " + searchScope + "), релевантных " +
-  ranked.candidates.length + ", подсказок " + articles.length + ", полных статей прочитано " + fullyRead });
+  relevant.length + ", подсказок " + articles.length + ", прочитано кандидатов " + readCount +
+  ", полных статей прочитано " + fullyRead });
 return finish(articles);

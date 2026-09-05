@@ -64,7 +64,7 @@ async function run(options) {
       }
       if (name === "search_in_content") {
         const request = a.body.params.arguments.request || {};
-        return { status: 200, body: sse({
+        return { status: 200, body: sse(o.insideResult ? o.insideResult(request) : {
           found: true, articleId: request.id, excerpt: o.insideExcerpt || "Релевантный раздел статьи."
         }) };
       }
@@ -199,8 +199,8 @@ async function main() {
   ] });
   t.check("the same article title from two spaces is shown only once",
     r.result.operatorKnowledge.articles.length === 2, r.result.operatorKnowledge);
-  t.check("our approved copy wins a duplicate title even when MCP returned it second",
-    r.result.operatorKnowledge.articles[0].articleId === "own-copy", r.result.operatorKnowledge);
+  t.check("own space does not displace the earlier equally relevant support copy",
+    r.result.operatorKnowledge.articles[0].articleId === "support-copy", r.result.operatorKnowledge);
 
   r = await run({ hits: [
     hit("general-exact", {
@@ -213,8 +213,69 @@ async function main() {
       excerpt: "Если смена не закрывается и Z-отчёт не выходит, проверьте кассу."
     })
   ] });
-  t.check("a relevant support article is ranked before the rest of the readable KB",
-    r.result.operatorKnowledge.articles[0].articleId === "support-useful", r.result.operatorKnowledge);
+  t.check("space membership does not override a more relevant semantic result",
+    r.result.operatorKnowledge.articles[0].articleId === "general-exact", r.result.operatorKnowledge);
+
+  // Both live avatar failures: the exact article is first for the photo variant, but
+  // its title and short excerpt have no query words. The original/other variant yields
+  // our CASH policies or general courier instructions.
+  for (const extra of ["смена изображения курьера", "как обновить изображение курьера"]) {
+    r = await run({
+      dialog: { problemSummary: "как поменять аватарку у курьера" },
+      queries: ["как поменять аватарку у курьера", "как изменить фотографию курьера", extra],
+      searchResults: request => request.query === "как изменить фотографию курьера" ? [hit(avatarArticle, {
+        articleTitle: "Сотрудники: личная карточка сотрудника в «Додо ИС»",
+        excerpt: "Личные данные, история карьерного роста, срок действия медицинской книжки.",
+        spaceId: SUPPORT_SPACE, canReadFully: false
+      })] : [hit("cash", { spaceId: OWN_SPACE, articleTitle: "[CASH] Смена больше 24 часов",
+        excerpt: "Смена не закрывается", canReadFully: true }),
+      hit("courier", { articleTitle: "Приложение курьера", excerpt: "Работа курьера с заказами", canReadFully: true })],
+      contents: {
+        cash: { id: "cash", content: "Смена не закрывается. Инструкция по кассе." },
+        courier: { id: "courier", content: "Курьера назначают на заказ в приложении." }
+      },
+      insideExcerpt: "Общие сведения о личной карточке. ".repeat(100) +
+        "Фотография. Загрузите фотографию в личную карточку сотрудника. Обрежьте фото до 300×300 пикселей."
+    });
+    const articles = r.result.operatorKnowledge.articles;
+    t.check("read the top semantic avatar hit before lexical filtering: " + extra,
+      articles[0] && articles[0].articleId === avatarArticle &&
+      r.env.posts.some(p => p.body.params.name === "search_in_content" &&
+        p.body.params.arguments.request.query === "как изменить фотографию курьера"), r.result);
+    t.check("the deep photo section survives the grounding budget: " + extra,
+      articles[0] && /300×300/.test(articles[0].contentExcerpt) &&
+      /300×300/.test(r.env.notes.join("\n")), articles);
+  }
+
+  r = await run({
+    dialog: { problemSummary: "как поменять аватарку у курьера" },
+    queries: ["как поменять аватарку у курьера", "как изменить фотографию курьера", "смена изображения курьера"],
+    searchResults: request => request.query === "как изменить фотографию курьера" ? [hit(avatarArticle, {
+      articleTitle: "Личная карточка сотрудника", excerpt: "Личные данные", canReadFully: false
+    })] : request.query === "смена изображения курьера" ? [hit("orders", {
+      articleTitle: "Оформление заказа", excerpt: "Менеджер смены и курьер", canReadFully: true
+    })] : [],
+    contents: { orders: { id: "orders", content: "Менеджер смены назначает курьера. Нажмите изображение корзины." } },
+    insideExcerpt: "Фотография сотрудника или курьера. Загрузите фото в карточку."
+  });
+  t.check("equal content coverage does not let a noisy later variant win on search excerpt words",
+    r.result.operatorKnowledge.articles[0].articleId === avatarArticle, r.result);
+
+  r = await run({
+    hits: Array.from({ length: 20 }, (_, i) => hit("read-" + i, {
+      canReadFully: false, articleTitle: "Справочник", excerpt: "Общие сведения"
+    })),
+    insideResult: request => ({ found: false, articleId: request.id, excerpt: "Смена Z-отчёт" })
+  });
+  t.check("negative content results cannot ground hints and reads stay bounded and cached",
+    r.result.operatorKnowledge.articles.length === 0 &&
+    r.env.posts.filter(p => p.body.params.name === "search_in_content").length <= 12, r.result);
+
+  r = await run({ hits: [hit("identity", {
+    canReadFully: false, articleTitle: "Справочник", excerpt: "Общие сведения"
+  })], insideResult: () => ({ articleId: "another-article", found: true, excerpt: "Смена Z-отчёт" }) });
+  t.check("content from a different article cannot rescue an irrelevant candidate",
+    r.result.operatorKnowledge.articles.length === 0, r.result);
 
   r = await run({ dialog: { problemSummary: null, incomingText: "" } });
   t.check("empty problem does not become a search across the whole knowledge base",

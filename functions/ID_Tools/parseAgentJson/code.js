@@ -563,9 +563,14 @@ if (!parsed || typeof parsed !== "object") {
 // message: after all policy checks below, Response Composer receives the authorised plan
 // and owns the wording. `replyText` remains an input compatibility shim for an invocation
 // that was already running while a deployment replaced the prompt.
-if (String(stage || "") === "solver" && !parsed.replyText &&
-    typeof parsed.contentPlan === "string") {
-  parsed.replyText = parsed.contentPlan;
+if (String(stage || "") === "solver") {
+  // Accept equivalent textual plans, but never coerce objects to [object Object] or
+  // silently keep only the valid half of a malformed plan.
+  const planText = typeof parsed.contentPlan === "string" ? parsed.contentPlan :
+    (Array.isArray(parsed.contentPlan) && parsed.contentPlan.every(item => typeof item === "string")
+      ? parsed.contentPlan.map(item => item.trim()).filter(Boolean).join("\n") : "");
+  parsed.replyText = typeof parsed.replyText === "string" && parsed.replyText.trim()
+    ? parsed.replyText : planText;
 }
 
 const dialog = AgentContext.getValue({ key: "dialog" }) || {};
@@ -1150,8 +1155,11 @@ if (taskId) {
       !data.treeEnd && currentQuestionCommentId != null &&
       requiredCommentId === currentQuestionCommentId &&
       String(requiredQuestion.topicKey || "") === String(data.topicKey || "") &&
+      String(requiredQuestion.nodeId || "") === String(data.treeNode || "") &&
       !!String(requiredQuestion.text || "").trim();
-    if (articleQuestionIsCurrent) {
+    const useCanonicalQuestion = articleQuestionIsCurrent &&
+      (requiredQuestion.verbatim !== false || !String(parsed.replyText || "").trim());
+    if (useCanonicalQuestion) {
       const canonicalQuestion = String(requiredQuestion.text).trim();
       const replaced = String(parsed.kind || "") !== "questions" ||
         String(parsed.replyText || "").trim() !== canonicalQuestion;
@@ -1409,9 +1417,9 @@ if (taskId) {
         kind: String(parsed.kind),
         contentPlan: String(parsed.replyText).trim(),
         partnerLanguage: String(parsed.partnerLanguage || data.partnerLanguage || "ru").toLowerCase(),
-        // Critical protected questions remain canonical. The composer is still traversed
-        // so every partner text has one owner, but its parser will use this exact wording.
-        verbatim: String(parsed.kind) === "questions" && articleQuestionIsCurrent,
+        // Protected questions and recovered open questions bypass the model Composer;
+        // both still pass through the composition validator.
+        verbatim: String(parsed.kind) === "questions" && useCanonicalQuestion,
         responseMode: String(parsed.responseMode || (String(parsed.kind) === "questions" ? "question" : "instruction"))
       };
       // Prompt instructions alone are not an isolation boundary. Remove the conversation,

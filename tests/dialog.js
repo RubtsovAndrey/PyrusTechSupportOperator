@@ -430,7 +430,8 @@ const AGENTS = {
         questions.length ? "Подскажите: " + joinedQuestions + "?" : null,
         emailQuestion
       ].filter(Boolean).join(" ");
-      return json({ contentPlan: text, kind: "questions", responseMode: "question", partnerLanguage, answers: answers });
+      return json({ contentPlan: turn.questionContentPlan !== undefined ? turn.questionContentPlan : text,
+        kind: "questions", responseMode: "question", partnerLanguage, answers: answers });
     }
 
     if (r.turnKind === "external-knowledge") {

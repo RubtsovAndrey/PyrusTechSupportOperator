@@ -77,6 +77,25 @@ function bot(which, mode) {
 async function main() {
   const t = suite("ratings policy dialogs");
 
+  for (const contentPlan of [["Уточнить ожидаемый результат обращения.", "Запросить email партнёра."], []]) {
+    const ratings = bot("rko", "answer");
+    await ratings.turn("Тамбов-1, как подать апелляцию по РКО?", {
+      unit: "Тамбов-1", externalAnswer: "Подайте апелляцию через страницу рейтинга."
+    });
+    const collect = await ratings.turn("Нет, нам именно отправить запрос напрямую ответственным специалистам", {
+      status: "failed", questionContentPlan: contentPlan
+    });
+    t.check("ratings array/empty plan continues collecting instead of safety handover: " + contentPlan.length,
+      collect.stage === "awaiting_answers" && /email/.test(collect.replies.join(" ")) &&
+      !/Подайте апелляцию/.test(collect.replies.join(" ")), collect);
+    const complete = await ratings.turn("Ожидаем возврата баллов за проверку 1 сентября, test@example.com", {
+      answers: { expectedResult: "Ожидаем возврата баллов за проверку 1 сентября" }
+    });
+    t.check("ratings collection after plan recovery creates one subtask and closes: " + contentPlan.length,
+      complete.kind === "subtask_created" && complete.stage === "closed" &&
+      ratings.env.posts.filter(p => /\/tasks$/.test(p.url)).length === 1, complete);
+  }
+
   // Прямой вопрос по РКО: статья прочитана, а обязательная атрибуция добавлена кодом.
   let c = bot("rko", "answer");
   let r = await c.turn("Тамбов-1, считается ли сырник ключевым ингредиентом в РКО?", {
