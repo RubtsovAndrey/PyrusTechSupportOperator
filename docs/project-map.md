@@ -735,7 +735,8 @@ trigger_webhook_pyrus → receiveWebhook → skip?
                              success → Outcome - subtask created
                              параллельный дубль → finalize без действий
                              иначе   → subtask needs email? → Outcome - clarify email | escalate
-          иначе         → findOperatorKnowledge → agent_operator_assist
+          иначе         → agent_operator_query_planner → parseOperatorQueries
+                         → findOperatorKnowledge → agent_operator_assist
                          → parseOperatorAssist → Outcome - escalate
 ```
 
@@ -753,11 +754,12 @@ trigger_webhook_pyrus → receiveWebhook → skip?
 | `matchUnit` | ID_Tools | tool: поиск юнита в каталоге, режимы unit и network |
 | `searchKnowledge` | ID_Tools | tool: подбор тематики, один узел дерева или один шаг линейной статьи |
 | `getKnowledgeMcp` | ID_Tools | управляемый MCP-поиск: внешние источники policy и проверенные кандидаты подготовленных тем |
-| `findOperatorKnowledge` | ID_Tools | общий MCP-поиск для неизвестной темы; релевантные ссылки публикуются только во внутренний контекст |
+| `parseOperatorQueries` | ID_Tools | сохраняет исходный вопрос и проверяет максимум две смысловые поисковые формулировки |
+| `findOperatorKnowledge` | ID_Tools | support-first multi-query MCP-поиск для неизвестной темы и чтение выбранных статей; результат только внутренний |
 | `parseAgentJson` | ID_Tools | разбор ответа агента или детерминированного результата знания, запись фактов и попыток |
 | `parseTurnInterpretation` | ID_Tools | общий конечный контракт смысла: актуальные id/value и дословное доказательство |
 | `parseOpenAnswers` | ID_Tools | разрешённые открытые поля, дословное evidence, текущий comment id и материальный конфликт |
-| `parseOperatorAssist` | ID_Tools | безопасный внутренний черновик для оператора; удаление URL и fallback без остановки handover |
+| `parseOperatorAssist` | ID_Tools | безопасный внутренний черновик для оператора; без найденной статьи принудительно null |
 | `parseResponseComposition` | ID_Tools | проверка привязки Composer к responsePlan; запрет нового URL и изменения канонического вопроса; безопасный fallback |
 | `nextSolutionStep` | ID_Tools | решение после «не помогло»: следующий шаг, разъяснение того же или onFail |
 
