@@ -91,6 +91,14 @@ async function main() {
     r.result && r.result.compositionFallback &&
     r.result.replyText === "Смена закрыта или открыта?" && r.result.kind === "questions", r);
 
+  r = await parse({ planId: "response:11613:22:questions",
+    replyText: "Какого результата вы ждёте от рассмотрения? Оставьте email для обращения." }, {
+    id: "response:11613:22:questions", kind: "questions",
+    contentPlan: "Какой результат вы ожидаете? Укажите email для обращения.", verbatim: false
+  });
+  t.check("an article-owned open question still permits natural composition",
+    r.result && !r.result.compositionFallback && /Какого результата/.test(r.result.replyText), r);
+
   const directPlan = plan({
     id: "response:11613:22:questions",
     kind: "questions",

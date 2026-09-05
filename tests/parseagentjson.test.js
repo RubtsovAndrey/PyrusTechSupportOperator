@@ -136,6 +136,19 @@ async function main() {
       r.result.responsePlan.contentPlan === "Какой результат вы ожидаете?\nУкажите email.", r.result);
   }
 
+  r = await run("solver", json({
+    contentPlan: "Спросить ожидаемый результат. Объяснить, что просьба передать специалисту сама по себе не считается результатом.",
+    kind: "questions", partnerLanguage: "ru"
+  }), {
+    runtime: { incomingCommentId: "ratings-collect" },
+    data: { topicKey: "ratings_questions", treeNode: "collect",
+      requiredArticleQuestion: { topicKey: "ratings_questions", nodeId: "collect",
+        incomingCommentId: "ratings-collect", text: "Какой результат вы ожидаете?\nУкажите email.", verbatim: false } }
+  });
+  t.check("an open question gives Composer only partner-facing policy text, not Solver's internal rules",
+    r.result.responsePlan && r.result.responsePlan.contentPlan === "Какой результат вы ожидаете?\nУкажите email." &&
+    r.result.responsePlan.verbatim === false && !/сам[ао] по себе/.test(JSON.stringify(r.values)), r);
+
   r = await run("solver", json({ contentPlan: ["Перезагрузите кассу"], kind: "solution" }), {
     runtime: { incomingCommentId: "new" }, data: { topicKey: "printer_no_receipt" }
   });

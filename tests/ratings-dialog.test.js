@@ -77,7 +77,8 @@ function bot(which, mode) {
 async function main() {
   const t = suite("ratings policy dialogs");
 
-  for (const contentPlan of [["Уточнить ожидаемый результат обращения.", "Запросить email партнёра."], []]) {
+  for (const contentPlan of [["Уточнить ожидаемый результат обращения.", "Запросить email партнёра."], [],
+    "Спросить детали и email. Объяснить, что просьба передать специалисту сама по себе не является результатом."]) {
     const ratings = bot("rko", "answer");
     await ratings.turn("Тамбов-1, как подать апелляцию по РКО?", {
       unit: "Тамбов-1", externalAnswer: "Подайте апелляцию через страницу рейтинга."
@@ -87,7 +88,7 @@ async function main() {
     });
     t.check("ratings array/empty plan continues collecting instead of safety handover: " + contentPlan.length,
       collect.stage === "awaiting_answers" && /email/.test(collect.replies.join(" ")) &&
-      !/Подайте апелляцию/.test(collect.replies.join(" ")), collect);
+      !/Подайте апелляцию|сама по себе|не является результатом/.test(collect.replies.join(" ")), collect);
     const complete = await ratings.turn("Ожидаем возврата баллов за проверку 1 сентября, test@example.com", {
       answers: { expectedResult: "Ожидаем возврата баллов за проверку 1 сентября" }
     });

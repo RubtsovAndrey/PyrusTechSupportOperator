@@ -1159,7 +1159,11 @@ if (taskId) {
       !!String(requiredQuestion.text || "").trim();
     const useCanonicalQuestion = articleQuestionIsCurrent &&
       (requiredQuestion.verbatim !== false || !String(parsed.replyText || "").trim());
-    if (useCanonicalQuestion) {
+    // Open questions also get their content from the article. Solver may otherwise
+    // copy internal doNotAssume rules into its plan, which Composer then faithfully
+    // exposes to the partner. Composer can still phrase an open question naturally;
+    // verbatim remains reserved for protected questions and malformed-plan recovery.
+    if (articleQuestionIsCurrent) {
       const canonicalQuestion = String(requiredQuestion.text).trim();
       const replaced = String(parsed.kind || "") !== "questions" ||
         String(parsed.replyText || "").trim() !== canonicalQuestion;
@@ -1169,7 +1173,7 @@ if (taskId) {
       data.handoverReason = null;
       patch["data.handoverReason"] = null;
       if (replaced) {
-        Log.warn({ message: "parseAgentJson: replaced Solver output with the current article question on task " + taskId });
+        Log.info({ message: "parseAgentJson: bound question content to the current article question on task " + taskId });
       }
     }
 

@@ -399,7 +399,8 @@
             "outcome": "clarify_answers",
             "replies": {
               "count": 1,
-              "includes": ["результат", "email"]
+              "includes": ["результат", "email"],
+              "excludes": ["сама по себе", "не является результатом"]
             },
             "internal": { "count": 0 },
             "path": {

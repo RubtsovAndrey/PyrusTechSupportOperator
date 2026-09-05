@@ -1544,7 +1544,7 @@ if (effectiveTopicKey) {
           patch.requiredArticleQuestion.verbatim = false;
           patch.requiredArticleQuestion.text = [target.advice,
             patch.requiredArticleQuestion.text,
-            target.end === "subtask" && !data.email ? "Укажите email для обращения." : null
+            target.end === "subtask" && !data.email ? "Для создаваемого обращения нужен email. Укажите его." : null
           ].filter(Boolean).join("\n");
         }
         patchData(patch);
