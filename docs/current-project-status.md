@@ -713,8 +713,11 @@ handover; поля и внутренняя сводка корректны.
 - [ ] Повторить `ratings-rko-direct-contact-subtask`, оба avatar-сценария и один точный Z
   smoke; принять не только безопасный terminal, но и качество внутренней рекомендации.
 - [ ] Только после базовой приёмки провести одинаковый eval на `gpt-4.1-mini` и более
-  сильных OpenAI-моделях для Intake, Routing, Turn Interpreter и Query Planner; сравнить
-  точность контракта, повторы, задержку и стоимость, не меняя parser/policy-границы.
+  сильных OpenAI-моделях. Первой парой проверить Solver и Response Composer на валидность
+  плана и соблюдение формы; затем Intake, Routing, оба Interpreter и Query Planner на
+  смысловую точность. Сравнить повторы, ложные handover, задержку и стоимость, не меняя
+  parser/policy-границы. Удачная avatar-переформулировка уже показывает, что Query Planner
+  не является причиной текущего retrieval-дефекта.
   Первая готовая экспериментальная интеграция — Terra
   `1000299722-open_ai_gpt56terra-swl`; текущая baseline-интеграция —
   `1000299722-open_ai_gpt41mini-tme`.
