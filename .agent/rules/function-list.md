@@ -237,4 +237,6 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Tools/parseOpenAnswers/
 - `ID_Tools.parseOperatorAssist` — Validates an internal draft for the operator and restores the advisory knowledge-search result.
   Directory: functions/ID_Tools/parseOperatorAssist/
+- `ID_Tools.parseOperatorQueries` — Validates bounded semantic search-query variants for unknown-topic operator assistance.
+  Directory: functions/ID_Tools/parseOperatorQueries/
 

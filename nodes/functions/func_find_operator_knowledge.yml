@@ -2,8 +2,8 @@
 id: func_find_operator_knowledge
 name: Find knowledge for operator
 position:
-  x: 5014
-  y: -928
+  x: 5012
+  y: -1162
 next-step: agent_operator_assist
 next-error-step: agent_operator_assist
 parameters:

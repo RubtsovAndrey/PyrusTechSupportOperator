@@ -2,7 +2,7 @@
 id: agent_summary_handover
 name: Handover Summary Agent (operator)
 position:
-  x: 5290
+  x: 5311
   y: -1990
 next-step: func_parsejson_summary_handover
 next-error-step: func_escalate_m9k4j

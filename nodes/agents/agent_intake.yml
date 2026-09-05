@@ -98,11 +98,11 @@ parameters:
       Верни JSON: {"action": "escalate"|"clarify"|"route", "partnerLanguage": "двухбуквенный ISO-код", "clarifyKind": "need_unit_and_problem|need_unit|need_problem|need_business|need_point_number|need_city_and_business|need_city|null", "unit": "строка|null", "unitFullName": "строка|null", "scope": "network|null", "business": "dodopizza|drinkit|null", "email": "строка|null", "problemSummary": "строка|null", "clarifyingQuestion": "строка|null", "replyText": "строка|null", "reason": "кратко"}
     query-override: "Ответь на сообщение из блока «Текущее сообщение партнёра». Ес\
       ли партнёр назвал, что не работает, что нужно сделать, либо задал конкретный\
-      \ вопрос «как/куда/кто/почему» — запиши этот запрос в problemSummary одной ко\
-      роткой фразой, иначе описание будет потеряно и ты спросишь о нём снова. Не за\
-      прашивай ничего сверх юнита и сути проблемы: ни подтверждения точки, ни врем\
-      ени появления, ни обстоятельств. Если в строке «Не хватает для продолжения»\
-      \ стоит «ничего» — верни action: route."
+      \ вопрос «как/куда/кто/почему» — запиши этот запрос в problemSummary одной к\
+      ороткой фразой, иначе описание будет потеряно и ты спросишь о нём снова. Не\
+      \ запрашивай ничего сверх юнита и сути проблемы: ни подтверждения точки, ни\
+      \ времени появления, ни обстоятельств. Если в строке «Не хватает для продолж\
+      ения» стоит «ничего» — верни action: route."
   tools:
   - func_matchunit_x7k2m
   handoff-agents:

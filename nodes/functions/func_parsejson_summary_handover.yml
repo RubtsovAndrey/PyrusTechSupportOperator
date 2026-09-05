@@ -2,8 +2,8 @@
 id: func_parsejson_summary_handover
 name: parseSummaryForOperator
 position:
-  x: 5480
-  y: -1900
+  x: 5916
+  y: -1969
 next-step: func_escalate_m9k4j
 next-error-step: func_escalate_m9k4j
 parameters:

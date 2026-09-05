@@ -2,8 +2,8 @@
 id: func_parse_operator_assist
 name: Validate operator draft
 position:
-  x: 5460
-  y: -928
+  x: 5623
+  y: -1039
 next-step: func_escalate_m9k4j
 next-error-step: func_escalate_m9k4j
 parameters:
