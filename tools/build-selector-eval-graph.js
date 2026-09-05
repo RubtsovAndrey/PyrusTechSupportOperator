@@ -23,7 +23,8 @@ function build(root = ROOT) {
     out["nodes/functions/" + id + ".yml"] = lines.join("\n") + "\n";
   }
   out["nodes/triggers/message/trigger_selector_eval.yml"] = "---\nid: trigger_selector_eval\nname: Dev - Selector evaluation\nposition:\n  x: 10\n  y: 1000\nnext-step: func_eval_prepare\nnext-error-step: null\nparameters: {}\n";
-  out["nodes/conditions/cond_eval_ready.yml"] = "---\nid: cond_eval_ready\nname: Evaluation case ready?\nposition:\n  x: 810\n  y: 1000\nnext-step: func_eval_select_1\nnext-error-step: null\nparameters:\n  condition: \"(Context.getLastFunctionResult() || {}).ready === true\"\n  false-step: null\n";
+  out["nodes/conditions/cond_eval_ready.yml"] = "---\nid: cond_eval_ready\nname: Evaluation case ready?\nposition:\n  x: 810\n  y: 1000\nnext-step: func_eval_select_1\nnext-error-step: null\nparameters:\n  condition: \"(Context.getLastFunctionResult() || {}).ready === true\"\n  false-step: func_eval_idle\n";
+  node("func_eval_idle", "Evaluation idle", "ID_Dev", "finishSelectorEval", {}, null, null, 1210, 1000);
   node("func_eval_prepare", "Prepare Selector evaluation", "ID_Dev", "prepareSelectorEval",
     { ...base, modelKey: ["LLM_MODEL", args.llmModel.value], maxCompletionTokens: ["INTEGER", args.maxCompletionTokens.value] },
     "cond_eval_ready", null, 410, 1000);
@@ -42,6 +43,7 @@ function build(root = ROOT) {
       { ...base, lastIteration: ["BOOLEAN", i === 5] }, i === 5 ? null : "func_eval_select_" + (i + 1), null, 1210, y);
   }
   const schemas = {
+    finishSelectorEval: {},
     prepareSelectorEval: { ...base, modelKey: ["LLM_MODEL"], maxCompletionTokens: ["INTEGER"] },
     captureSelectorEval: { ...base, transportError: ["BOOLEAN"] },
     collectSelectorEval: { ...base, lastIteration: ["BOOLEAN"] }
@@ -49,7 +51,8 @@ function build(root = ROOT) {
   for (const [name, parameters] of Object.entries(schemas)) {
     const lines = ["---", "id: " + name, "name: " + name,
       "description: Dev-only evaluation harness; no Pyrus actions.",
-      "response-description: Evaluation control or result; never a partner reply.", "parameters:"];
+      "response-description: Evaluation control or result; never a partner reply.",
+      Object.keys(parameters).length ? "parameters:" : "parameters: []"];
     for (const [key, [type]] of Object.entries(parameters)) lines.push("- name: " + key, "  type: " + type,
       "  required: true", "  description: " + key + " for the isolated dev evaluation.");
     lines.push("language: JAVASCRIPT");

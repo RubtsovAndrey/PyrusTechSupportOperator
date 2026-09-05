@@ -8,4 +8,4 @@ next-step: func_eval_select_1
 next-error-step: null
 parameters:
   condition: "(Context.getLastFunctionResult() || {}).ready === true"
-  false-step: null
+  false-step: func_eval_idle

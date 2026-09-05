@@ -1,0 +1,7 @@
+---
+id: finishSelectorEval
+name: finishSelectorEval
+description: Dev-only evaluation harness; no Pyrus actions.
+response-description: Evaluation control or result; never a partner reply.
+parameters: []
+language: JAVASCRIPT

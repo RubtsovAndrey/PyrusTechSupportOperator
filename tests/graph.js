@@ -177,6 +177,12 @@ function validateFunctionArguments(args) {
   return errors;
 }
 
+function validateConditionParameters(parameters) {
+  const target = parameters && parameters["false-step"];
+  return typeof target === "string" && target.trim() && target !== "null"
+    ? [] : ["false-step: required non-null node ID"];
+}
+
 function loadGraph() {
   const nodes = {};
   walk(path.join(ROOT, "nodes"), []).filter(f => f.endsWith(".yml")).forEach(file => {
@@ -199,6 +205,10 @@ function loadGraph() {
       fn: p["function"] || null,
       args: p.parameters && typeof p.parameters === "object" ? p.parameters : {}
     };
+    if (node.kind === "condition") {
+      const errors = validateConditionParameters(p);
+      if (errors.length) throw new Error(rel + ": " + errors.join("; "));
+    }
     if (node.kind === "function" && node.collection && node.fn) {
       const errors = validateFunctionArguments(node.args);
       if (errors.length) throw new Error(rel + ": " + errors.join("; "));
@@ -270,4 +280,4 @@ async function runTurn(graph, env, start, hooks) {
   return trace;
 }
 
-module.exports = { parseYaml, loadGraph, runTurn, evalCondition, validateFunctionArguments };
+module.exports = { parseYaml, loadGraph, runTurn, evalCondition, validateFunctionArguments, validateConditionParameters };

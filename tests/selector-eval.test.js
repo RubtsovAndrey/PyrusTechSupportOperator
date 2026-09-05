@@ -1,12 +1,16 @@
 // Explicit model fixtures test orchestration and validation, never model relevance.
 const { suite, makeEnv } = require("./harness");
-const { loadGraph, runTurn } = require("./graph");
+const { loadGraph, runTurn, validateConditionParameters } = require("./graph");
 const { projectBindings } = require("../tools/project-bindings");
 const { makeBundle } = require("../tools/build-selector-eval-cases");
 
 async function main() {
   const t = suite("isolated five-sample Selector evaluation");
   const graph = loadGraph();
+  t.check("condition validation rejects missing, null and empty false-step before deployment",
+    [{}, { "false-step": null }, { "false-step": "" }, { "false-step": "null" }]
+      .every(p => validateConditionParameters(p).length === 1) &&
+    validateConditionParameters({ "false-step": "func_eval_idle" }).length === 0);
   const binding = projectBindings();
   const quote = "В карточке сотрудника загрузите фотографию размером 300×300 пикселей.";
   const noise = "Измените изображение продукта в карточке меню ресторана.";
@@ -25,7 +29,7 @@ async function main() {
     [n.nextStep, n.nextErrorStep, n.falseStep].forEach(visit); }
   visit("trigger_selector_eval");
   t.check("no evaluation path reaches an agent or Pyrus action", [...reachable].every(id => graph[id] && graph[id].kind !== "agent" &&
-    (!graph[id].fn || ["prepareSelectorEval", "captureSelectorEval", "collectSelectorEval", "selectOperatorEvidence", "parseOperatorEvidence"].includes(graph[id].fn))));
+    (!graph[id].fn || ["prepareSelectorEval", "captureSelectorEval", "collectSelectorEval", "finishSelectorEval", "selectOperatorEvidence", "parseOperatorEvidence"].includes(graph[id].fn))));
   t.check("all five calls use the current chat Selector implementation and settings",
     [1, 2, 3, 4, 5].every(i => graph["func_eval_select_" + i].fn === graph.func_select_operator_evidence.fn &&
       graph["func_eval_select_" + i].values.join() === graph.func_select_operator_evidence.values.join() &&
@@ -83,6 +87,8 @@ async function main() {
   for (const options of [{ caseId: "/start" }, { caseId: "unknown-case" }, { foreign: true }, { live: true }]) {
     r = await run(options);
     t.check("no paid calls or writes for warm-up, invalid case or forbidden context: " + JSON.stringify(options), !r.calls.length && !r.env.puts.length);
+    if (options.caseId === "/start") t.check("warm-up ends through the explicit idle node without an error",
+      r.trace[r.trace.length - 1].id === "func_eval_idle" && !r.trace.some(s => s.error || s.dead) && r.report.ready === false);
   }
   return t.report();
 }
