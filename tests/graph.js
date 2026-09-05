@@ -164,10 +164,14 @@ function kindOf(rel) {
 function validateFunctionArguments(args) {
   const errors = [];
   Object.entries(args || {}).forEach(([name, arg]) => {
+    const nativePrimitive = arg && (
+      ((arg.type === "NUMBER" || arg.type === "INTEGER") && typeof arg.value === "number" &&
+        Number.isFinite(arg.value) && (arg.type !== "INTEGER" || Number.isInteger(arg.value))) ||
+      (arg.type === "BOOLEAN" && typeof arg.value === "boolean"));
     if (!arg || typeof arg !== "object" || Array.isArray(arg) ||
         typeof arg.type !== "string" || typeof arg["filled-ai"] !== "boolean" ||
-        !(arg.value === null || typeof arg.value === "string")) {
-      errors.push(name + ": expected type, string/null value and boolean filled-ai");
+        !(arg.value === null || typeof arg.value === "string" || nativePrimitive)) {
+      errors.push(name + ": expected typed value descriptor and boolean filled-ai");
     }
   });
   return errors;
@@ -206,7 +210,7 @@ function loadGraph() {
         const a = node.args[n];
         if (!a || a.value == null) return null;
         if (a.type === "INTEGER" || a.type === "NUMBER") return Number(a.value);
-        if (a.type === "BOOLEAN") return a.value === "true";
+        if (a.type === "BOOLEAN") return a.value === true || a.value === "true";
         return a.value;
       });
     }

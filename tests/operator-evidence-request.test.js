@@ -30,9 +30,11 @@ async function main() {
     validateFunctionArguments(node.parameters.parameters).length === 0);
   t.check("the old scalar parameter format is rejected before deployment",
     validateFunctionArguments({ llmModel: args.llmModel, maxCompletionTokens: 8192 }).length === 2);
-  t.check("primitive descriptor values must be serialized as strings and filled-ai as boolean",
-    validateFunctionArguments({ budget: { type: "INTEGER", value: 8192, "filled-ai": false },
+  t.check("descriptor values must match their type and filled-ai must be boolean",
+    validateFunctionArguments({ budget: { type: "INTEGER", value: {}, "filled-ai": false },
       model: { type: "LLM_MODEL", value: args.llmModel } }).length === 2);
+  t.check("the platform export may serialize numeric descriptor values as numbers",
+    validateFunctionArguments({ budget: { type: "INTEGER", value: 8192, "filled-ai": false } }).length === 0);
   const frame = JSON.stringify({ kind: "operator_evidence", requestId: request.id, selected: [] });
   let r = await run({ text: frame, toolCalls: [] });
   const call = r.calls[0];
