@@ -2,8 +2,8 @@
 id: func_find_operator_knowledge
 name: Find knowledge for operator
 position:
-  x: 5012
-  y: -1162
+  x: 5222
+  y: -816
 next-step: cond_operator_candidates
 next-error-step: func_parse_operator_evidence
 parameters:

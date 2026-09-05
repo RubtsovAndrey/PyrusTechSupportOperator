@@ -2,8 +2,8 @@
 id: agent_response_composer
 name: Response Composer
 position:
-  x: 5035
-  y: -1510
+  x: 4983
+  y: -1340
 next-step: func_parse_response_composition
 next-error-step: func_parse_response_composition
 parameters:

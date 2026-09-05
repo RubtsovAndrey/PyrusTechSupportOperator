@@ -7,5 +7,6 @@ position:
 next-step: agent_operator_assist
 next-error-step: func_parse_operator_assist
 parameters:
-  condition: "(((Context.getLastFunctionResult() || {}).operatorKnowledge || {}).articles || []).length > 0"
+  condition: "(((Context.getLastFunctionResult() || {}).operatorKnowledge || {}).articles\
+    \ || []).length > 0"
   false-step: func_parse_operator_assist

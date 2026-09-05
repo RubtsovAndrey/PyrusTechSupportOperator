@@ -239,4 +239,6 @@ For detailed info about parameters and response, read the corresponding file.
   Directory: functions/ID_Tools/parseOperatorAssist/
 - `ID_Tools.parseOperatorQueries` — Validates bounded semantic search-query variants for unknown-topic operator assistance.
   Directory: functions/ID_Tools/parseOperatorQueries/
+- `ID_Tools.parseOperatorEvidence` — Validates current source ids and verbatim quotes selected for operator-only evidence.
+  Directory: functions/ID_Tools/parseOperatorEvidence/
 
