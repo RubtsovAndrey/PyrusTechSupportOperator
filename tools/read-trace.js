@@ -135,9 +135,12 @@ function turnsOf(file) {
       // related event still says `isError: false`. Looking at the event alone hid exactly
       // the red parseSummaryForSubtask block visible in the UI. De-duplicate the parent
       // block and its failed function child, which normally carry the same message.
+      const output = span.outputData || {};
+      const upstream = output.args && output.args.upstreamResponse;
+      const providerError = upstream && upstream.message;
       const error = e.isError
-        ? (e.message || label)
-        : (span.hasError ? (span.errorMessage || (span.outputData && span.outputData.errorMessage)) : null);
+        ? (providerError || e.message || label)
+        : (span.hasError ? (providerError || span.errorMessage || output.errorMessage || output.message) : null);
       if (error) {
         const shortError = cut(error, 200);
         if (turn.errors.indexOf(shortError) < 0) turn.errors.push(shortError);

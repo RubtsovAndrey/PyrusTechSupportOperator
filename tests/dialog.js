@@ -186,13 +186,6 @@ const AGENTS = {
     });
   },
 
-  // Explicit fixture choices test wiring/provenance, not a simulated semantic model.
-  async agent_operator_evidence_selector(env, turn) {
-    const request = env.values.operatorEvidenceRequest || {};
-    return json(Object.assign({ kind: "operator_evidence", requestId: request.id,
-      selected: turn.operatorEvidenceSelections || [] }, turn.operatorEvidenceFrame || {}));
-  },
-
   async agent_operator_assist(env, turn) {
     const support = env.values.operatorSupport || {};
     const evidence = (support.operatorKnowledge.articles || []).flatMap(a => a.evidence || []);
@@ -625,6 +618,14 @@ function conversation(options) {
     };
     env.prev = {};
     env.posts.length = 0;
+    // Explicit fixture choices test the real tool-free request path, not model quality.
+    env.Llm = { sendRequest: async request => {
+      if (request.tools && request.tools.length) throw new Error("Selector must not request tools");
+      if (h.operatorEvidenceError) throw new Error("synthetic selector transport failure");
+      const input = JSON.parse(request.messages[1].text).operatorEvidenceRequest;
+      return { text: json(Object.assign({ kind: "operator_evidence", requestId: input.id,
+        selected: h.operatorEvidenceSelections || [] }, h.operatorEvidenceFrame || {})) };
+    } };
     const trace = await runTurn(GRAPH, env, START, {
       agent: (node, e) => {
         const fn = AGENTS[node.id];

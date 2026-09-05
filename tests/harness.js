@@ -15,11 +15,11 @@ function loadFunction(relPath, paramNames) {
   const src = fs.readFileSync(path.join(ROOT, relPath), "utf8");
   const names = paramNames || [];
   const factory = new Function(
-    "Context", "AgentContext", "Db", "Log", "Http", "Rag", "Credentials", ...names,
+    "Context", "AgentContext", "Db", "Log", "Http", "Rag", "Credentials", "Llm", ...names,
     "return (async function(){\n" + src + "\n})();"
   );
   return (env, args) => factory(
-    env.Context, env.AgentContext, env.Db, env.Log, env.Http, env.Rag, env.Credentials,
+    env.Context, env.AgentContext, env.Db, env.Log, env.Http, env.Rag, env.Credentials, env.Llm,
     ...(args || [])
   );
 }

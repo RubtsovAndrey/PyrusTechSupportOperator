@@ -494,6 +494,18 @@ async function main() {
     parsedFormatted.errors.length === 1 && /not JSON/.test(parsedFormatted.errors[0]),
     parsedFormatted.errors);
 
+  const providerErrorJson = path.join(tmp, "provider-error.json");
+  fs.writeFileSync(providerErrorJson, JSON.stringify([{ type: "trace", children: [{
+    type: "span", label: "Запрос к LLM", hasError: true, errorMessage: "unknown error",
+    relatedEvent: { isError: false }, outputData: { statusCode: 502,
+      message: "External llm provider returned error status 400",
+      args: { upstreamResponse: { message: "Function tools with reasoning_effort are not supported for gpt-5.6-terra in /v1/chat/completions. Use /v1/responses or reasoning_effort none." } } }
+  }] }]), "utf8");
+  const providerErrors = turnsOf(providerErrorJson).turns[0].errors;
+  t.check("provider compatibility details survive an adapter's unknown-error wrapper",
+    providerErrors.length === 1 && /gpt-5.6-terra/.test(providerErrors[0]) &&
+    /reasoning_effort/.test(providerErrors[0]), providerErrors);
+
   const guardedOutcomeJson = path.join(tmp, "guarded-outcome.json");
   fs.writeFileSync(guardedOutcomeJson, JSON.stringify([{
     type: "trace",

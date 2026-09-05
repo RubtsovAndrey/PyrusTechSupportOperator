@@ -86,9 +86,10 @@ async function main() {
       }
     });
   }
-  for (const mode of ["selected", "empty", "invalid"]) {
+  for (const mode of ["selected", "empty", "invalid", "transport_error"]) {
     const c = bot();
     const turn = await c.turn("Тамбов-1, как поменять аватарку у курьера?", { unit: "Тамбов-1",
+      operatorEvidenceError: mode === "transport_error",
       operatorEvidenceSelections: mode === "empty" ? [] : [Object.assign({}, choice,
         mode === "invalid" ? { quote: quote + " В приложении." } : {})]
     });
@@ -98,6 +99,9 @@ async function main() {
       !/300×300|kb.example|SECRET_DISCARDED/.test(turn.replies.join(" ")), turn.replies);
     t.check("composer runs only after a nonempty valid selection: " + mode,
       turn.agents.includes("agent_operator_assist") === (mode === "selected"), turn.agents);
+    t.check("the selector runs as an explicit function and never as an agent: " + mode,
+      turn.trace.some(s => s.id === "func_select_operator_evidence" && s.kind === "function") &&
+      !turn.agents.includes("agent_operator_evidence_selector"), turn.trace.map(s => s.id));
     const notes = c.env.posts.filter(p => /comments$/.test(p.url) && !p.body.channel)
       .map(p => p.body.text || p.body.formatted_text || "").join(" ");
     t.check("operator sees the selected quote and no rejected teaser: " + mode,

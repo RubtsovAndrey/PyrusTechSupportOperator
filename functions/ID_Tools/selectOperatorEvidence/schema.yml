@@ -1,0 +1,15 @@
+---
+id: selectOperatorEvidence
+name: selectOperatorEvidence
+description: Requests operator evidence selection without function tools or agent transitions.
+response-description: Raw model text for parseOperatorEvidence, or null when no text is available.
+parameters:
+- name: llmModel
+  type: LLM_MODEL
+  required: true
+  description: Model integration used for this selection experiment.
+- name: maxCompletionTokens
+  type: INTEGER
+  required: true
+  description: Generation budget including reasoning, as supported by the adapter.
+language: JAVASCRIPT

@@ -4,7 +4,7 @@ name: operator evidence candidates available?
 position:
   x: 5412
   y: -1162
-next-step: agent_operator_evidence_selector
+next-step: func_select_operator_evidence
 next-error-step: func_parse_operator_evidence
 parameters:
   condition: "((((Context.getLastFunctionResult() || {}).evidenceRequest || {}).candidates || []).length > 0)"

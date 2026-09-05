@@ -13,7 +13,7 @@ const SUITES = [
   "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
   "./pos-terminal-catalog.test.js", "./cash-dialog.test.js", "./ratings-dialog.test.js", "./routing-catalog.test.js", "./routing.test.js",
   "./getknowledgemcp.test.js", "./operator-knowledge.test.js", "./kbarticle.test.js", "./synckb.test.js",
-  "./operator-query-planner.test.js", "./operator-evidence.test.js", "./operator-assist.test.js",
+  "./operator-query-planner.test.js", "./operator-evidence.test.js", "./operator-evidence-request.test.js", "./operator-assist.test.js",
   "./knowledge-validation.test.js",
   "./mvp-eval-cases.test.js",
   "./live-trace.test.js",
@@ -26,6 +26,7 @@ const SUITES = [
 // platform does. Top-level `await` and `return` are legal there, so `node --check` alone
 // reports false failures.
 const FUNCTION_PARAMS = {
+  "functions/ID_Tools/selectOperatorEvidence/code.js": ["llmModel", "maxCompletionTokens"],
   "functions/ID_Actions/applyOutcome/code.js": ["outcome", "replyText"],
   "functions/ID_Tools/parseAgentJson/code.js": ["stage"],
   "functions/ID_Tools/searchKnowledge/code.js": ["query", "topicKey", "branch", "answers",
@@ -399,9 +400,9 @@ function checkToolReasoningCompatibility() {
       return;
     }
     const hasFunctionTools = tools.length || y["next-step"] || y["next-error-step"];
-    if (hasFunctionTools && model.indexOf("gpt-5.6-luna") >= 0) {
+    if (hasFunctionTools && /gpt-5\.6-(luna|terra)/.test(model)) {
       problems.push(path.relative(ROOT, file).split(path.sep).join("/") +
-        ": Agent Platform Chat Completions cannot use gpt-5.6-luna with function tools");
+        ": Agent Platform Chat Completions cannot use " + model + " with function tools");
     }
   });
   return problems;
@@ -531,7 +532,7 @@ function checkAgentPromptContracts() {
     failed++;
     toolReasoning.forEach(p => console.log("  FAIL  " + p));
   } else {
-    console.log("  PASS  every model key resolves and no tool request uses gpt-5.6-luna");
+    console.log("  PASS  every model key resolves and no agent tool request uses gpt-5.6-luna/terra");
   }
 
   console.log("\nagent prompt contracts");
