@@ -242,8 +242,10 @@
   и отсутствие upsert — раньше она принимала в фильтре `documentKey`, и именно
   поэтому тесты были зелёными, пока бот молча терял всё. Проверяются синтаксис
   всех функций, кавычки в YAML, связность графа, поведение `receiveWebhook`, `finalize`,
-  `parseAgentJson`, `parseTurnInterpretation`, `createSubtask`, `matchUnit`, весь обход
-  дерева БЗ вместе с формой сводки и связка `applyOutcome` → `finalize` — 1206 проверок.
+  `parseAgentJson`, `parseTurnInterpretation`, `parseOpenAnswers`, `parseOperatorAssist`,
+  `createSubtask`, `matchUnit`, весь обход дерева БЗ вместе с формой сводки и связка
+  `applyOutcome` → `finalize`. Фактическое число проверок печатается в конце прогона и
+  фиксируется в `current-project-status.md`, а не дублируется в этой карте.
   Кроме кода проверяется то,
   что ломается уже после деплоя и тихо: статьи каталога (`start`, `go`, `else`, `onFail`,
   ключи `ask`, недостижимые и тупиковые узлы) и расхождение восьми копий `writeState` —
