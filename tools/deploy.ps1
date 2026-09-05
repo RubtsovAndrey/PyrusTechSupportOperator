@@ -141,4 +141,4 @@ if ((RunGit push origin main) -ne 0) { Fail "could not push to origin" }
 
 Write-Host ""
 Write-Host "Pushed HEAD = $(git rev-parse --short HEAD). Platform import and publication are NOT verified." -ForegroundColor Yellow
-Write-Host "Check Git synchronization and publication in Agent Platform, then confirm the changed node IDs in a fresh trace before accepting the rollout."
+Write-Host "In Agent Platform, use Git > Pull, inspect the changed blocks, then publish. Confirm the changed node IDs in a fresh trace before accepting the rollout."

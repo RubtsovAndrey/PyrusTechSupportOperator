@@ -2,8 +2,8 @@
 id: cond_refinement_unique
 name: MCP refinement found exactly one prepared topic?
 position:
-  x: 4950
-  y: -2319
+  x: 5068
+  y: -2423
 next-step: func_searchknowledge_refined
 next-error-step: null
 parameters:

@@ -2,8 +2,8 @@
 id: func_refine_knowledge_mcp
 name: Deterministic MCP routing refinement
 position:
-  x: 4730
-  y: -2319
+  x: 4634
+  y: -2467
 next-step: cond_refinement_unique
 next-error-step: agent_summary_handover
 parameters:

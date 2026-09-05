@@ -3,6 +3,9 @@ id: findOperatorKnowledge
 name: findOperatorKnowledge
 description: "Ищет по всей доступной Базе Знаний возможные материалы для оператора\
   , когда утверждённый сценарий бота не найден. Ничего не отправляет партнёру."
-response-description: "{ taskId, reason, evidenceRequest: { id, taskId, incomingCommentId, query, candidates: [{ id, articleId, title, spaceId, spaceTitle, url, passages: [{ id, text }] }] }, operatorKnowledge: { query, queries, articles } }. operatorKnowledge is the legacy diagnostic baseline only; evidenceRequest feeds semantic selection."
+response-description: "{ taskId, reason, evidenceRequest: { id, taskId, incomingCommentId,\
+  \ query, candidates: [{ id, articleId, title, spaceId, spaceTitle, url, passages:\
+  \ [{ id, text }] }] }, operatorKnowledge: { query, queries, articles } }. operatorKnowledge\
+  \ is the legacy diagnostic baseline only; evidenceRequest feeds semantic selection."
 parameters: []
 language: JAVASCRIPT
