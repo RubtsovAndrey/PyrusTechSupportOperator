@@ -19,12 +19,13 @@
 | Активный каталог | 5 подготовленных тем |
 | Общий статус | управляемый пилот; для продуктивной формы ещё не готов |
 | Последний живой тест | `377356362`: 62/69, уточнения и передача корректны; материалы и черновик отсутствуют из-за `selected: []`. Папка `050926_astra_avatar_city_terra_long_avatar_fail` |
-| Главный незакрытый этап | В `dev_terra_test_two` снова выполнилась диагностика вместо Selector. Добавлена маршрутизация четырёх команд через вход проверки настроек. Повторить Pull и сначала выполнить только `success-full`; живой результат стенда пока не получен. Перенос релизов dev → main ещё не автоматизирован |
+| Главный незакрытый этап | Стенд принят первой живой серией: `success-full` дал 5/5 полезных отборов; маршрут через проверку настроек работает. Выполнить оставшиеся `empty-full`, `empty-single`, `noise-only` без смены промпта или модели. Перенос релизов dev → main ещё не автоматизирован |
 
 Новые исправления и границы их проверки: [`verification-2026-09-05.md`](verification-2026-09-05.md).
 Создание двух сред и действия пользователя: [`dev-prod-setup.md`](dev-prod-setup.md).
 Первый экспорт dev и инструкция следующей проверки: [`dev-first-export-review.md`](dev-first-export-review.md).
 Запуск подготовленного стенда Selector: [`selector-eval-stand.md`](selector-eval-stand.md).
+Первая живая серия 5/5: [`selector-eval-success-full-2026-09-05.md`](selector-eval-success-full-2026-09-05.md).
 Успешный Terra smoke: [`terra-selector-live-review-2026-09-05.md`](terra-selector-live-review-2026-09-05.md).
 Последующий пустой отбор: [`terra-selector-empty-live-review-2026-09-05.md`](terra-selector-empty-live-review-2026-09-05.md).
 Рейтинговый и два avatar-чата разобраны. Avatar-анализ: [`avatar-live-review-2026-09-05.md`](avatar-live-review-2026-09-05.md).
