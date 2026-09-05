@@ -2,7 +2,7 @@
 const { suite, makeEnv } = require("./harness");
 const { loadGraph, runTurn, validateConditionParameters } = require("./graph");
 const { projectBindings } = require("../tools/project-bindings");
-const { makeBundle } = require("../tools/build-selector-eval-cases");
+const { makeBundle, extractRequest } = require("../tools/build-selector-eval-cases");
 
 async function main() {
   const t = suite("isolated five-sample Selector evaluation");
@@ -19,7 +19,26 @@ async function main() {
       { id: "c0", articleId: "noise", spaceId: "test", title: "Продукты", passages: [{ id: "p0", text: noise }] },
       { id: "c1", articleId: "employee", spaceId: "test", title: "Карточка сотрудника", passages: [{ id: "p1", text: quote }] }
     ] } };
-  const bundle = makeBundle(seed, seed);
+  const clientQuote = "Для поиска события изменения аватара клиента используйте ClientUUId.";
+  const clientSeed = JSON.parse(JSON.stringify(seed));
+  clientSeed.request.candidates[0].passages.push({ id: "p20", text: clientQuote });
+  const bundle = makeBundle(seed, seed, clientSeed);
+  const traceInput = [{ children: [{ label: "Системная функция: AgentContext.putValue",
+    relatedEvent: { data: { key: "operatorEvidenceRequest", value: clientSeed.request } } }] }];
+  t.check("private traces can rebuild the exact fixed input without temporary comparisons",
+    JSON.stringify(extractRequest(traceInput)) === JSON.stringify(clientSeed.request));
+  let rejected = false;
+  try { extractRequest([]); } catch (e) { rejected = true; }
+  t.check("missing trace inputs are rejected", rejected);
+  rejected = false;
+  try { makeBundle(seed, seed, seed); } catch (e) { rejected = true; }
+  t.check("client-avatar case requires the known distractor", rejected);
+  const original = makeBundle(seed, seed);
+  t.check("adding client-avatar controls preserves the four baseline cases",
+    Object.keys(original.cases).every(k => JSON.stringify(original.cases[k]) === JSON.stringify(bundle.cases[k])));
+  t.check("client-avatar negative control preserves the distractor but removes the employee article",
+    bundle.cases["client-avatar-noise"].candidates[0].passages.some(p => p.id === "p20" && p.text === clientQuote) &&
+    bundle.cases["client-avatar-noise"].candidates.every(c => c.id !== "c1"));
   t.check("bundle omits real task and comment identifiers", !/OLD_ID|REAL_TASK|REAL_COMMENT/.test(JSON.stringify(bundle)));
   t.check("single-article and negative controls preserve source text and candidate IDs",
     bundle.cases["empty-single"].candidates[0].id === "c1" && bundle.cases["empty-single"].candidates[0].passages[0].text === quote &&
@@ -51,8 +70,9 @@ async function main() {
       const request = JSON.parse(args.messages[1].text).operatorEvidenceRequest;
       const mode = (options.outputs || [])[calls.length - 1] || "selected";
       if (mode === "error") throw new Error("synthetic provider error");
-      const selected = mode === "empty" ? [] : [{ candidateId: mode === "noise" ? "c0" : "c1",
-        passageId: mode === "noise" ? "p0" : "p1", quote: mode === "bad" ? quote + " UNSUPPORTED" : mode === "noise" ? noise : quote }];
+      const selected = mode === "empty" ? [] : [{ candidateId: mode === "noise" || mode === "client" ? "c0" : "c1",
+        passageId: mode === "client" ? "p20" : mode === "noise" ? "p0" : "p1",
+        quote: mode === "client" ? clientQuote : mode === "bad" ? quote + " UNSUPPORTED" : mode === "noise" ? noise : quote }];
       return { text: JSON.stringify({ kind: "operator_evidence", requestId: request.id, selected }), toolCalls: [] };
     } };
     const trace = await runTurn(graph, env, options.trigger || "trigger_selector_eval", { agent: () => { throw new Error("No agents."); } });
@@ -61,11 +81,16 @@ async function main() {
   let r = await run();
   for (const caseId of Object.keys(bundle.cases)) {
     const routed = await run({ trigger: "trigger_dev_setup", caseId,
-      outputs: caseId === "noise-only" ? Array(5).fill("empty") : [] });
+      outputs: !bundle.cases[caseId].requiredEvidence.length ? Array(5).fill("empty") : [] });
     t.check("setup entry dispatches " + caseId + " to five Selector calls without diagnostic probes",
       routed.calls.length === 5 && routed.report.kind === "selector_eval_report" && routed.report.caseId === caseId &&
       routed.report.expectedMet === 5 && !routed.env.creds.length &&
       !routed.trace.some(s => s.id === "func_inspect_dev_setup" || s.error));
+  }
+  for (const caseId of ["client-avatar-full", "client-avatar-noise"]) {
+    const wrong = await run({ caseId, outputs: Array(5).fill("client") });
+    t.check("a literal but irrelevant client quote fails the criterion: " + caseId,
+      wrong.report.expectedMet === 0 && wrong.report.statuses.every(s => s === "selected"));
   }
   for (const forbidden of [{ foreign: true }, { live: true }]) {
     const routed = await run({ trigger: "trigger_dev_setup", ...forbidden });

@@ -3,7 +3,7 @@ if (Context.getProjectShortName() !== expectedProject || Context.isTestChannel()
 }
 const caseId = String((Context.getMessageContent() || {}).text || "").trim().toLowerCase();
 if (!caseId || caseId === "/start") {
-  Log.info({ message: "selectorEval: send success-full, empty-full, empty-single or noise-only; each runs five samples." });
+  Log.info({ message: "selectorEval: send success-full, empty-full, empty-single, noise-only, client-avatar-full or client-avatar-noise; each runs five samples." });
   return { ready: false };
 }
 if (!/^[a-z0-9-]{1,60}$/.test(caseId)) throw new Error("Invalid evaluation case name.");
