@@ -12,6 +12,12 @@
 # page, and a message that has to be read at the moment something breaks must not depend on
 # which one that is.
 
+param(
+  [ValidateSet("dev", "prod")]
+  [string]$Environment,
+  [switch]$BootstrapDev
+)
+
 $ErrorActionPreference = "Stop"
 
 # ── Why git is called through a wrapper ──
@@ -62,6 +68,23 @@ $root = git rev-parse --show-toplevel 2>$null
 if (-not $root) { Fail "not a git repository" }
 Set-Location $root
 
+if (-not $Environment) { Fail "specify -Environment dev or -Environment prod explicitly" }
+$targetBranch = if ($Environment -eq "dev") { "dev" } else { "main" }
+$currentBranch = git branch --show-current
+if ($currentBranch -ne $targetBranch) { Fail "environment $Environment requires branch $targetBranch; currently $currentBranch" }
+if ($BootstrapDev -and $Environment -ne "dev") { Fail "-BootstrapDev is only valid with -Environment dev" }
+$targetRef = "origin/$targetBranch"
+
+function CheckEnvironment {
+  $checkArgs = @("tools/check-environment.js", $Environment)
+  if ($BootstrapDev) { $checkArgs += "--bootstrap" }
+  node @checkArgs | Out-Host
+  if ($LASTEXITCODE -ne 0) { Fail "environment bindings failed validation; no push" }
+}
+
+Step "Checking branch and environment"
+CheckEnvironment
+
 # ── 1. Uncommitted work ──
 # The merge touches the same files, so anything unsaved would be overwritten.
 if (git status --porcelain) {
@@ -75,11 +98,15 @@ $before = git rev-parse HEAD
 Step "git fetch"
 if ((RunGit fetch origin) -ne 0) { Fail "could not reach origin" }
 
-$incoming = @(git log --oneline HEAD..origin/main)
-$outgoing = @(git log --oneline origin/main..HEAD)
+git show-ref --verify --quiet "refs/remotes/$targetRef"
+$remoteExists = $LASTEXITCODE -eq 0
+if ($BootstrapDev -and $remoteExists) { Fail "bootstrap may create dev only once; origin/dev already exists" }
+if (-not $remoteExists -and -not $BootstrapDev) { Fail "$targetRef does not exist; only explicit dev bootstrap may create a branch" }
+$incoming = if ($remoteExists) { @(git log --oneline "HEAD..$targetRef") } else { @() }
+$outgoing = if ($remoteExists) { @(git log --oneline "$targetRef..HEAD") } else { @(git log -1 --oneline HEAD) }
 
 if ($incoming.Count -eq 0 -and $outgoing.Count -eq 0) {
-  Write-Host "Nothing to push: the local branch matches origin/main. Platform publication is not verified." -ForegroundColor Yellow
+  Write-Host "Nothing to push: the local branch matches $targetRef. Platform publication is not verified." -ForegroundColor Yellow
   exit 0
 }
 
@@ -91,7 +118,9 @@ if ($incoming.Count -gt 0) {
   Step "Merging the platform's export"
   # modify/delete conflicts on the protected directories are expected here, not a failure,
   # so the exit code is deliberately not checked: they are resolved right below.
-  RunGit merge --no-commit --no-ff origin/main | Out-Null
+  $mergeCode = RunGit merge --no-commit --no-ff $targetRef
+  git rev-parse --verify -q MERGE_HEAD | Out-Null
+  if ($LASTEXITCODE -ne 0) { Fail "merge did not start (exit $mergeCode); no push" }
   $merging = $true
 
   Step "Restoring the protected directories from our side"
@@ -105,6 +134,11 @@ if ($incoming.Count -gt 0) {
     }
   }
 }
+
+if (git diff --name-only --diff-filter=U) { Fail "unresolved conflicts outside protected directories; resolve before continuing" }
+
+Step "Checking environment after merge"
+CheckEnvironment
 
 # ── 3. The check this script is for: nothing protected went missing ──
 Step "Checking that the protected directories lost no files"
@@ -136,9 +170,13 @@ if ($merging) {
 }
 
 # ── 6. Deploy ──
-Step "git push origin main - prepare platform synchronization"
-if ((RunGit push origin main) -ne 0) { Fail "could not push to origin" }
+Step "git push origin $targetBranch - prepare platform synchronization"
+if ((RunGit push -u origin "HEAD:refs/heads/$targetBranch") -ne 0) { Fail "could not push to origin" }
 
 Write-Host ""
 Write-Host "Pushed HEAD = $(git rev-parse --short HEAD). Platform import and publication are NOT verified." -ForegroundColor Yellow
-Write-Host "In Agent Platform, use Git > Pull, inspect the changed blocks, then publish. Confirm the changed node IDs in a fresh trace before accepting the rollout."
+if ($BootstrapDev) {
+  Write-Host "Dev import seed created. Create the separate Git-backed project, export its own bindings, and do NOT publish until isolation is verified. See docs/dev-prod-setup.md."
+} else {
+  Write-Host "In the $Environment project, use Git > Pull and inspect the changed blocks. Publication and runtime config require separate verification. See docs/dev-prod-setup.md."
+}

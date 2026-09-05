@@ -17,6 +17,7 @@ const SUITES = [
   "./knowledge-validation.test.js",
   "./mvp-eval-cases.test.js",
   "./live-trace.test.js",
+  "./deploy.test.js",
   // Идёт последним: остальные наборы проверяют функции поштучно, этот — разговор целиком,
   // и по упавшей проверке здесь при зелёных выше сразу видно, что дело в графе, а не в коде.
   "./dialog.test.js"
