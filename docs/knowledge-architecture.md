@@ -74,7 +74,7 @@
 
 Текущая цепочка стоит только на отрицательной ветке маршрутизации:
 `agent_operator_query_planner → parseOperatorQueries → findOperatorKnowledge →
-agent_operator_evidence_selector → parseOperatorEvidence → agent_operator_assist →
+selectOperatorEvidence → parseOperatorEvidence → agent_operator_assist →
 parseOperatorAssist`. Условия пропускают модельные узлы при отсутствии входного материала.
 Просьба человека, вложение, ошибка агента и handover по известной статье поиск не запускают.
 

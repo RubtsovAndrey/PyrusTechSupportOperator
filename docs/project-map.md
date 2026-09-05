@@ -736,7 +736,7 @@ trigger_webhook_pyrus → receiveWebhook → skip?
                              параллельный дубль → finalize без действий
                              иначе   → subtask needs email? → Outcome - clarify email | escalate
           иначе         → agent_operator_query_planner → parseOperatorQueries
-                         → findOperatorKnowledge → candidates? → agent_operator_evidence_selector
+                         → findOperatorKnowledge → candidates? → selectOperatorEvidence
                          → parseOperatorEvidence → evidence? → agent_operator_assist
                          → parseOperatorAssist → Outcome - escalate
 ```
