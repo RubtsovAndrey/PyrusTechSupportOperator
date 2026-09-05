@@ -209,36 +209,38 @@ For detailed info about parameters and response, read the corresponding file.
 
 ## User Functions
 
-- `ID_Pyrus.receiveWebhook` — Validates the Pyrus webhook payload (task_id, allowlisted api_url, token), drops the bot's own comments and comments already answered, stores the request-scoped Pyrus data in the task document, rebuilds the dialog history and resolves the stage to enter.
-  Directory: functions/ID_Pyrus/receiveWebhook/
-- `ID_Pyrus.finalize` — Terminal node for every path. Applies the pending outcome of the task document: aborts if a newer message has arrived, posts the comment to Pyrus and only then persists the new stage. Falls back to an operator handover if no outcome was set.
-  Directory: functions/ID_Pyrus/finalize/
-- `ID_Actions.createSubtask` — Creates a Pyrus subtask from the facts stored in the task document (unit, component, email) and posts a summary comment to it. Idempotent: the task document catches retries and the form register is asked before creating, so two concurrent runs cannot produce two subtasks for the same problem.
-  Directory: functions/ID_Actions/createSubtask/
 - `ID_Actions.applyOutcome` — Records the decision of the current turn (reply text, Pyrus action, field updates, next stage) into the task document. Single place where dialog transitions are defined; finalize only performs the I/O.
   Directory: functions/ID_Actions/applyOutcome/
-- `ID_Tools.matchUnit` — Находит юнит партнёра в каталоге. Вызывай всегда, когда партнёр назвал город, номер точки или бренд. Инструмент решает сам и возвращает точную строку каталога только тогда, когда ответ однозначен: одно и то же название бывает и у пиццерии, и у кофейни, и тогда он просит уточнить, а не угадывает.
-  Directory: functions/ID_Tools/matchUnit/
-- `ID_Tools.searchKnowledge` — Ищет в базе знаний тематику, подходящую под описание проблемы. Если ничего не подходит, возвращает found=false без кандидатов и никогда не угадывает. Когда тематика уже известна, передавай topicKey. Защищённый activeQuestionId обрабатывает отдельный Turn Interpreter; Solver не должен угадывать его значение.
-  Directory: functions/ID_Tools/searchKnowledge/
-- `ID_Tools.parseAgentJson` — Parses the JSON answer of an agent, validates the unit, the topic and the component against the catalogs, persists the collected facts into the task document and clears the previous problem when the partner moves on to a new question. Throws when the answer is not parseable, so the node error edge can hand the task to an operator.
-  Directory: functions/ID_Tools/parseAgentJson/
-- `ID_Tools.nextSolutionStep` — Decides what to do after the partner reports that a solution did not help: offer the next step of the knowledge article, or leave the topic through its onFail route. Not a tool — called by the graph after the confirmation stage.
-  Directory: functions/ID_Tools/nextSolutionStep/
-- `ID_Tools.getKnowledgeMcp` — Ищет статьи в Базе Знаний через MCP и возвращает их содержимое с метаданными. Используй для поиска решений проблем партнёров.
-  Directory: functions/ID_Tools/getKnowledgeMcp/
+- `ID_Actions.createSubtask` — Creates a Pyrus subtask from the facts stored in the task document (unit, component, email) and posts a summary comment to it. Idempotent: the task document catches retries and the form register is asked before creating, so two concurrent runs cannot produce two subtasks for the same problem.
+  Directory: functions/ID_Actions/createSubtask/
+- `ID_Pyrus.finalize` — Terminal node for every path. Applies the pending outcome of the task document: aborts if a newer message has arrived, posts the comment to Pyrus and only then persists the new stage. Falls back to an operator handover if no outcome was set.
+  Directory: functions/ID_Pyrus/finalize/
+- `ID_Pyrus.receiveWebhook` — Validates the Pyrus webhook payload (task_id, allowlisted api_url, token), drops the bot's own comments and comments already answered, stores the request-scoped Pyrus data in the task document, rebuilds the dialog history and resolves the stage to enter.
+  Directory: functions/ID_Pyrus/receiveWebhook/
 - `ID_Tools.findOperatorKnowledge` — Ищет по всей доступной Базе Знаний возможные материалы для оператора, когда утверждённый сценарий бота не найден. Ничего не отправляет партнёру.
   Directory: functions/ID_Tools/findOperatorKnowledge/
-- `ID_Tools.parseTurnInterpretation` — Проверяет общий конечный контракт Turn Interpreter для ответа статье, реакции на совет или сообщения после закрытия. Не является tool агента и не выполняет бизнес-действий.
-  Directory: functions/ID_Tools/parseTurnInterpretation/
-- `ID_Tools.parseResponseComposition` — Проверяет привязку ответа Response Composer к авторизованному responsePlan. Не позволяет менять kind или действие; при повреждённом ответе использует безопасный текст плана.
-  Directory: functions/ID_Tools/parseResponseComposition/
+- `ID_Tools.getKnowledgeMcp` — Ищет статьи в Базе Знаний через MCP и возвращает их содержимое с метаданными. Используй для поиска решений проблем партнёров.
+  Directory: functions/ID_Tools/getKnowledgeMcp/
+- `ID_Tools.matchUnit` — Находит юнит партнёра в каталоге. Вызывай всегда, когда партнёр назвал город, номер точки или бренд. Инструмент решает сам и возвращает точную строку каталога только тогда, когда ответ однозначен: одно и то же название бывает и у пиццерии, и у кофейни, и тогда он просит уточнить, а не угадывает.
+  Directory: functions/ID_Tools/matchUnit/
+- `ID_Tools.nextSolutionStep` — Decides what to do after the partner reports that a solution did not help: offer the next step of the knowledge article, or leave the topic through its onFail route. Not a tool — called by the graph after the confirmation stage.
+  Directory: functions/ID_Tools/nextSolutionStep/
+- `ID_Tools.parseAgentJson` — Parses the JSON answer of an agent, validates the unit, the topic and the component against the catalogs, persists the collected facts into the task document and clears the previous problem when the partner moves on to a new question. Throws when the answer is not parseable, so the node error edge can hand the task to an operator.
+  Directory: functions/ID_Tools/parseAgentJson/
 - `ID_Tools.parseOpenAnswers` — Validates open-answer extraction against the active article keys and current partner evidence.
   Directory: functions/ID_Tools/parseOpenAnswers/
 - `ID_Tools.parseOperatorAssist` — Validates an internal draft for the operator and restores the advisory knowledge-search result.
   Directory: functions/ID_Tools/parseOperatorAssist/
-- `ID_Tools.parseOperatorQueries` — Validates bounded semantic search-query variants for unknown-topic operator assistance.
-  Directory: functions/ID_Tools/parseOperatorQueries/
 - `ID_Tools.parseOperatorEvidence` — Validates current source ids and verbatim quotes selected for operator-only evidence.
   Directory: functions/ID_Tools/parseOperatorEvidence/
+- `ID_Tools.parseOperatorQueries` — Validates bounded semantic search-query variants for unknown-topic operator assistance.
+  Directory: functions/ID_Tools/parseOperatorQueries/
+- `ID_Tools.parseResponseComposition` — Проверяет привязку ответа Response Composer к авторизованному responsePlan. Не позволяет менять kind или действие; при повреждённом ответе использует безопасный текст плана.
+  Directory: functions/ID_Tools/parseResponseComposition/
+- `ID_Tools.parseTurnInterpretation` — Проверяет общий конечный контракт Turn Interpreter для ответа статье, реакции на совет или сообщения после закрытия. Не является tool агента и не выполняет бизнес-действий.
+  Directory: functions/ID_Tools/parseTurnInterpretation/
+- `ID_Tools.searchKnowledge` — Ищет в базе знаний тематику, подходящую под описание проблемы. Если ничего не подходит, возвращает found=false без кандидатов и никогда не угадывает. Когда тематика уже известна, передавай topicKey. Защищённый activeQuestionId обрабатывает отдельный Turn Interpreter; Solver не должен угадывать его значение.
+  Directory: functions/ID_Tools/searchKnowledge/
+- `ID_Tools.selectOperatorEvidence` — Requests operator evidence selection without function tools or agent transitions.
+  Directory: functions/ID_Tools/selectOperatorEvidence/
 
