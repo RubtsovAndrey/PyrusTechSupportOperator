@@ -19,7 +19,7 @@
 | Активный каталог | 5 подготовленных тем |
 | Общий статус | управляемый пилот; для продуктивной формы ещё не готов |
 | Последний живой тест | `377356362`: 62/69, уточнения и передача корректны; материалы и черновик отсутствуют из-за `selected: []`. Папка `050926_astra_avatar_city_terra_long_avatar_fail` |
-| Главный незакрытый этап | Стенд прошёл четыре серии: 20/20 ожидаемых результатов. Подготовлены `client-avatar-full` и `client-avatar-noise`; после Pull заменить `selector_eval_cases` готовым набором из шести случаев и выполнить две новые команды. Затем сквозная сводка. Перенос релизов dev → main ещё не автоматизирован |
+| Главный незакрытый этап | Стенд прошёл шесть серий: 30/30 ожидаемых результатов, включая путаницу клиента и сотрудника. Следующий этап — сквозная сводка в новом Pyrus-чате dev; сначала подтвердить подключение тестовой формы. Перенос релизов dev → main ещё не автоматизирован |
 
 Новые исправления и границы их проверки: [`verification-2026-09-05.md`](verification-2026-09-05.md).
 Создание двух сред и действия пользователя: [`dev-prod-setup.md`](dev-prod-setup.md).
@@ -27,7 +27,8 @@
 Запуск подготовленного стенда Selector: [`selector-eval-stand.md`](selector-eval-stand.md).
 Первая живая серия 5/5: [`selector-eval-success-full-2026-09-05.md`](selector-eval-success-full-2026-09-05.md).
 Полный набор 20/20 и границы вывода: [`selector-eval-baseline-2026-09-05.md`](selector-eval-baseline-2026-09-05.md).
-Следующий тест: [`selector-eval-client-avatar.md`](selector-eval-client-avatar.md).
+Контроль клиента и сотрудника 10/10: [`selector-eval-client-avatar.md`](selector-eval-client-avatar.md).
+Следующий тест: [`dev-avatar-smoke.md`](dev-avatar-smoke.md).
 Успешный Terra smoke: [`terra-selector-live-review-2026-09-05.md`](terra-selector-live-review-2026-09-05.md).
 Последующий пустой отбор: [`terra-selector-empty-live-review-2026-09-05.md`](terra-selector-empty-live-review-2026-09-05.md).
 Рейтинговый и два avatar-чата разобраны. Avatar-анализ: [`avatar-live-review-2026-09-05.md`](avatar-live-review-2026-09-05.md).
