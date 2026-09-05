@@ -1,0 +1,7 @@
+---
+id: parseOperatorEvidence
+name: parseOperatorEvidence
+description: Validates current source ids and verbatim quotes selected for operator-only evidence.
+response-description: "{ taskId, selectionId, selectionStatus, operatorKnowledge }"
+parameters: []
+language: JAVASCRIPT

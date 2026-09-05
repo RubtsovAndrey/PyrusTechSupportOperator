@@ -1,0 +1,11 @@
+---
+id: cond_operator_candidates
+name: operator evidence candidates available?
+position:
+  x: 5412
+  y: -1162
+next-step: agent_operator_evidence_selector
+next-error-step: func_parse_operator_evidence
+parameters:
+  condition: "((((Context.getLastFunctionResult() || {}).evidenceRequest || {}).candidates || []).length > 0)"
+  false-step: func_parse_operator_evidence

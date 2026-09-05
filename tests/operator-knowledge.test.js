@@ -1,5 +1,5 @@
-// Общий поиск не решает обращение: он только готовит 2–3 ссылки для внутренней
-// переписки перед handover. Здесь проверяется именно эта граница ответственности.
+// Retrieval exports bounded read-backed candidates. operatorKnowledge.articles retains
+// the old lexical baseline for diagnostics; only the selector may approve final evidence.
 const { loadFunction, makeEnv, suite } = require("./harness");
 
 const findKnowledge = loadFunction("functions/ID_Tools/findOperatorKnowledge/code.js");
@@ -42,6 +42,7 @@ async function run(options) {
     reason: "подходящей тематики нет"
   };
   const env = makeEnv({
+    db: { "state:17": { runtime: { incomingCommentId: "22" } } },
     prev: o.prev || { taskId: "17", reason: "подходящей тематики нет" },
     contextValues: contextValues,
     credentials: o.credentials === undefined ? { [CRED]: "read-token" } : o.credentials,
@@ -88,13 +89,12 @@ async function main() {
   let r = await run();
   t.check("unknown request keeps the original handover reason",
     r.result.reason === "подходящей тематики нет" && r.result.taskId === "17", r.result);
-  t.check("two articles are prepared for the operator",
+  t.check("two articles remain in the diagnostic lexical baseline",
     r.result.operatorKnowledge.articles.length === 2, r.result.operatorKnowledge);
-  t.check("the same advisory result is published for the internal drafting agent",
-    r.env.values.operatorSupport &&
-    r.env.values.operatorSupport.operatorKnowledge.articles.length === 2 &&
-    /не отправлялись/.test(r.env.notes.join("\n")),
-    { value: r.env.values.operatorSupport, notes: r.env.notes });
+  t.check("metadata-only hits never become approved evidence or a composer source",
+    r.env.values.operatorEvidenceRequest.candidates.length === 0 &&
+    !r.env.values.operatorSupport && r.env.notes.length === 0,
+    r.env.values);
   t.check("search starts in the approved support spaces",
     Array.isArray(r.env.posts[0].body.params.arguments.request.spaces) &&
     r.env.posts[0].body.params.arguments.request.spaces.indexOf(SUPPORT_SPACE) >= 0,
@@ -105,9 +105,9 @@ async function main() {
   t.check("only search metadata is used; full articles are never fetched",
     r.env.posts.every(p => p.body.params.name !== "get_content"),
     r.env.posts.map(p => p.body.params.name));
-  t.check("the log distinguishes MCP candidates from hints shown to the operator",
+  t.check("the log distinguishes MCP candidates from the diagnostic baseline",
     /2 MCP-результатов/.test(r.logs.join("\n")) && /релевантных 2/.test(r.logs.join("\n")) &&
-    /подсказок 2/.test(r.logs.join("\n")),
+    /baseline-статей 2/.test(r.logs.join("\n")),
     r.logs);
 
   r = await run({ hits: [
@@ -189,7 +189,7 @@ async function main() {
   t.check("the selected article is read by the permitted method and grounds Operator Assist",
     /Менеджер офиса/.test(r.result.operatorKnowledge.articles[0].contentExcerpt) &&
     r.env.posts.some(p => p.body.params.name === "search_in_content") &&
-    /300×300/.test(r.env.notes.join("\n")),
+    /300×300/.test(JSON.stringify(r.result.evidenceRequest.candidates)),
     { article: r.result.operatorKnowledge.articles[0], calls: r.env.posts.map(p => p.body.params.name) });
 
   r = await run({ hits: [
@@ -244,7 +244,7 @@ async function main() {
         p.body.params.arguments.request.query === "как изменить фотографию курьера"), r.result);
     t.check("the deep photo section survives the grounding budget: " + extra,
       articles[0] && /300×300/.test(articles[0].contentExcerpt) &&
-      /300×300/.test(r.env.notes.join("\n")), articles);
+      /300×300/.test(JSON.stringify(r.result.evidenceRequest.candidates)), articles);
   }
 
   r = await run({
@@ -289,6 +289,31 @@ async function main() {
   r = await run({ fail: true });
   t.check("failed MCP search degrades to an ordinary handover",
     r.result.taskId === "17" && r.result.operatorKnowledge.articles.length === 0, r.result);
+
+  const source = "Настройка доступа. Версия 2.5 доступна с 05.09.2026. " +
+    "Общее описание настроек. ".repeat(150) +
+    "Фотографию сотрудника загрузите в личную карточку. Обрежьте фото до 300×300 пикселей. " +
+    "Прочие настройки. ".repeat(100);
+  r = await run({ dialog: { problemSummary: "фотография сотрудника" },
+    hits: [hit("read", { canReadFully: true })], contents: { read: { id: "read", content: source } } });
+  const candidates = r.result.evidenceRequest.candidates;
+  t.check("selected passages are contiguous source substrings, including punctuation",
+    candidates.length === 1 && candidates[0].passages.every(p =>
+      p.text.length <= 1500 && source.replace(/\s+/g, " ").includes(p.text)) &&
+    candidates[0].passages.some(p => p.text.includes("2.5 доступна с 05.09.2026")), candidates);
+  t.check("the candidate and passage budgets preserve the relevant deep section",
+    candidates.length <= 6 && candidates[0].passages.length <= 4 &&
+    candidates[0].passages.some(p => p.text.includes("300×300")), candidates);
+  t.check("retrieval request is bound to the original question, task and incoming comment",
+    r.result.evidenceRequest.taskId === "17" && r.result.evidenceRequest.incomingCommentId === "22" &&
+    r.result.evidenceRequest.query === "фотография сотрудника" && !!r.result.evidenceRequest.id, r.result.evidenceRequest);
+
+  r = await run({ dialog: { problemSummary: "изменить аватарку курьера" },
+    hits: [hit("semantic", { articleTitle: "Карточка", excerpt: "Личные сведения", canReadFully: true })],
+    contents: { semantic: { id: "semantic", content: "Фотографию сотрудника загрузите в личную карточку." } } });
+  t.check("lexical rejection cannot discard a read semantic candidate before the selector",
+    r.result.operatorKnowledge.articles.length === 0 && r.result.evidenceRequest.candidates.length === 1 &&
+    r.env.posts.filter(p => p.body.params.name === "search_content").length === 1, r.result);
 
   return t.report();
 }

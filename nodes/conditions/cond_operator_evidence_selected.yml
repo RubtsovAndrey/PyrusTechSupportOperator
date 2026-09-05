@@ -1,0 +1,11 @@
+---
+id: cond_operator_evidence_selected
+name: operator evidence selected?
+position:
+  x: 6612
+  y: -1462
+next-step: agent_operator_assist
+next-error-step: func_parse_operator_assist
+parameters:
+  condition: "(((Context.getLastFunctionResult() || {}).operatorKnowledge || {}).articles || []).length > 0"
+  false-step: func_parse_operator_assist

@@ -276,13 +276,15 @@ function operatorKnowledgeBlock(knowledge) {
   if (!articles.length) return "";
   const lines = [
     "Возможные материалы из Базы Знаний:",
-    "Материалы подобраны полнотекстовым поиском и не отправлялись партнёру автоматически."
+    "Материалы подобраны поиском; выбранные фрагменты не отправлялись партнёру автоматически."
   ];
   articles.forEach((a, i) => {
     lines.push("");
     lines.push((i + 1) + ". " + (a.title || "Статья без заголовка") + " — " +
       (a.spaceTitle || "пространство не указано"));
-    if (a.excerpt) lines.push("Почему найдено: " + a.excerpt);
+    if (Array.isArray(a.evidence) && a.evidence.length) {
+      a.evidence.forEach(item => lines.push("Основание: " + item.quote));
+    } else if (a.excerpt) lines.push("Почему найдено: " + a.excerpt);
     if (a.url) lines.push("Ссылка: " + a.url);
   });
   return lines.join("\n");

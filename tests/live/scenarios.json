@@ -28,15 +28,17 @@
                 "Возможные материалы из Базы Знаний",
                 "Сотрудники: личная карточка сотрудника в Додо ИС",
                 "Черновик возможного первого ответа партнёру",
-                "Сформирован автоматически и не отправлен"
+                "Сформирован автоматически и не отправлен",
+                "Основание:",
+                "300×300"
               ],
-              "excludes": ["Обновления Додо ИС", "Инструкция по работе с Kibana", "кандидатов-бариста"]
+              "excludes": ["Обновления Додо ИС", "Инструкция по работе с Kibana", "кандидатов-бариста", "ТВ-бордах", "Поддержка клиентов: как оформлять заказ", "Печать чека на кассе доставки", "на сайте и в приложении"]
             },
             "logs": {
-              "includes": ["parseOperatorQueries:", "findOperatorKnowledge:", "подсказок 1"]
+              "includes": ["parseOperatorQueries:", "findOperatorKnowledge:", "подсказок 1", "parseOperatorEvidence: selected"]
             },
             "path": {
-              "includes": ["Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"]
+              "includes": ["Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Evidence Selector", "Validate operator evidence", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"]
             },
             "calls": {
               "includes": ["ID_Actions.applyOutcome", "\"outcome\":\"escalated\""]
@@ -88,16 +90,20 @@
                 "Возможные материалы из Базы Знаний",
                 "Сотрудники: личная карточка сотрудника в Додо ИС",
                 "Черновик возможного первого ответа партнёру",
-                "Сформирован автоматически и не отправлен"
+                "Сформирован автоматически и не отправлен",
+                "Основание:",
+                "300×300"
               ],
               "excludes": [
                 "Поддержка клиентов: как оформлять заказ",
                 "Печать чека на кассе доставки",
-                "на сайте и в приложении"
+                "на сайте и в приложении",
+                "Инструкция по работе с Kibana",
+                "ТВ-бордах"
               ]
             },
             "path": {
-              "includes": ["Routing Agent", "Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"],
+              "includes": ["Routing Agent", "Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Evidence Selector", "Validate operator evidence", "Operator Assist Composer", "Validate operator draft", "Outcome - escalate to operator", "finalize"],
               "excludes": ["Solver / Policy Reader", "Response Composer"]
             },
             "calls": {

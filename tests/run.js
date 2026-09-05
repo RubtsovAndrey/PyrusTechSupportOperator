@@ -13,7 +13,7 @@ const SUITES = [
   "./createsubtask.test.js", "./tree.test.js", "./matchunit.test.js",
   "./pos-terminal-catalog.test.js", "./cash-dialog.test.js", "./ratings-dialog.test.js", "./routing-catalog.test.js", "./routing.test.js",
   "./getknowledgemcp.test.js", "./operator-knowledge.test.js", "./kbarticle.test.js", "./synckb.test.js",
-  "./operator-query-planner.test.js", "./operator-assist.test.js",
+  "./operator-query-planner.test.js", "./operator-evidence.test.js", "./operator-assist.test.js",
   "./knowledge-validation.test.js",
   "./mvp-eval-cases.test.js",
   "./live-trace.test.js",

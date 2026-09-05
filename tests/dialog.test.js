@@ -375,8 +375,12 @@ async function main() {
         spaceId: "operations",
         spaceTitle: "Эксплуатация",
         status: "published",
+        canReadFully: true,
         isWatermarksEnabled: false
       }] }) };
+      if (name === "get_content") return { status: 200, body: mcpSse({
+        id: "air-1", content: "При поломке кондиционера обратитесь в обслуживающую организацию."
+      }) };
       if (name === "get_link_templates") return { status: 200, body: mcpSse({
         ArticleUrlTemplate: "https://kb.example/article/{spaceId}/{articleId}"
       }) };
@@ -384,7 +388,10 @@ async function main() {
     }
   });
   all.push(bot);
-  r = await bot.turn("Тамбов-1, сломался кондиционер в подсобке", { unit: "Тамбов-1" });
+  r = await bot.turn("Тамбов-1, сломался кондиционер в подсобке", { unit: "Тамбов-1",
+    operatorEvidenceSelections: [{ candidateId: "c0", passageId: "p0",
+      quote: "При поломке кондиционера обратитесь в обслуживающую организацию." }]
+  });
   t.check("неизвестная тема всё равно передаётся оператору",
     r.stage === "escalated" && r.replies.length === 1, r);
   t.check("похожие статьи общей БЗ видит только оператор",

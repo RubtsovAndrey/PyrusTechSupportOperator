@@ -45,6 +45,26 @@ let draft = parsed && typeof parsed.operatorDraft === "string"
   ? parsed.operatorDraft.replace(/\s+/g, " ").trim() : "";
 const supportArticles = support.operatorKnowledge && Array.isArray(support.operatorKnowledge.articles)
   ? support.operatorKnowledge.articles : [];
+let currentCommentId = null;
+try {
+  const doc = Db.get({ dbIntegration: "1000299722-pyrus_bot_database-hul",
+    documentKey: "state:" + dialog.taskId });
+  const runtime = doc && doc.value && doc.value.runtime || {};
+  currentCommentId = runtime.incomingCommentId == null ? null : String(runtime.incomingCommentId);
+} catch (e) {
+  Log.warn({ message: "parseOperatorAssist: current task unavailable; draft discarded" });
+}
+const currentSupport = support.selectionId && currentCommentId &&
+  String(support.taskId || "") === String(dialog.taskId || "") &&
+  String(support.incomingCommentId || "") === currentCommentId;
+const evidenceIds = [].concat.apply([], supportArticles.map(article =>
+  (article.evidence || []).map(evidence => evidence.id)));
+const citations = parsed && Array.isArray(parsed.evidenceIds) ? parsed.evidenceIds : [];
+if (!currentSupport || !parsed || parsed.selectionId !== support.selectionId ||
+    !citations.length || citations.length > 3 ||
+    citations.some(id => typeof id !== "string" || evidenceIds.indexOf(id) < 0)) {
+  draft = "";
+}
 
 // With no retrieved evidence the drafting model has no legitimate source for a product,
 // system or diagnostic question. A neutral draft sounds harmless but the live avatar trace
@@ -66,8 +86,8 @@ if (!draft) {
 }
 
 return {
-  taskId: support.taskId || dialog.taskId || null,
-  reason: support.reason || "подходящей утверждённой тематики нет",
-  operatorKnowledge: support.operatorKnowledge || { query: dialog.problemSummary || null, articles: [] },
+  taskId: dialog.taskId || null,
+  reason: currentSupport ? support.reason : "подходящего подготовленного сценария нет; обращение требует оператора",
+  operatorKnowledge: currentSupport ? support.operatorKnowledge : { query: null, articles: [] },
   operatorDraft: draft || null
 };

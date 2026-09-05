@@ -1,0 +1,17 @@
+---
+id: func_parse_operator_evidence
+name: Validate operator evidence
+position:
+  x: 6212
+  y: -1462
+next-step: cond_operator_evidence_selected
+next-error-step: func_parse_operator_assist
+parameters:
+  type: USER
+  collection: ID_Tools
+  function: parseOperatorEvidence
+  is-tool: false
+  parameters: {}
+  context-config: null
+  hitl-tool-config: null
+  custom-headers: null

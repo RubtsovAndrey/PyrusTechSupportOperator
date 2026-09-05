@@ -186,13 +186,20 @@ const AGENTS = {
     });
   },
 
-  // Advisory-only drafting for an unknown topic. The text is deliberately generic in the
-  // simulator: product tests assert the isolation boundary, not model prose.
-  async agent_operator_assist(env) {
-    const dialog = env.values.dialog || {};
+  // Explicit fixture choices test wiring/provenance, not a simulated semantic model.
+  async agent_operator_evidence_selector(env, turn) {
+    const request = env.values.operatorEvidenceRequest || {};
+    return json(Object.assign({ kind: "operator_evidence", requestId: request.id,
+      selected: turn.operatorEvidenceSelections || [] }, turn.operatorEvidenceFrame || {}));
+  },
+
+  async agent_operator_assist(env, turn) {
+    const support = env.values.operatorSupport || {};
+    const evidence = (support.operatorKnowledge.articles || []).flatMap(a => a.evidence || []);
     return json({
-      operatorDraft: "Правильно ли я понимаю, что вопрос относится к ситуации: " +
-        String(dialog.problemSummary || "описанная проблема") + "?"
+      selectionId: support.selectionId,
+      evidenceIds: evidence.map(e => e.id),
+      operatorDraft: turn.operatorDraft === undefined ? evidence.map(e => e.quote).join(" ") : turn.operatorDraft
     });
   },
 

@@ -12,10 +12,11 @@ function matchingTurn() {
     replies: [{ text: "Добрый день! Понадобится время на изучение вопроса." }],
     internal: [{ text: "Бот передаёт обращение оператору. Тематика: не определена. " +
       "Возможные материалы из Базы Знаний: Сотрудники: личная карточка сотрудника в Додо ИС. " +
-      "Черновик возможного первого ответа партнёру: Правильно ли я понимаю вопрос? " +
+      "Основание: Загрузите фотографию, обрежьте до 300×300 пикселей. " +
+      "Черновик возможного первого ответа партнёру: Загрузите фотографию в личную карточку сотрудника. " +
       "Сформирован автоматически и не отправлен." }],
-    logs: ["parseOperatorQueries: accepted 2 semantic search variants", "findOperatorKnowledge: 3 формулировок → 1 MCP-результатов, подсказок 1"],
-    path: ["Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Assist Composer", "Validate operator draft",
+    logs: ["parseOperatorQueries: accepted 2 semantic search variants", "findOperatorKnowledge: 3 формулировок → 1 MCP-результатов, подсказок 1", "parseOperatorEvidence: selected"],
+    path: ["Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Evidence Selector", "Validate operator evidence", "Operator Assist Composer", "Validate operator draft",
       "Outcome - escalate to operator", "finalize"],
     calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],
     errors: []
@@ -64,10 +65,11 @@ function matchingUnknownUnitLaterTurns() {
     replies: [{ text: "Понадобится время на изучение вопроса." }],
     internal: [{ text: "Бот передаёт обращение оператору. Тематика: не определена. " +
       "Возможные материалы из Базы Знаний: Сотрудники: личная карточка сотрудника в Додо ИС. " +
-      "Черновик возможного первого ответа партнёру: Уточните, пожалуйста, что нужно изменить. " +
+      "Основание: Загрузите фотографию, обрежьте до 300×300 пикселей. " +
+      "Черновик возможного первого ответа партнёру: Загрузите фотографию в личную карточку сотрудника. " +
       "Сформирован автоматически и не отправлен." }],
     logs: [],
-    path: ["Routing Agent", "Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Assist Composer",
+    path: ["Routing Agent", "Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Evidence Selector", "Validate operator evidence", "Operator Assist Composer",
       "Validate operator draft", "Outcome - escalate to operator", "finalize"],
     calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],
     errors: []
@@ -145,7 +147,7 @@ function matchingLabelPrinterTurn() {
       "Черновик возможного первого ответа партнёру: Уточните, пожалуйста, модель принтера. " +
       "Сформирован автоматически и не отправлен." }],
     logs: ["findOperatorKnowledge: MCP 9 результатов, релевантных 3, после приоритета и дедупликации 3"],
-    path: ["Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Assist Composer", "Validate operator draft",
+    path: ["Knowledge Query Planner", "Validate operator search queries", "Find knowledge for operator", "Operator Evidence Selector", "Validate operator evidence", "Operator Assist Composer", "Validate operator draft",
       "Outcome - escalate to operator", "finalize"],
     calls: ["ID_Actions.applyOutcome({\"outcome\":\"escalated\"})"],
     errors: []

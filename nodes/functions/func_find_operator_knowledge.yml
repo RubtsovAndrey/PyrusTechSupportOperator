@@ -4,8 +4,8 @@ name: Find knowledge for operator
 position:
   x: 5012
   y: -1162
-next-step: agent_operator_assist
-next-error-step: agent_operator_assist
+next-step: cond_operator_candidates
+next-error-step: func_parse_operator_evidence
 parameters:
   type: USER
   collection: ID_Tools

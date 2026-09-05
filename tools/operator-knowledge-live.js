@@ -10,6 +10,7 @@ async function main() {
   const calls = [];
   const failures = [];
   const env = makeEnv({
+    db: { "state:retrieval-check": { runtime: { incomingCommentId: "read-only" } } },
     prev: { taskId: "retrieval-check", reason: "read-only retrieval check" },
     credentials: { "1000299722-kbmcptoken-vod": "transport-owned-token" },
     contextValues: {
